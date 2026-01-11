@@ -1,0 +1,195 @@
+/**
+ * UI Store
+ *
+ * Manages global UI state like modals, sheets, toasts
+ */
+
+import { create } from 'zustand';
+
+// Modal types
+export type ModalType =
+  | 'profile-preview'
+  | 'report-user'
+  | 'block-user'
+  | 'unmatch'
+  | 'delete-account'
+  | 'photo-viewer'
+  | 'filter'
+  | 'location-picker'
+  | 'safta-invite'
+  | 'premium-upsell';
+
+// Bottom sheet types
+export type SheetType =
+  | 'swipe-actions'
+  | 'profile-options'
+  | 'message-options'
+  | 'photo-options'
+  | 'icebreakers'
+  | 'giphy'
+  | 'settings';
+
+// Toast types
+export interface Toast {
+  id: string;
+  type: 'success' | 'error' | 'warning' | 'info';
+  title: string;
+  message?: string;
+  duration?: number;
+  action?: {
+    label: string;
+    onPress: () => void;
+  };
+}
+
+export interface UIState {
+  // Modal
+  activeModal: ModalType | null;
+  modalData: Record<string, unknown>;
+
+  // Bottom Sheet
+  activeSheet: SheetType | null;
+  sheetData: Record<string, unknown>;
+
+  // Toasts
+  toasts: Toast[];
+
+  // Loading states
+  globalLoading: boolean;
+  loadingMessage: string | null;
+
+  // Network status
+  isOnline: boolean;
+
+  // Keyboard
+  keyboardVisible: boolean;
+  keyboardHeight: number;
+
+  // Theme
+  isDarkMode: boolean;
+
+  // Actions
+  showModal: (type: ModalType, data?: Record<string, unknown>) => void;
+  hideModal: () => void;
+  showSheet: (type: SheetType, data?: Record<string, unknown>) => void;
+  hideSheet: () => void;
+  showToast: (toast: Omit<Toast, 'id'>) => void;
+  hideToast: (id: string) => void;
+  clearToasts: () => void;
+  setGlobalLoading: (loading: boolean, message?: string) => void;
+  setOnline: (isOnline: boolean) => void;
+  setKeyboard: (visible: boolean, height: number) => void;
+  setDarkMode: (isDarkMode: boolean) => void;
+  reset: () => void;
+}
+
+const initialState = {
+  activeModal: null,
+  modalData: {},
+  activeSheet: null,
+  sheetData: {},
+  toasts: [],
+  globalLoading: false,
+  loadingMessage: null,
+  isOnline: true,
+  keyboardVisible: false,
+  keyboardHeight: 0,
+  isDarkMode: false,
+};
+
+let toastId = 0;
+
+export const useUIStore = create<UIState>()((set, get) => ({
+  ...initialState,
+
+  showModal: (type, data = {}) =>
+    set({
+      activeModal: type,
+      modalData: data,
+    }),
+
+  hideModal: () =>
+    set({
+      activeModal: null,
+      modalData: {},
+    }),
+
+  showSheet: (type, data = {}) =>
+    set({
+      activeSheet: type,
+      sheetData: data,
+    }),
+
+  hideSheet: () =>
+    set({
+      activeSheet: null,
+      sheetData: {},
+    }),
+
+  showToast: (toast) => {
+    const id = `toast-${++toastId}`;
+    const newToast: Toast = {
+      ...toast,
+      id,
+      duration: toast.duration ?? 4000,
+    };
+
+    set((state) => ({
+      toasts: [...state.toasts, newToast],
+    }));
+
+    // Auto-dismiss
+    if (newToast.duration && newToast.duration > 0) {
+      setTimeout(() => {
+        get().hideToast(id);
+      }, newToast.duration);
+    }
+  },
+
+  hideToast: (id) =>
+    set((state) => ({
+      toasts: state.toasts.filter((t) => t.id !== id),
+    })),
+
+  clearToasts: () => set({ toasts: [] }),
+
+  setGlobalLoading: (globalLoading, loadingMessage) =>
+    set({ globalLoading, loadingMessage: loadingMessage ?? null }),
+
+  setOnline: (isOnline) => set({ isOnline }),
+
+  setKeyboard: (keyboardVisible, keyboardHeight) =>
+    set({ keyboardVisible, keyboardHeight }),
+
+  setDarkMode: (isDarkMode) => set({ isDarkMode }),
+
+  reset: () => set(initialState),
+}));
+
+// Helper hooks
+export const useModal = () => {
+  const activeModal = useUIStore((s) => s.activeModal);
+  const modalData = useUIStore((s) => s.modalData);
+  const showModal = useUIStore((s) => s.showModal);
+  const hideModal = useUIStore((s) => s.hideModal);
+
+  return { activeModal, modalData, showModal, hideModal };
+};
+
+export const useSheet = () => {
+  const activeSheet = useUIStore((s) => s.activeSheet);
+  const sheetData = useUIStore((s) => s.sheetData);
+  const showSheet = useUIStore((s) => s.showSheet);
+  const hideSheet = useUIStore((s) => s.hideSheet);
+
+  return { activeSheet, sheetData, showSheet, hideSheet };
+};
+
+export const useToasts = () => {
+  const toasts = useUIStore((s) => s.toasts);
+  const showToast = useUIStore((s) => s.showToast);
+  const hideToast = useUIStore((s) => s.hideToast);
+  const clearToasts = useUIStore((s) => s.clearToasts);
+
+  return { toasts, showToast, hideToast, clearToasts };
+};

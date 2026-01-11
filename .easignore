@@ -1,0 +1,29 @@
+# Ignore everything outside the project
+Library/
+.Trash/
+Desktop/
+Documents/
+Downloads/
+Movies/
+Music/
+Pictures/
+Applications/
+
+# Standard ignores
+node_modules/
+.expo/
+dist/
+web-build/
+.git/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+.DS_Store
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.tsbuildinfo
+.env*.local
