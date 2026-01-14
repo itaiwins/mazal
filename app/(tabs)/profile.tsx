@@ -26,6 +26,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { useUserProfile } from '@/api/queries';
 import { supabase } from '@/api/supabase/client';
 import { StarOfDavid } from '@/components/icons/StarOfDavid';
+import { AnimatedHeader } from '@/components/ui/AnimatedHeader';
 
 // Helper to calculate age from date of birth
 function calculateAge(dateOfBirth: string | null): number {
@@ -134,7 +135,7 @@ export default function ProfileScreen() {
     >
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + spacing[2] }]}>
-        <Text style={[styles.title, { color: theme.colors.text }]}>Profile</Text>
+        <AnimatedHeader title="Profile" size="medium" />
         <Pressable
           style={styles.settingsButton}
           onPress={() => router.push('/settings')}

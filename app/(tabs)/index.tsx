@@ -37,6 +37,7 @@ import { useMatchesSubscription } from '@/api/realtime';
 import { StarOfDavid } from '@/components/icons/StarOfDavid';
 import { ProfileStory } from '@/components/discovery';
 import { AdBanner, useInterstitialAd } from '@/components/ads';
+import { AnimatedHeader } from '@/components/ui/AnimatedHeader';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -499,7 +500,7 @@ export default function DiscoveryScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + spacing[2] }]}>
         <View style={styles.headerTitleRow}>
-          <Text style={styles.logoText}>Mazal</Text>
+          <AnimatedHeader title="Mazal" size="medium" />
           {isOrthodoxMode && hasOrthodoxSubscription && (
             <View style={styles.orthodoxBadge}>
               <StarOfDavid size={14} color={colors.primary.gold} />

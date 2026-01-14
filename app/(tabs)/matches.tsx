@@ -30,6 +30,7 @@ import { useMatches, useSaftaConnections, type MatchWithPreview, type SaftaConne
 import { useAllMessagesSubscription, useMatchesSubscription } from '@/api/realtime';
 import { AdBanner } from '@/components/ads';
 import { useUIStore } from '@/stores/uiStore';
+import { AnimatedHeader } from '@/components/ui/AnimatedHeader';
 import { DEMO_MATCHES, DEMO_MESSAGES, DEMO_SAFTA_CONNECTIONS, getDemoConversations } from '@/lib/demo/demoProfiles';
 
 // Message category types
@@ -453,7 +454,7 @@ export default function MatchesScreen() {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + spacing[2] }]}>
-        <Text style={[styles.title, { color: theme.colors.text }]}>Messages</Text>
+        <AnimatedHeader title="Messages" size="medium" />
       </View>
 
       {/* Ad Banner - only shows for free users */}
