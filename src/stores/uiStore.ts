@@ -68,6 +68,19 @@ export interface UIState {
   // Theme
   isDarkMode: boolean;
 
+  // Orthodox Mode
+  isOrthodoxMode: boolean;
+  hasOrthodoxSubscription: boolean;
+
+  // Shabbat Mode
+  isShabbatModeEnabled: boolean;
+  isShabbatModeActive: boolean;
+  shabbatStartTime: string | null;
+  shabbatEndTime: string | null;
+
+  // Demo Mode (for App Store screenshots)
+  isDemoMode: boolean;
+
   // Actions
   showModal: (type: ModalType, data?: Record<string, unknown>) => void;
   hideModal: () => void;
@@ -80,6 +93,12 @@ export interface UIState {
   setOnline: (isOnline: boolean) => void;
   setKeyboard: (visible: boolean, height: number) => void;
   setDarkMode: (isDarkMode: boolean) => void;
+  setOrthodoxMode: (isOrthodoxMode: boolean) => void;
+  setOrthodoxSubscription: (hasSubscription: boolean) => void;
+  setShabbatModeEnabled: (enabled: boolean) => void;
+  setShabbatModeActive: (active: boolean) => void;
+  setShabbatTimes: (startTime: string | null, endTime: string | null) => void;
+  setDemoMode: (isDemoMode: boolean) => void;
   reset: () => void;
 }
 
@@ -94,7 +113,14 @@ const initialState = {
   isOnline: true,
   keyboardVisible: false,
   keyboardHeight: 0,
-  isDarkMode: false,
+  isDarkMode: true, // Default to dark theme (navy/gold)
+  isOrthodoxMode: false,
+  hasOrthodoxSubscription: false,
+  isShabbatModeEnabled: false,
+  isShabbatModeActive: false,
+  shabbatStartTime: null,
+  shabbatEndTime: null,
+  isDemoMode: false,
 };
 
 let toastId = 0;
@@ -162,6 +188,18 @@ export const useUIStore = create<UIState>()((set, get) => ({
     set({ keyboardVisible, keyboardHeight }),
 
   setDarkMode: (isDarkMode) => set({ isDarkMode }),
+
+  setOrthodoxMode: (isOrthodoxMode) => set({ isOrthodoxMode }),
+
+  setOrthodoxSubscription: (hasOrthodoxSubscription) => set({ hasOrthodoxSubscription }),
+
+  setShabbatModeEnabled: (isShabbatModeEnabled) => set({ isShabbatModeEnabled }),
+
+  setShabbatModeActive: (isShabbatModeActive) => set({ isShabbatModeActive }),
+
+  setShabbatTimes: (shabbatStartTime, shabbatEndTime) => set({ shabbatStartTime, shabbatEndTime }),
+
+  setDemoMode: (isDemoMode) => set({ isDemoMode }),
 
   reset: () => set(initialState),
 }));

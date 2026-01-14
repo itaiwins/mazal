@@ -22,38 +22,25 @@ import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius, shadows } from '@/theme/spacing';
 
-// Sample recommendations data
-const RECOMMENDATIONS = [
-  {
-    id: '1',
-    profile: {
-      id: 'p1',
-      name: 'David',
-      age: 28,
-      photo: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200',
-      occupation: 'Doctor',
-    },
-    note: 'He reminds me of your grandfather! Very handsome and a doctor too.',
-    sentAt: new Date(Date.now() - 3600000),
-    status: 'pending', // pending, viewed, matched
-  },
-  {
-    id: '2',
-    profile: {
-      id: 'p2',
-      name: 'Michael',
-      age: 30,
-      photo: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200',
-      occupation: 'Lawyer',
-    },
-    note: 'Such a nice Jewish boy! Good job, good family.',
-    sentAt: new Date(Date.now() - 86400000),
-    status: 'viewed',
-  },
-];
+// Recommendation type
+type Recommendation = {
+  id: string;
+  profile: {
+    id: string;
+    name: string;
+    age: number;
+    photo: string;
+    occupation: string;
+  };
+  note: string;
+  sentAt: Date;
+  status: 'pending' | 'viewed' | 'matched';
+};
+
+// Empty array - will be populated from Supabase when implemented
 
 interface RecommendationItemProps {
-  item: typeof RECOMMENDATIONS[0];
+  item: Recommendation;
 }
 
 function RecommendationItem({ item }: RecommendationItemProps) {
@@ -145,7 +132,8 @@ export default function SaftaLikesScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
 
-  const [recommendations] = useState(RECOMMENDATIONS);
+  // Empty array - will be populated from Supabase when implemented
+  const [recommendations] = useState<Recommendation[]>([]);
 
   const handleBack = () => {
     router.back();

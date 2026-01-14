@@ -67,16 +67,28 @@ export default function RelationshipGoalsScreen() {
   const data = useOnboardingStore((s) => s.data);
   const updateRelationshipGoals = useOnboardingStore((s) => s.updateRelationshipGoals);
 
-  const [goal, setGoal] = useState('');
-  const [lookingFor, setLookingFor] = useState(data?.looking_for || '');
+  const [goal, setGoal] = useState(data?.looking_for || '');
+  const [genderPreference, setGenderPreference] = useState<string[]>(data?.gender_preference || []);
   const [wantsKids, setWantsKids] = useState(data?.wants_children || '');
 
-  // Only require goal for now - lookingFor is the "show me" gender preference
+  // Map UI goal values to database values
+  const goalToDbValue = (uiGoal: string): string => {
+    const mapping: Record<string, string> = {
+      'marriage': 'marriage_minded',
+      'long_term': 'serious',
+      'dating': 'casual',
+      'not_sure': 'open',
+    };
+    return mapping[uiGoal] || 'open';
+  };
+
+  // Only require goal for now
   const isValid = goal;
 
   const handleContinue = () => {
     updateRelationshipGoals({
-      looking_for: lookingFor as any || null,
+      looking_for: goalToDbValue(goal) as any,
+      gender_preference: genderPreference as ('male' | 'female')[],
       wants_children: wantsKids as any || null,
     });
     router.push('/(onboarding)/dealbreakers');
@@ -177,48 +189,52 @@ export default function RelationshipGoalsScreen() {
             Show me *
           </Text>
           <View style={styles.lookingForOptions}>
-            {LOOKING_FOR.map((l) => (
-              <Pressable
-                key={l.id}
-                style={[
-                  styles.lookingForOption,
-                  {
-                    backgroundColor:
-                      lookingFor === l.id
+            {LOOKING_FOR.map((l) => {
+              const isSelected = l.id === 'everyone'
+                ? genderPreference.includes('male') && genderPreference.includes('female')
+                : genderPreference.includes(l.id);
+              return (
+                <Pressable
+                  key={l.id}
+                  style={[
+                    styles.lookingForOption,
+                    {
+                      backgroundColor: isSelected
                         ? colors.primary.gold
                         : theme.colors.surface,
-                    borderColor:
-                      lookingFor === l.id
+                      borderColor: isSelected
                         ? colors.primary.gold
                         : colors.neutral[200],
-                  },
-                ]}
-                onPress={() => setLookingFor(l.id)}
-              >
-                <Ionicons
-                  name={l.icon as any}
-                  size={24}
-                  color={
-                    lookingFor === l.id
-                      ? colors.primary.navy
-                      : theme.colors.icon
-                  }
-                />
-                <Text
-                  style={[
-                    styles.lookingForLabel,
-                    {
-                      color:
-                        lookingFor === l.id
-                          ? colors.primary.navy
-                          : theme.colors.text,
                     },
                   ]}
+                  onPress={() => {
+                    if (l.id === 'everyone') {
+                      setGenderPreference(['male', 'female']);
+                    } else {
+                      setGenderPreference([l.id]);
+                    }
+                  }}
                 >
-                  {l.label}
-                </Text>
-              </Pressable>
-            ))}
+                  <Ionicons
+                    name={l.icon as any}
+                    size={24}
+                    color={isSelected ? colors.primary.navy : theme.colors.icon}
+                  />
+                  <Text
+                    style={[
+                      styles.lookingForLabel,
+                      {
+                        color: isSelected
+                          ? colors.primary.navy
+                          : theme.colors.text,
+                      },
+                    ]}
+                  >
+                    {l.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
         </View>
 

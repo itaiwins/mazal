@@ -41,8 +41,11 @@ export default function SaftaWelcomeScreen() {
     router.push('/(safta)/setup');
   };
 
-  const handleBack = () => {
-    router.back();
+  const handleSignOut = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const { supabase } = await import('@/api/supabase/client');
+    await supabase.auth.signOut();
+    router.replace('/(auth)/welcome');
   };
 
   return (
@@ -58,8 +61,10 @@ export default function SaftaWelcomeScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={handleBack}>
-          <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
+        <View style={styles.headerSpacer} />
+        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Mazal</Text>
+        <Pressable style={styles.signOutButton} onPress={handleSignOut}>
+          <Ionicons name="log-out-outline" size={24} color={theme.colors.textSecondary} />
         </Pressable>
       </View>
 
@@ -156,14 +161,21 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     height: 44,
   },
-  backButton: {
+  headerSpacer: {
+    width: 44,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  signOutButton: {
     width: 44,
     height: 44,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: -spacing[2],
   },
   content: {
     flex: 1,

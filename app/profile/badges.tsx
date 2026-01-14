@@ -4,7 +4,7 @@
  * Select and manage profile badges
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   Pressable,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,6 +22,11 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { useAuthStore } from '@/stores/authStore';
+import { useUserProfile } from '@/api/queries';
+import { supabase } from '@/api/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/config/queryClient';
 
 const ALL_BADGES = [
   { id: 'birthright', label: 'Birthright Alumni', emoji: '✈️', description: 'Completed a Birthright trip' },
@@ -38,9 +44,29 @@ const ALL_BADGES = [
 export default function BadgesScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const queryClient = useQueryClient();
 
-  // In production, this would come from the user's profile
-  const [selectedBadges, setSelectedBadges] = useState<string[]>(['birthright', 'hebrew_speaker']);
+  // Get user ID from auth store
+  const user = useAuthStore((s) => s.user);
+  const authUser = useAuthStore((s) => s.authUser);
+  const userId = user?.id || authUser?.id;
+
+  // Fetch current badges from profile
+  const { data: userProfile, isLoading: isLoadingProfile } = useUserProfile();
+
+  // Initialize selected badges from profile data
+  const [selectedBadges, setSelectedBadges] = useState<string[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Load existing badges when profile data is available
+  useEffect(() => {
+    if (userProfile?.badges && !isInitialized) {
+      const existingBadgeIds = userProfile.badges.map((b) => b.badge_type);
+      setSelectedBadges(existingBadgeIds);
+      setIsInitialized(true);
+    }
+  }, [userProfile?.badges, isInitialized]);
 
   const handleBack = () => {
     router.back();
@@ -60,11 +86,65 @@ export default function BadgesScreen() {
     }
   };
 
-  const handleSave = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    // In production, save to Supabase
-    router.back();
+  const handleSave = async () => {
+    if (!userId) {
+      Alert.alert('Error', 'User not authenticated');
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      // Delete all existing badges for this user
+      const { error: deleteError } = await supabase
+        .from('user_badges')
+        .delete()
+        .eq('user_id', userId);
+
+      if (deleteError) {
+        console.error('Error deleting badges:', deleteError);
+        throw deleteError;
+      }
+
+      // Insert new badges if any are selected
+      if (selectedBadges.length > 0) {
+        const badgesToInsert = selectedBadges.map((badgeType) => ({
+          user_id: userId,
+          badge_type: badgeType,
+        }));
+
+        const { error: insertError } = await supabase
+          .from('user_badges')
+          .insert(badgesToInsert);
+
+        if (insertError) {
+          console.error('Error inserting badges:', insertError);
+          throw insertError;
+        }
+      }
+
+      // Invalidate user profile cache to refetch with new badges
+      queryClient.invalidateQueries({ queryKey: queryKeys.user.profile() });
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.back();
+    } catch (error) {
+      console.error('Error saving badges:', error);
+      Alert.alert('Error', 'Failed to save badges. Please try again.');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsSaving(false);
+    }
   };
+
+  // Show loading while fetching profile
+  if (isLoadingProfile) {
+    return (
+      <View style={[styles.container, styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary.gold} />
+      </View>
+    );
+  }
 
   return (
     <View
@@ -85,8 +165,12 @@ export default function BadgesScreen() {
         <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
           Badges
         </Text>
-        <Pressable style={styles.saveButton} onPress={handleSave}>
-          <Text style={styles.saveButtonText}>Save</Text>
+        <Pressable style={styles.saveButton} onPress={handleSave} disabled={isSaving}>
+          {isSaving ? (
+            <ActivityIndicator size="small" color={colors.primary.gold} />
+          ) : (
+            <Text style={styles.saveButtonText}>Save</Text>
+          )}
         </Pressable>
       </View>
 
@@ -160,6 +244,10 @@ export default function BadgesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',

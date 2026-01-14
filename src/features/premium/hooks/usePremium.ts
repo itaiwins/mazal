@@ -169,7 +169,7 @@ export function useFeatureGate(feature: PremiumFeature): boolean {
 }
 
 /**
- * Hook to get remaining super likes
+ * Hook to get remaining super likes (weekly)
  */
 export function useSuperLikes() {
   const superLikesRemaining = usePremiumStore((s) => s.superLikesRemaining);
@@ -179,39 +179,44 @@ export function useSuperLikes() {
   const isPlatinum = entitlements.plan === 'mazal_platinum';
   const isGold = entitlements.plan === 'mazal_gold';
 
-  // Platinum: unlimited, Gold: 5, Free: 1
-  const maxSuperLikes = isPlatinum ? Infinity : isGold ? 5 : 1;
+  // Weekly limits: Platinum: 5, Gold: 5, Free: 1
+  const maxSuperLikes = isPlatinum || isGold ? 5 : 1;
 
   return {
-    remaining: isPlatinum ? Infinity : superLikesRemaining,
+    remaining: superLikesRemaining,
     max: maxSuperLikes,
-    canUseSuperLike: isPlatinum || superLikesRemaining > 0,
+    canUseSuperLike: superLikesRemaining > 0,
     useSuperLike,
+    periodLabel: 'week',
   };
 }
 
 /**
- * Hook to check swipe limits
+ * Hook to check swipe limits (daily)
  */
 export function useSwipeLimits() {
   const entitlements = usePremiumStore((s) => s.entitlements);
+  const dailySwipesRemaining = usePremiumStore((s) => s.dailySwipesRemaining);
+  const useSwipe = usePremiumStore((s) => s.useSwipe);
+  const checkAndResetLimits = usePremiumStore((s) => s.checkAndResetLimits);
 
   const isPremium = entitlements.isPremium;
 
-  // Premium users have unlimited swipes
-  // Free users would need swipe tracking (not currently implemented in store)
-  // For now, all users can swipe (free users get limited per day server-side)
+  // Free users: 25 swipes/day, Premium: unlimited
+  const maxSwipes = isPremium ? Infinity : 25;
 
   return {
-    remaining: isPremium ? Infinity : 50, // Default for free tier
-    max: isPremium ? Infinity : 50,
+    remaining: isPremium ? Infinity : dailySwipesRemaining,
+    max: maxSwipes,
     isUnlimited: isPremium,
-    canSwipe: true, // Checked server-side
+    canSwipe: isPremium || dailySwipesRemaining > 0,
+    useSwipe,
+    checkAndResetLimits,
   };
 }
 
 /**
- * Hook to get boost state
+ * Hook to get boost state (weekly, Platinum only)
  */
 export function useBoost() {
   const boostsRemaining = usePremiumStore((s) => s.boostsRemaining);
@@ -219,7 +224,9 @@ export function useBoost() {
   const useBoostAction = usePremiumStore((s) => s.useBoost);
   const entitlements = usePremiumStore((s) => s.entitlements);
 
-  // Check if boost is on cooldown (30 min)
+  const isPlatinum = entitlements.plan === 'mazal_platinum';
+
+  // Check if boost is on cooldown (30 min active duration)
   const isOnCooldown = lastBoostTime
     ? Date.now() - new Date(lastBoostTime).getTime() < 30 * 60 * 1000
     : false;
@@ -230,11 +237,13 @@ export function useBoost() {
 
   return {
     remaining: boostsRemaining,
-    canBoost: boostsRemaining > 0 && !isOnCooldown,
+    max: isPlatinum ? 1 : 0, // Only Platinum gets 1 boost/week
+    canBoost: isPlatinum && boostsRemaining > 0 && !isOnCooldown,
     isOnCooldown,
     cooldownRemaining,
     useBoost: useBoostAction,
-    isPlatinum: entitlements.plan === 'mazal_platinum',
+    isPlatinum,
+    periodLabel: 'week',
   };
 }
 
@@ -244,13 +253,39 @@ export function useBoost() {
 export function usePaywall() {
   const showPaywall = usePremiumStore((s) => s.showPaywall);
   const paywallReason = usePremiumStore((s) => s.paywallReason);
+  const selectedPlan = usePremiumStore((s) => s.selectedPlan);
   const showPaywallModal = usePremiumStore((s) => s.showPaywallModal);
   const hidePaywallModal = usePremiumStore((s) => s.hidePaywallModal);
 
   return {
     isVisible: showPaywall,
     reason: paywallReason,
+    selectedPlan,
     show: showPaywallModal,
     hide: hidePaywallModal,
   };
+}
+
+/**
+ * Hook to check if user can see who liked them
+ */
+export function useCanSeeLikes() {
+  const entitlements = usePremiumStore((s) => s.entitlements);
+  return entitlements.plan === 'mazal_gold' || entitlements.plan === 'mazal_platinum';
+}
+
+/**
+ * Hook to check if user can rewind
+ */
+export function useCanRewind() {
+  const entitlements = usePremiumStore((s) => s.entitlements);
+  return entitlements.plan === 'mazal_gold' || entitlements.plan === 'mazal_platinum';
+}
+
+/**
+ * Hook to check if user has read receipts
+ */
+export function useHasReadReceipts() {
+  const entitlements = usePremiumStore((s) => s.entitlements);
+  return entitlements.plan === 'mazal_gold' || entitlements.plan === 'mazal_platinum';
 }

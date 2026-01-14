@@ -23,10 +23,11 @@ import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { useOnboardingStore } from '@/stores/onboardingStore';
 import { PROMPTS } from '@/lib/constants/prompts';
+import { validateProfileContent } from '@/lib/moderation';
 
 const MIN_PROMPTS = 2;
 const MAX_PROMPTS = 3;
-const MIN_ANSWER_LENGTH = 10;
+const MIN_ANSWER_LENGTH = 1;
 const MAX_ANSWER_LENGTH = 300;
 
 interface PromptAnswer {
@@ -52,6 +53,7 @@ export default function PromptsScreen() {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingAnswer, setEditingAnswer] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('jewish');
+  const [moderationError, setModerationError] = useState<string | null>(null);
 
   // Check that we have enough prompts with answers
   const completedPrompts = prompts.filter(p => p.answer && p.answer.trim().length >= MIN_ANSWER_LENGTH);
@@ -77,6 +79,14 @@ export default function PromptsScreen() {
 
   const handleSaveAnswer = () => {
     if (editingIndex !== null && editingAnswer.trim().length >= MIN_ANSWER_LENGTH) {
+      // Validate content for inappropriate material
+      const validation = validateProfileContent(editingAnswer.trim());
+      if (!validation.isValid) {
+        setModerationError(validation.error || 'This content is not allowed.');
+        return;
+      }
+
+      setModerationError(null);
       const newPrompts = [...prompts];
       newPrompts[editingIndex] = {
         ...newPrompts[editingIndex],
@@ -170,7 +180,10 @@ export default function PromptsScreen() {
                     placeholder="Write your answer..."
                     placeholderTextColor={theme.colors.textTertiary}
                     value={editingAnswer}
-                    onChangeText={setEditingAnswer}
+                    onChangeText={(text) => {
+                      setEditingAnswer(text);
+                      if (moderationError) setModerationError(null);
+                    }}
                     multiline
                     maxLength={MAX_ANSWER_LENGTH}
                     autoFocus
@@ -191,6 +204,9 @@ export default function PromptsScreen() {
                       <Text style={styles.saveButtonText}>Save</Text>
                     </Pressable>
                   </View>
+                  {moderationError && (
+                    <Text style={styles.moderationError}>{moderationError}</Text>
+                  )}
                 </View>
               ) : (
                 <Pressable onPress={() => handleEditPrompt(index)}>
@@ -428,6 +444,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: colors.primary.navy,
+  },
+  moderationError: {
+    fontSize: 13,
+    color: colors.semantic.error,
+    marginTop: spacing[2],
   },
   addPromptButton: {
     flexDirection: 'row',

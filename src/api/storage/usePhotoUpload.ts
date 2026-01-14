@@ -7,6 +7,8 @@
 import { useState, useCallback } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system/legacy';
+import { decode } from 'base64-arraybuffer';
 import { supabase } from '@/api/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -27,7 +29,7 @@ interface UsePhotoUploadReturn {
   deletePhoto: (photoUrl: string) => Promise<boolean>;
 }
 
-const BUCKET_NAME = 'user-photos';
+const BUCKET_NAME = 'profile-photos';
 const MAX_IMAGE_SIZE = 1024; // Max dimension
 const JPEG_QUALITY = 0.8;
 
@@ -69,12 +71,17 @@ function generateFilePath(userId: string, index: number = 0): string {
   return `${userId}/${timestamp}_${index}_${random}.jpg`;
 }
 
+// FileSystem encoding type
+const Base64Encoding = 'base64' as const;
+
 /**
- * Convert file URI to Blob for upload
+ * Convert file URI to base64 ArrayBuffer for upload
  */
-async function uriToBlob(uri: string): Promise<Blob> {
-  const response = await fetch(uri);
-  return await response.blob();
+async function uriToArrayBuffer(uri: string): Promise<ArrayBuffer> {
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: Base64Encoding,
+  });
+  return decode(base64);
 }
 
 /**
@@ -82,46 +89,16 @@ async function uriToBlob(uri: string): Promise<Blob> {
  */
 export function usePhotoUpload(): UsePhotoUploadReturn {
   const user = useAuthStore((s) => s.user);
+  const authUser = useAuthStore((s) => s.authUser);
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState<UploadProgress[]>([]);
-
-  /**
-   * Pick a photo from library and upload it
-   */
-  const pickAndUploadPhoto = useCallback(async (): Promise<string | null> => {
-    if (!user?.id) {
-      console.error('User not authenticated');
-      return null;
-    }
-
-    // Request permission
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      console.error('Permission not granted');
-      return null;
-    }
-
-    // Pick image
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [3, 4], // Portrait aspect ratio
-      quality: 1,
-    });
-
-    if (result.canceled || !result.assets[0]) {
-      return null;
-    }
-
-    return uploadPhoto(result.assets[0].uri);
-  }, [user?.id]);
 
   /**
    * Upload a single photo
    */
   const uploadPhoto = useCallback(
     async (uri: string): Promise<string | null> => {
-      if (!user?.id) {
+      if (!user?.id || !authUser?.id) {
         console.error('User not authenticated');
         return null;
       }
@@ -144,8 +121,9 @@ export function usePhotoUpload(): UsePhotoUploadReturn {
           )
         );
 
-        // Convert to blob
-        const blob = await uriToBlob(processedUri);
+        // Convert to ArrayBuffer (base64)
+        const arrayBuffer = await uriToArrayBuffer(processedUri);
+        console.log('[PhotoUpload] ArrayBuffer size:', arrayBuffer.byteLength);
 
         setProgress((prev) =>
           prev.map((p) =>
@@ -153,20 +131,25 @@ export function usePhotoUpload(): UsePhotoUploadReturn {
           )
         );
 
-        // Generate file path
-        const filePath = generateFilePath(user.id);
+        // Generate file path - use authUser.id for storage folder (matches RLS policy)
+        const filePath = generateFilePath(authUser.id);
+        console.log('[PhotoUpload] Uploading to path:', filePath);
+        console.log('[PhotoUpload] Bucket:', BUCKET_NAME);
 
         // Upload to Supabase Storage
         const { data, error } = await supabase.storage
           .from(BUCKET_NAME)
-          .upload(filePath, blob, {
+          .upload(filePath, arrayBuffer, {
             contentType: 'image/jpeg',
             upsert: false,
           });
 
         if (error) {
+          console.error('[PhotoUpload] Upload error:', error);
           throw error;
         }
+
+        console.log('[PhotoUpload] Upload successful, data:', data);
 
         setProgress((prev) =>
           prev.map((p) =>
@@ -180,6 +163,7 @@ export function usePhotoUpload(): UsePhotoUploadReturn {
           .getPublicUrl(filePath);
 
         const publicUrl = urlData.publicUrl;
+        console.log('[PhotoUpload] Public URL:', publicUrl);
 
         setProgress((prev) =>
           prev.map((p) =>
@@ -210,8 +194,39 @@ export function usePhotoUpload(): UsePhotoUploadReturn {
         return null;
       }
     },
-    [user?.id]
+    [user?.id, authUser?.id]
   );
+
+  /**
+   * Pick a photo from library and upload it
+   */
+  const pickAndUploadPhoto = useCallback(async (): Promise<string | null> => {
+    if (!user?.id || !authUser?.id) {
+      console.error('User not authenticated');
+      return null;
+    }
+
+    // Request permission
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      console.error('Permission not granted');
+      return null;
+    }
+
+    // Pick image
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [3, 4], // Portrait aspect ratio
+      quality: 1,
+    });
+
+    if (result.canceled || !result.assets[0]) {
+      return null;
+    }
+
+    return uploadPhoto(result.assets[0].uri);
+  }, [user?.id, authUser?.id, uploadPhoto]);
 
   /**
    * Upload multiple photos in parallel

@@ -4,7 +4,7 @@
  * Manage location preferences and permissions
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
   Switch,
   Alert,
   Linking,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,14 +24,28 @@ import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { useAuthStore } from '@/stores/authStore';
+import { supabase } from '@/api/supabase/client';
 
 export default function LocationSettingsScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
 
+  // Get user from auth store
+  const user = useAuthStore((s) => s.user);
+  const setUser = useAuthStore((s) => s.setUser);
+
   const [showDistance, setShowDistance] = useState(true);
   const [useCurrentLocation, setUseCurrentLocation] = useState(true);
-  const [currentCity, setCurrentCity] = useState('New York, NY');
+  const [currentCity, setCurrentCity] = useState('');
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  // Load user's current city from profile
+  useEffect(() => {
+    if (user?.current_city) {
+      setCurrentCity(user.current_city);
+    }
+  }, [user?.current_city]);
 
   const handleBack = () => {
     router.back();
@@ -54,9 +69,17 @@ export default function LocationSettingsScreen() {
   };
 
   const handleUpdateLocation = async () => {
+    if (!user?.id) {
+      Alert.alert('Error', 'Please log in to update your location.');
+      return;
+    }
+
     try {
+      setIsUpdating(true);
+
       const { status } = await Location.getForegroundPermissionsAsync();
       if (status !== 'granted') {
+        setIsUpdating(false);
         handleRequestPermission();
         return;
       }
@@ -68,13 +91,34 @@ export default function LocationSettingsScreen() {
       });
 
       if (place) {
-        const city = `${place.city}, ${place.region}`;
+        const city = `${place.city || place.district || 'Unknown'}, ${place.region || place.country || ''}`.trim();
+
+        // Update in database
+        const { error } = await supabase
+          .from('users')
+          .update({
+            current_city: city,
+            current_latitude: location.coords.latitude,
+            current_longitude: location.coords.longitude,
+          })
+          .eq('id', user.id);
+
+        if (error) {
+          throw error;
+        }
+
+        // Update local state and auth store
         setCurrentCity(city);
+        setUser({ ...user, current_city: city });
+
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert('Location Updated', `Your location is now set to ${city}`);
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to get current location. Please try again.');
+      console.error('Error updating location:', error);
+      Alert.alert('Error', 'Failed to update location. Please try again.');
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -114,15 +158,23 @@ export default function LocationSettingsScreen() {
               <Ionicons name="location" size={24} color={colors.primary.gold} />
               <View style={styles.locationText}>
                 <Text style={[styles.locationCity, { color: theme.colors.text }]}>
-                  {currentCity}
+                  {currentCity || 'Not set'}
                 </Text>
                 <Text style={[styles.locationHint, { color: theme.colors.textTertiary }]}>
                   Used to find matches near you
                 </Text>
               </View>
             </View>
-            <Pressable style={styles.updateButton} onPress={handleUpdateLocation}>
-              <Text style={styles.updateButtonText}>Update</Text>
+            <Pressable
+              style={[styles.updateButton, isUpdating && styles.updateButtonDisabled]}
+              onPress={handleUpdateLocation}
+              disabled={isUpdating}
+            >
+              {isUpdating ? (
+                <ActivityIndicator size="small" color={colors.primary.navy} />
+              ) : (
+                <Text style={styles.updateButtonText}>Update</Text>
+              )}
             </Pressable>
           </View>
         </View>
@@ -266,6 +318,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: colors.primary.navy,
+  },
+  updateButtonDisabled: {
+    opacity: 0.7,
   },
   settingsCard: {
     borderRadius: borderRadius.lg,

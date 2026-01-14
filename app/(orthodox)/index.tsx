@@ -2,8 +2,10 @@
  * Orthodox Mode Welcome
  *
  * Introduction to Orthodox-specific features
+ * Shows paywall for non-subscribers
  */
 
+import { useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,6 +14,8 @@ import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { useUIStore } from '@/stores/uiStore';
+import { StarOfDavid } from '@/components/icons/StarOfDavid';
 
 const FEATURES = [
   {
@@ -48,9 +52,14 @@ const HASHKAFOS = [
 export default function OrthodoxWelcomeScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const hasOrthodoxSubscription = useUIStore((s) => s.hasOrthodoxSubscription);
 
   const handleGetStarted = () => {
-    router.push('/(orthodox)/shidduch');
+    if (hasOrthodoxSubscription) {
+      router.push('/(orthodox)/shidduch');
+    } else {
+      router.push('/(orthodox)/paywall');
+    }
   };
 
   const handleBack = () => {
@@ -88,7 +97,7 @@ export default function OrthodoxWelcomeScreen() {
           style={styles.heroContainer}
         >
           <View style={styles.hero}>
-            <Text style={styles.heroEmoji}>✡️</Text>
+            <StarOfDavid size={48} color={colors.primary.gold} />
           </View>
         </Animated.View>
 

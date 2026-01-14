@@ -4,7 +4,7 @@
  * Manage contact information
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -21,16 +21,31 @@ import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { useAuthStore } from '@/stores/authStore';
 
 export default function ContactSettingsScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const authUser = useAuthStore((s) => s.authUser);
+  const user = useAuthStore((s) => s.user);
 
-  // In production, these would come from user data
-  const [email, setEmail] = useState('user@example.com');
-  const [phone, setPhone] = useState('+1 (555) 123-4567');
-  const [emailVerified, setEmailVerified] = useState(true);
+  // Get actual email from auth user, phone from user profile
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [emailVerified, setEmailVerified] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
+
+  // Initialize with actual user data
+  useEffect(() => {
+    if (authUser?.email) {
+      setEmail(authUser.email);
+      setEmailVerified(authUser.email_confirmed_at != null);
+    }
+    if (user?.phone) {
+      setPhone(user.phone);
+      setPhoneVerified((user as any).phone_verified ?? false);
+    }
+  }, [authUser, user]);
 
   const handleBack = () => {
     router.back();

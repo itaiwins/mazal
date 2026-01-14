@@ -16,10 +16,12 @@ import {
   Platform,
   Image,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import Animated, {
   useAnimatedStyle,
   withSpring,
@@ -32,64 +34,39 @@ import { useMessages, useMatchById } from '@/api/queries';
 import { useSendMessage, useMarkMessagesAsRead } from '@/api/mutations';
 import { useMessagesSubscription, useTypingIndicator, useTypingSubscription } from '@/api/realtime';
 import { useAuthStore } from '@/stores/authStore';
+import { useUIStore } from '@/stores/uiStore';
+import { FilterShareMessage, ProfileShareMessage } from '@/components/chat';
+import { DEMO_MATCHES, DEMO_MESSAGES } from '@/lib/demo/demoProfiles';
 
-// Sample data for demo
-const MATCH_DATA = {
-  id: '1',
-  name: 'Rachel',
-  photo: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=200',
-  isOnline: true,
+// Message type
+type MessageItem = {
+  id: string;
+  content: string;
+  senderId: string;
+  createdAt: Date;
+  isRead: boolean;
 };
 
-const SAMPLE_MESSAGES = [
-  {
-    id: '1',
-    content: 'Hey! I loved your answer about Shabbat dinners 🕯️',
-    senderId: 'other',
-    createdAt: new Date(Date.now() - 3600000 * 2),
-    isRead: true,
-  },
-  {
-    id: '2',
-    content: 'Thanks! I take my challah very seriously 😄',
-    senderId: 'me',
-    createdAt: new Date(Date.now() - 3600000 * 1.5),
-    isRead: true,
-  },
-  {
-    id: '3',
-    content: 'I can tell! Do you have a secret recipe?',
-    senderId: 'other',
-    createdAt: new Date(Date.now() - 3600000),
-    isRead: true,
-  },
-  {
-    id: '4',
-    content: "It's my bubbe's recipe - honey and a touch of saffron. Sounds weird but trust me!",
-    senderId: 'me',
-    createdAt: new Date(Date.now() - 1800000),
-    isRead: true,
-  },
-  {
-    id: '5',
-    content: "That sounds amazing! I'd love to try that challah recipe",
-    senderId: 'other',
-    createdAt: new Date(Date.now() - 900000),
-    isRead: false,
-  },
-];
+// Default match data when loading
+const DEFAULT_MATCH_DATA = {
+  id: '',
+  name: '',
+  photo: '',
+  isOnline: false,
+};
 
 interface MessageBubbleProps {
-  message: typeof SAMPLE_MESSAGES[0];
+  message: MessageItem;
   isMe: boolean;
   showAvatar: boolean;
+  matchPhoto?: string;
 }
 
-function MessageBubble({ message, isMe, showAvatar }: MessageBubbleProps) {
+function MessageBubble({ message, isMe, showAvatar, matchPhoto }: MessageBubbleProps) {
   return (
     <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
-      {!isMe && showAvatar && (
-        <Image source={{ uri: MATCH_DATA.photo }} style={styles.messageAvatar} />
+      {!isMe && showAvatar && matchPhoto && (
+        <Image source={{ uri: matchPhoto }} style={styles.messageAvatar} />
       )}
       {!isMe && !showAvatar && <View style={styles.messageAvatarPlaceholder} />}
       <View
@@ -137,32 +114,47 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const currentUser = useAuthStore((s) => s.user);
 
-  // Fetch messages and match data from API
-  const { data: apiMessages, isLoading: messagesLoading } = useMessages(matchId);
-  const { data: matchData } = useMatchById(matchId);
+  // Check if demo mode is enabled
+  const isDemoMode = useUIStore((s) => s.isDemoMode);
 
-  // Subscribe to real-time messages
-  useMessagesSubscription(matchId);
+  // Demo mode: get demo data
+  const demoMatch = isDemoMode ? DEMO_MATCHES.find(m => m.id === matchId) : null;
+  const demoMessages = isDemoMode && matchId ? DEMO_MESSAGES[matchId] || [] : [];
 
-  // Typing indicator
-  const { setTyping } = useTypingIndicator(matchId);
-  useTypingSubscription(matchId, (userId, isTyping) => {
+  // Fetch messages and match data from API (skip if in demo mode)
+  const { data: apiMessages, isLoading: messagesLoading, error: messagesError } = useMessages(isDemoMode ? undefined : matchId);
+  const { data: matchData, error: matchError, isLoading: matchLoading } = useMatchById(isDemoMode ? undefined : matchId);
+
+  // Subscribe to real-time messages (skip in demo mode)
+  useMessagesSubscription(isDemoMode ? undefined : matchId);
+
+  // Typing indicator (skip in demo mode)
+  const { setTyping } = useTypingIndicator(isDemoMode ? undefined : matchId);
+  useTypingSubscription(isDemoMode ? undefined : matchId, (userId, isTyping) => {
     setIsOtherTyping(isTyping);
   });
 
-  // Mark messages as read
+  // Mark messages as read (skip in demo mode)
   const markAsRead = useMarkMessagesAsRead();
   useEffect(() => {
-    if (matchId) {
+    if (matchId && !isDemoMode) {
       markAsRead.mutate(matchId);
     }
-  }, [matchId, apiMessages]);
+  }, [matchId, apiMessages, isDemoMode]);
 
   // Send message mutation
   const sendMessage = useSendMessage();
 
-  // Use API messages or sample data
-  const messages = apiMessages && apiMessages.length > 0
+  // Use demo messages or API messages
+  const messages: MessageItem[] = isDemoMode
+    ? demoMessages.map((m) => ({
+        id: m.id,
+        content: m.content || '',
+        senderId: m.sender_id === 'current-user' ? 'me' : 'other',
+        createdAt: new Date(m.created_at),
+        isRead: m.is_read ?? false,
+      }))
+    : apiMessages
     ? apiMessages.map((m) => ({
         id: m.id,
         content: m.content || '',
@@ -170,15 +162,15 @@ export default function ChatScreen() {
         createdAt: new Date(m.created_at),
         isRead: m.is_read ?? false,
       }))
-    : SAMPLE_MESSAGES;
+    : [];
 
   // Normalize match data to a consistent shape
-  const otherUser = matchData?.otherUser;
+  const otherUser = isDemoMode ? demoMatch?.otherUser : matchData?.otherUser;
   const match = {
-    id: otherUser?.id || MATCH_DATA.id,
-    name: otherUser?.first_name || MATCH_DATA.name,
-    photo: otherUser?.photos?.[0]?.photo_url || MATCH_DATA.photo,
-    isOnline: MATCH_DATA.isOnline, // TODO: Get real online status
+    id: otherUser?.id || DEFAULT_MATCH_DATA.id,
+    name: otherUser?.first_name || DEFAULT_MATCH_DATA.name,
+    photo: otherUser?.photos?.[0]?.photo_url || DEFAULT_MATCH_DATA.photo,
+    isOnline: DEFAULT_MATCH_DATA.isOnline, // TODO: Get real online status
   };
 
   const inputHeight = useSharedValue(48);
@@ -220,6 +212,36 @@ export default function ChatScreen() {
     minHeight: inputHeight.value,
   }));
 
+  // Handle share filters
+  const handleShareFilters = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert(
+      'Share Your Filters',
+      'Would you like to share your current search filters with this person? They can apply your filters to their own search.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Share Filters',
+          onPress: () => {
+            // In production, this would send the filters as a special message
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            Alert.alert('Filters Shared', 'Your search filters have been sent!');
+          },
+        },
+      ]
+    );
+  };
+
+  // Handle apply received filters
+  const handleApplyFilters = (filters: any) => {
+    // In production, this would update the user's search filters
+    Alert.alert(
+      'Apply Filters',
+      'Your search filters have been updated!',
+      [{ text: 'OK' }]
+    );
+  };
+
   // Group messages by date
   const groupedMessages = messages.reduce((groups, msg) => {
     const dateKey = formatDate(msg.createdAt);
@@ -228,7 +250,7 @@ export default function ChatScreen() {
     }
     groups[dateKey].push(msg);
     return groups;
-  }, {} as Record<string, typeof SAMPLE_MESSAGES>);
+  }, {} as Record<string, MessageItem[]>);
 
   const flatData = Object.entries(groupedMessages).flatMap(([date, msgs]) => [
     { type: 'date', date, id: `date-${date}` },
@@ -240,10 +262,44 @@ export default function ChatScreen() {
     })),
   ]);
 
-  if (messagesLoading) {
+  // Skip loading state in demo mode
+  if (!isDemoMode && (messagesLoading || matchLoading)) {
     return (
       <View style={[styles.container, styles.centered, { backgroundColor: theme.colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary.gold} />
+      </View>
+    );
+  }
+
+  // Handle error state (conversation not found or not authorized)
+  // In demo mode, check if we found the demo match
+  const hasError = isDemoMode
+    ? !demoMatch
+    : (matchError || (!matchData && !messagesLoading && !matchLoading));
+
+  if (hasError) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <View style={[styles.header, { paddingTop: insets.top }]}>
+          <Pressable style={styles.backButton} onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
+          </Pressable>
+        </View>
+        <View style={[styles.centered, { flex: 1 }]}>
+          <Ionicons name="chatbubble-ellipses-outline" size={64} color={colors.neutral[300]} />
+          <Text style={[styles.errorTitle, { color: theme.colors.text }]}>
+            Conversation Not Found
+          </Text>
+          <Text style={[styles.errorSubtitle, { color: theme.colors.textSecondary }]}>
+            This conversation may no longer be available or you may not have permission to view it.
+          </Text>
+          <Pressable
+            style={styles.errorButton}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.errorButtonText}>Go Back</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -275,6 +331,9 @@ export default function ChatScreen() {
             ) : null}
           </View>
         </Pressable>
+        <Pressable style={styles.shareFiltersButton} onPress={handleShareFilters}>
+          <Ionicons name="options-outline" size={22} color={colors.primary.gold} />
+        </Pressable>
         <Pressable style={styles.moreButton}>
           <Ionicons name="ellipsis-horizontal" size={24} color={theme.colors.icon} />
         </Pressable>
@@ -295,12 +354,13 @@ export default function ChatScreen() {
               </View>
             );
           }
-          const msg = item as { message: typeof SAMPLE_MESSAGES[0]; showAvatar: boolean };
+          const msg = item as { message: MessageItem; showAvatar: boolean };
           return (
             <MessageBubble
               message={msg.message}
               isMe={msg.message.senderId === 'me'}
               showAvatar={msg.showAvatar}
+              matchPhoto={match.photo}
             />
           );
         }}
@@ -387,6 +447,15 @@ const styles = StyleSheet.create({
     color: colors.primary.gold,
     marginTop: 1,
     fontStyle: 'italic',
+  },
+  shareFiltersButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.transparent.gold10,
+    borderRadius: 20,
+    marginRight: spacing[1],
   },
   moreButton: {
     width: 44,
@@ -485,5 +554,30 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     opacity: 0.5,
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: spacing[4],
+    textAlign: 'center',
+  },
+  errorSubtitle: {
+    fontSize: 14,
+    marginTop: spacing[2],
+    textAlign: 'center',
+    paddingHorizontal: spacing[8],
+    lineHeight: 20,
+  },
+  errorButton: {
+    marginTop: spacing[6],
+    backgroundColor: colors.primary.gold,
+    paddingHorizontal: spacing[6],
+    paddingVertical: spacing[3],
+    borderRadius: borderRadius.full,
+  },
+  errorButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.primary.white,
   },
 });

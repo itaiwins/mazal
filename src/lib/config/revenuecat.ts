@@ -19,6 +19,7 @@ const REVENUECAT_ANDROID_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ||
 export const ENTITLEMENTS = {
   GOLD: 'mazal_gold',
   PLATINUM: 'mazal_platinum',
+  ORTHODOX: 'mazal_orthodox',
 } as const;
 
 // Product identifiers
@@ -27,6 +28,8 @@ export const PRODUCTS = {
   GOLD_YEARLY: 'mazal_gold_yearly',
   PLATINUM_MONTHLY: 'mazal_platinum_monthly',
   PLATINUM_YEARLY: 'mazal_platinum_yearly',
+  ORTHODOX_MONTHLY: 'mazal_orthodox_monthly',
+  ORTHODOX_YEARLY: 'mazal_orthodox_yearly',
 } as const;
 
 export type EntitlementId = (typeof ENTITLEMENTS)[keyof typeof ENTITLEMENTS];
@@ -157,28 +160,149 @@ export async function logoutUser(): Promise<void> {
 }
 
 /**
+ * Pricing configuration
+ */
+export const PRICING = {
+  gold: {
+    monthly: {
+      price: 14.99,
+      displayPrice: '$14.99',
+      period: 'month',
+    },
+    yearly: {
+      price: 119.99,
+      displayPrice: '$119.99',
+      monthlyEquivalent: '$10',
+      period: 'year',
+      savings: '33%',
+    },
+  },
+  platinum: {
+    monthly: {
+      price: 29.99,
+      displayPrice: '$29.99',
+      period: 'month',
+    },
+    yearly: {
+      price: 239.99,
+      displayPrice: '$239.99',
+      monthlyEquivalent: '$20',
+      period: 'year',
+      savings: '33%',
+    },
+  },
+} as const;
+
+/**
+ * Feature limits by tier
+ */
+export const FEATURE_LIMITS = {
+  free: {
+    dailySwipes: 25,
+    superLikesPerWeek: 1,
+    boostsPerWeek: 0,
+    canSeeLikes: false,
+    canRewind: false,
+    hasReadReceipts: false,
+    hasAdvancedFilters: false,
+    hasPriorityLikes: false,
+    canMessageBeforeMatch: false,
+    hasIncognitoMode: false,
+    canSeeActiveUsers: false,
+  },
+  mazal_gold: {
+    dailySwipes: Infinity,
+    superLikesPerWeek: 5,
+    boostsPerWeek: 0,
+    canSeeLikes: true,
+    canRewind: true,
+    hasReadReceipts: true,
+    hasAdvancedFilters: true,
+    hasPriorityLikes: false,
+    canMessageBeforeMatch: false,
+    hasIncognitoMode: false,
+    canSeeActiveUsers: false,
+  },
+  mazal_platinum: {
+    dailySwipes: Infinity,
+    superLikesPerWeek: 5,
+    boostsPerWeek: 1,
+    canSeeLikes: true,
+    canRewind: true,
+    hasReadReceipts: true,
+    hasAdvancedFilters: true,
+    hasPriorityLikes: true,
+    canMessageBeforeMatch: true,
+    hasIncognitoMode: true,
+    canSeeActiveUsers: true,
+  },
+} as const;
+
+/**
  * Premium features by tier
  */
 export const PREMIUM_FEATURES = {
   [ENTITLEMENTS.GOLD]: {
     name: 'Mazal Gold',
+    tagline: 'More chances to find your match',
+    monthlyPrice: PRICING.gold.monthly.displayPrice,
+    yearlyPrice: PRICING.gold.yearly.displayPrice,
+    yearlyMonthly: PRICING.gold.yearly.monthlyEquivalent,
+    yearlySavings: PRICING.gold.yearly.savings,
     features: [
-      { id: 'see_likes', label: 'See who likes you', icon: 'heart' },
-      { id: 'unlimited_swipes', label: 'Unlimited swipes', icon: 'infinite' },
-      { id: 'super_likes', label: '5 Super Likes per day', icon: 'star' },
-      { id: 'rewind', label: 'Rewind last swipe', icon: 'refresh' },
-      { id: 'no_ads', label: 'Ad-free experience', icon: 'ban' },
+      { id: 'unlimited_swipes', label: 'Unlimited daily swipes', icon: 'infinite', included: true },
+      { id: 'see_likes', label: 'See who likes you', icon: 'heart', included: true },
+      { id: 'super_likes', label: '5 Super Likes per week', icon: 'star', included: true },
+      { id: 'rewind', label: 'Rewind last swipe', icon: 'refresh', included: true },
+      { id: 'advanced_filters', label: 'Advanced filters', icon: 'options', included: true },
+      { id: 'read_receipts', label: 'Read receipts', icon: 'checkmark-done', included: true },
+      { id: 'no_ads', label: 'Ad-free experience', icon: 'ban', included: true },
     ],
   },
   [ENTITLEMENTS.PLATINUM]: {
     name: 'Mazal Platinum',
+    tagline: 'For those serious about finding the one',
+    monthlyPrice: PRICING.platinum.monthly.displayPrice,
+    yearlyPrice: PRICING.platinum.yearly.displayPrice,
+    yearlyMonthly: PRICING.platinum.yearly.monthlyEquivalent,
+    yearlySavings: PRICING.platinum.yearly.savings,
     features: [
-      { id: 'everything_gold', label: 'Everything in Gold', icon: 'checkmark-circle' },
-      { id: 'priority_likes', label: 'Priority in likes queue', icon: 'flash' },
-      { id: 'boost', label: '1 free Boost per month', icon: 'rocket' },
-      { id: 'advanced_filters', label: 'Advanced filters', icon: 'options' },
-      { id: 'read_receipts', label: 'Message read receipts', icon: 'checkmark-done' },
-      { id: 'exclusive_badges', label: 'Exclusive profile badges', icon: 'ribbon' },
+      { id: 'everything_gold', label: 'Everything in Gold', icon: 'checkmark-circle', included: true },
+      { id: 'boost', label: '1 Boost per week', icon: 'rocket', included: true },
+      { id: 'priority_likes', label: 'Priority in discovery', icon: 'flash', included: true },
+      { id: 'message_before_match', label: 'Message before matching', icon: 'chatbubble', included: true },
+      { id: 'incognito', label: 'Incognito mode', icon: 'eye-off', included: true },
+      { id: 'active_users', label: 'See who\'s online', icon: 'ellipse', included: true },
+      { id: 'safta_insights', label: 'Safta recommendation insights', icon: 'sparkles', included: true },
+    ],
+  },
+  [ENTITLEMENTS.ORTHODOX]: {
+    name: 'Orthodox Mode',
+    tagline: 'Coming soon',
+    monthlyPrice: 'TBD',
+    yearlyPrice: 'TBD',
+    features: [
+      { id: 'orthodox_pool', label: 'Orthodox-only dating pool', icon: 'people', included: true },
+      { id: 'shadchan_directory', label: 'Shadchan directory access', icon: 'book', included: true },
+      { id: 'hashkafa_matching', label: 'Hashkafa-based matching', icon: 'star', included: true },
+      { id: 'reference_verification', label: 'Reference verification', icon: 'shield-checkmark', included: true },
     ],
   },
 };
+
+/**
+ * Comparison table for paywall
+ */
+export const PLAN_COMPARISON = [
+  { feature: 'Daily swipes', free: '25', gold: 'Unlimited', platinum: 'Unlimited' },
+  { feature: 'Super Likes', free: '1/week', gold: '5/week', platinum: '5/week' },
+  { feature: 'See who likes you', free: false, gold: true, platinum: true },
+  { feature: 'Rewind last swipe', free: false, gold: true, platinum: true },
+  { feature: 'Advanced filters', free: false, gold: true, platinum: true },
+  { feature: 'Read receipts', free: false, gold: true, platinum: true },
+  { feature: 'Weekly Boost', free: false, gold: false, platinum: true },
+  { feature: 'Priority in discovery', free: false, gold: false, platinum: true },
+  { feature: 'Message before match', free: false, gold: false, platinum: true },
+  { feature: 'Incognito mode', free: false, gold: false, platinum: true },
+  { feature: 'See active users', free: false, gold: false, platinum: true },
+];

@@ -5,7 +5,6 @@
  */
 
 import React, { createContext, useContext, useMemo } from 'react';
-import { useColorScheme } from 'react-native';
 import { colors, lightTheme, darkTheme, type Theme, type ColorScheme } from './colors';
 import { typography, fontFamily, fontSize, lineHeight, letterSpacing } from './typography';
 import { spacing, borderRadius, shadows, zIndex, layout } from './spacing';
@@ -47,8 +46,8 @@ interface ThemeProviderProps {
  * Wraps the app to provide theme context
  */
 export function ThemeProvider({ children, forcedColorScheme }: ThemeProviderProps) {
-  const systemColorScheme = useColorScheme();
-  const colorScheme = forcedColorScheme ?? systemColorScheme ?? 'light';
+  // Always use dark mode - ignore system preference
+  const colorScheme: ColorScheme = 'dark';
   const isDark = colorScheme === 'dark';
 
   const theme = useMemo<MazalTheme>(() => ({

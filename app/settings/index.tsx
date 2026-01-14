@@ -4,15 +4,18 @@
  * Main settings screen
  */
 
-import { View, Text, StyleSheet, Pressable, ScrollView, Switch, Alert, Linking } from 'react-native';
+import { useState, useRef } from 'react';
+import { View, Text, StyleSheet, Pressable, ScrollView, Alert, Linking, Switch, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
+import { useDeactivateAccount } from '@/api/mutations/useProfile';
 
 interface SettingItemProps {
   icon: string;
@@ -52,9 +55,46 @@ function SettingItem({ icon, label, onPress, rightElement, danger }: SettingItem
 export default function SettingsScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const isDarkMode = useUIStore((s) => s.isDarkMode);
-  const setDarkMode = useUIStore((s) => s.setDarkMode);
   const logout = useAuthStore((s) => s.logout);
+  const setCurrentMode = useAuthStore((s) => s.setCurrentMode);
+  const hasSaftaProfile = useAuthStore((s) => s.hasSaftaProfile);
+
+  // Shabbat mode
+  const isShabbatModeEnabled = useUIStore((s) => s.isShabbatModeEnabled);
+  const setShabbatModeEnabled = useUIStore((s) => s.setShabbatModeEnabled);
+
+  // Demo mode (for screenshots)
+  const isDemoMode = useUIStore((s) => s.isDemoMode);
+  const setDemoMode = useUIStore((s) => s.setDemoMode);
+  const [showDeveloperOptions, setShowDeveloperOptions] = useState(false);
+  const versionTapCount = useRef(0);
+  const lastTapTime = useRef(0);
+
+  // Account deletion mutation
+  const deleteAccountMutation = useDeactivateAccount();
+
+  const handleSwitchToSafta = () => {
+    if (hasSaftaProfile) {
+      // Already has Safta profile, switch directly
+      setCurrentMode('safta');
+      router.replace('/(safta-tabs)');
+    } else {
+      // Needs to complete Safta onboarding
+      setCurrentMode('safta');
+      router.replace('/(safta-auth)/welcome');
+    }
+  };
+
+  const handleShabbatModeToggle = (enabled: boolean) => {
+    setShabbatModeEnabled(enabled);
+    if (enabled) {
+      Alert.alert(
+        'Shabbat Mode Enabled',
+        'The app will automatically pause notifications and activity from Friday sunset to Saturday nightfall based on your location.\n\nShabbat Shalom!',
+        [{ text: 'OK' }]
+      );
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert('Log Out', 'Are you sure you want to log out?', [
@@ -71,26 +111,71 @@ export default function SettingsScreen() {
   };
 
   const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete Account',
-      'This action cannot be undone. All your data will be permanently deleted.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            // In production, call Supabase to delete account
-            logout();
-            router.replace('/(auth)/welcome');
-          },
+    const hasMultipleAccounts = hasSaftaProfile;
+    const message = hasMultipleAccounts
+      ? 'This will permanently delete BOTH your dating profile AND your Safta account. All your data, matches, messages, and photos will be removed. This action cannot be undone.'
+      : 'This action cannot be undone. All your data, matches, messages, and photos will be permanently deleted.';
+
+    Alert.alert('Delete Account', message, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete Everything',
+        style: 'destructive',
+        onPress: () => {
+          deleteAccountMutation.mutate(true, {
+            onSuccess: () => {
+              router.replace('/(auth)/welcome');
+            },
+            onError: (error) => {
+              Alert.alert(
+                'Error',
+                'Failed to delete account. Please try again or contact support.',
+                [{ text: 'OK' }]
+              );
+              console.error('Delete account error:', error);
+            },
+          });
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const handleBack = () => {
     router.back();
+  };
+
+  const handleVersionTap = () => {
+    const now = Date.now();
+    // Reset counter if more than 2 seconds since last tap
+    if (now - lastTapTime.current > 2000) {
+      versionTapCount.current = 0;
+    }
+    lastTapTime.current = now;
+    versionTapCount.current += 1;
+
+    if (versionTapCount.current === 5) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowDeveloperOptions(true);
+      Alert.alert(
+        'Developer Options Enabled',
+        'You can now access demo mode for screenshots.',
+        [{ text: 'OK' }]
+      );
+    } else if (versionTapCount.current >= 3 && versionTapCount.current < 5) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  };
+
+  const handleDemoModeToggle = (enabled: boolean) => {
+    setDemoMode(enabled);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Alert.alert(
+      enabled ? 'Demo Mode Enabled' : 'Demo Mode Disabled',
+      enabled
+        ? 'The app will now show fake profiles for screenshots. Swipe actions won\'t affect real data.'
+        : 'Returning to normal mode with real profiles.',
+      [{ text: 'OK' }]
+    );
   };
 
   return (
@@ -174,25 +259,58 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Appearance */}
+        {/* Shabbat Mode */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
-            Appearance
+            Jewish Life
           </Text>
           <View style={[styles.sectionCard, { backgroundColor: theme.colors.surface }]}>
-            <SettingItem
-              icon="moon-outline"
-              label="Dark Mode"
-              rightElement={
-                <Switch
-                  value={isDarkMode}
-                  onValueChange={setDarkMode}
-                  trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
-                  thumbColor={colors.primary.white}
-                />
-              }
-            />
+            <View style={styles.shabbatModeItem}>
+              <View style={styles.shabbatModeInfo}>
+                <View style={styles.shabbatModeHeader}>
+                  <Text style={styles.shabbatEmoji}>🕯️</Text>
+                  <Text style={[styles.shabbatModeLabel, { color: theme.colors.text }]}>
+                    Shabbat Mode
+                  </Text>
+                </View>
+                <Text style={[styles.shabbatModeDesc, { color: theme.colors.textSecondary }]}>
+                  Automatically pause the app from Friday sunset to Saturday nightfall
+                </Text>
+              </View>
+              <Switch
+                value={isShabbatModeEnabled}
+                onValueChange={handleShabbatModeToggle}
+                trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
+                thumbColor={colors.primary.white}
+              />
+            </View>
           </View>
+        </View>
+
+        {/* Safta Mode */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
+            Safta Mode
+          </Text>
+          <Pressable
+            style={[styles.saftaModeCard, { backgroundColor: colors.transparent.gold10 }]}
+            onPress={handleSwitchToSafta}
+          >
+            <View style={styles.saftaModeContent}>
+              <View style={[styles.saftaModeIcon, { backgroundColor: colors.transparent.gold20 }]}>
+                <Text style={styles.saftaModeEmoji}>👵</Text>
+              </View>
+              <View style={styles.saftaModeText}>
+                <Text style={[styles.saftaModeTitle, { color: colors.primary.gold }]}>
+                  Switch to Safta Mode
+                </Text>
+                <Text style={[styles.saftaModeDesc, { color: theme.colors.textSecondary }]}>
+                  Help your loved ones find their match
+                </Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.primary.gold} />
+          </Pressable>
         </View>
 
         {/* Privacy & Safety */}
@@ -259,17 +377,53 @@ export default function SettingsScreen() {
             />
             <SettingItem
               icon="trash-outline"
-              label="Delete Account"
-              onPress={handleDeleteAccount}
+              label={deleteAccountMutation.isPending ? "Deleting..." : "Delete Account"}
+              onPress={deleteAccountMutation.isPending ? undefined : handleDeleteAccount}
               danger
+              rightElement={deleteAccountMutation.isPending ? (
+                <ActivityIndicator size="small" color={colors.semantic.error} />
+              ) : undefined}
             />
           </View>
         </View>
 
+        {/* Developer Options (hidden until version tapped 5 times) */}
+        {showDeveloperOptions && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.semantic.warning }]}>
+              Developer Options
+            </Text>
+            <View style={[styles.sectionCard, { backgroundColor: theme.colors.surface }]}>
+              <View style={styles.shabbatModeItem}>
+                <View style={styles.shabbatModeInfo}>
+                  <View style={styles.shabbatModeHeader}>
+                    <Ionicons name="camera-outline" size={18} color={colors.semantic.warning} />
+                    <Text style={[styles.shabbatModeLabel, { color: theme.colors.text }]}>
+                      Demo Mode
+                    </Text>
+                  </View>
+                  <Text style={[styles.shabbatModeDesc, { color: theme.colors.textSecondary }]}>
+                    Show fake profiles for App Store screenshots
+                  </Text>
+                </View>
+                <Switch
+                  value={isDemoMode}
+                  onValueChange={handleDemoModeToggle}
+                  trackColor={{ false: colors.neutral[200], true: colors.semantic.warning }}
+                  thumbColor={colors.primary.white}
+                />
+              </View>
+            </View>
+          </View>
+        )}
+
         {/* Version */}
-        <Text style={[styles.version, { color: theme.colors.textTertiary }]}>
-          Mazal v1.0.0 (Build 1)
-        </Text>
+        <Pressable onPress={handleVersionTap}>
+          <Text style={[styles.version, { color: theme.colors.textTertiary }]}>
+            Mazal v1.0.0 (Build 1)
+            {isDemoMode && ' [DEMO MODE]'}
+          </Text>
+        </Pressable>
       </ScrollView>
     </View>
   );
@@ -340,5 +494,72 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing[6],
     marginBottom: spacing[4],
+  },
+  // Shabbat Mode styles
+  shabbatModeItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing[4],
+    paddingHorizontal: spacing[4],
+  },
+  shabbatModeInfo: {
+    flex: 1,
+    marginRight: spacing[4],
+  },
+  shabbatModeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    marginBottom: spacing[1],
+  },
+  shabbatEmoji: {
+    fontSize: 18,
+  },
+  shabbatModeLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  shabbatModeDesc: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginLeft: spacing[6],
+  },
+  // Safta Mode styles
+  saftaModeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing[4],
+    borderRadius: borderRadius.xl,
+    borderWidth: 2,
+    borderColor: colors.transparent.gold30,
+  },
+  saftaModeContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[3],
+    flex: 1,
+  },
+  saftaModeIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  saftaModeEmoji: {
+    fontSize: 22,
+  },
+  saftaModeText: {
+    flex: 1,
+  },
+  saftaModeTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  saftaModeDesc: {
+    fontSize: 13,
+    marginTop: spacing[0.5],
   },
 });

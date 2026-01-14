@@ -114,6 +114,13 @@ export function useSwipe() {
       if (!user?.id) {
         throw new Error('User not authenticated');
       }
+
+      // Skip database operations for demo profiles (IDs starting with "demo-")
+      if (swipedUserId.startsWith('demo-')) {
+        // Simulate a successful swipe for demo mode
+        return { success: true, isMatch: action === 'like' || action === 'super_like' };
+      }
+
       return performSwipe(user.id, swipedUserId, action);
     },
     onSuccess: (result) => {

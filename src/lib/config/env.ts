@@ -65,6 +65,18 @@ export const env = {
    * Sentry DSN for error tracking
    */
   SENTRY_DSN: process.env.EXPO_PUBLIC_SENTRY_DSN || '',
+
+  /**
+   * Identity Verification API Configuration
+   * Supports: Onfido, Jumio, or AWS Rekognition
+   */
+  VERIFICATION_PROVIDER: (process.env.EXPO_PUBLIC_VERIFICATION_PROVIDER || 'onfido') as 'onfido' | 'jumio' | 'aws',
+  ONFIDO_API_TOKEN: process.env.EXPO_PUBLIC_ONFIDO_API_TOKEN || '',
+  JUMIO_API_TOKEN: process.env.EXPO_PUBLIC_JUMIO_API_TOKEN || '',
+  JUMIO_API_SECRET: process.env.EXPO_PUBLIC_JUMIO_API_SECRET || '',
+  AWS_ACCESS_KEY_ID: process.env.EXPO_PUBLIC_AWS_ACCESS_KEY_ID || '',
+  AWS_SECRET_ACCESS_KEY: process.env.EXPO_PUBLIC_AWS_SECRET_ACCESS_KEY || '',
+  AWS_REGION: process.env.EXPO_PUBLIC_AWS_REGION || 'us-east-1',
 } as const;
 
 /**
@@ -157,4 +169,21 @@ export function isGoogleMapsConfigured(): boolean {
  */
 export function isSentryConfigured(): boolean {
   return Boolean(env.SENTRY_DSN);
+}
+
+/**
+ * Check if identity verification is configured
+ */
+export function isVerificationConfigured(): boolean {
+  const provider = env.VERIFICATION_PROVIDER;
+  switch (provider) {
+    case 'onfido':
+      return Boolean(env.ONFIDO_API_TOKEN);
+    case 'jumio':
+      return Boolean(env.JUMIO_API_TOKEN && env.JUMIO_API_SECRET);
+    case 'aws':
+      return Boolean(env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY);
+    default:
+      return false;
+  }
 }

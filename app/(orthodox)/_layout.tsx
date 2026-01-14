@@ -21,6 +21,7 @@ export default function OrthodoxLayout() {
       }}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen name="paywall" options={{ presentation: 'modal' }} />
       <Stack.Screen name="shidduch" />
       <Stack.Screen name="shadchan" />
       <Stack.Screen name="guidelines" />

@@ -2,9 +2,10 @@
  * Matches Screen
  *
  * View all matches and start conversations
+ * Sorted by: Matches, Saftas, Others (prompt responders)
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,61 +16,68 @@ import {
   FlatList,
   ActivityIndicator,
   RefreshControl,
+  Modal,
+  Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius, shadows } from '@/theme/spacing';
-import { useMatches, type MatchWithPreview } from '@/api/queries';
+import { useMatches, useSaftaConnections, type MatchWithPreview, type SaftaConnectionWithPreview } from '@/api/queries';
 import { useAllMessagesSubscription, useMatchesSubscription } from '@/api/realtime';
+import { AdBanner } from '@/components/ads';
+import { useUIStore } from '@/stores/uiStore';
+import { DEMO_MATCHES, DEMO_MESSAGES, DEMO_SAFTA_CONNECTIONS, getDemoConversations } from '@/lib/demo/demoProfiles';
 
-// Sample data for demo
-const NEW_MATCHES = [
-  {
-    id: '1',
-    name: 'Sarah',
-    photo: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200',
-    matchedAt: new Date(),
-  },
-  {
-    id: '2',
-    name: 'Emma',
-    photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
-    matchedAt: new Date(Date.now() - 86400000),
-  },
-];
+// Message category types
+type MessageCategory = 'matches' | 'saftas' | 'others';
 
-const CONVERSATIONS = [
-  {
-    id: '1',
-    name: 'Rachel',
-    photo: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=200',
-    lastMessage: "That sounds amazing! I'd love to try that challah recipe",
-    lastMessageTime: new Date(Date.now() - 3600000),
-    unread: 2,
-    isOnline: true,
-  },
-  {
-    id: '2',
-    name: 'David',
-    photo: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200',
-    lastMessage: "Shabbat Shalom! Want to grab coffee after?",
-    lastMessageTime: new Date(Date.now() - 86400000),
-    unread: 0,
-    isOnline: false,
-  },
-  {
-    id: '3',
-    name: 'Michael',
-    photo: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200',
-    lastMessage: "You: Definitely! Best pastrami is at Katz's",
-    lastMessageTime: new Date(Date.now() - 172800000),
-    unread: 0,
-    isOnline: false,
-  },
-];
+// Types for matches display
+type NewMatchItem = {
+  id: string;
+  name: string;
+  photo: string;
+  matchedAt: Date;
+};
+
+type ConversationItem = {
+  id: string;
+  name: string;
+  photo: string;
+  lastMessage: string;
+  lastMessageTime: Date;
+  unread: number;
+  isOnline: boolean;
+  category: MessageCategory;
+  userId?: string; // For "others" to view profile
+};
+
+// Sample prompt reply data (from "Others" - people who replied to prompts)
+type PromptReplyItem = {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderPhoto: string;
+  promptQuestion: string;
+  replyMessage: string;
+  sentAt: Date;
+  isRead: boolean;
+};
+
+// Safta message data (from API)
+type SaftaMessageItem = {
+  id: string;
+  saftaId: string;
+  saftaName: string;
+  saftaPhoto: string | null;
+  relationship: string;
+  lastMessage: string;
+  lastMessageTime: Date;
+  unread: number;
+};
 
 function formatTime(date: Date): string {
   const now = new Date();
@@ -83,7 +91,7 @@ function formatTime(date: Date): string {
   return date.toLocaleDateString();
 }
 
-function NewMatchItem({ match, onPress }: { match: typeof NEW_MATCHES[0]; onPress: () => void }) {
+function NewMatchItemCard({ match, onPress }: { match: NewMatchItem; onPress: () => void }) {
   return (
     <Pressable style={styles.newMatchItem} onPress={onPress}>
       <View style={styles.newMatchAvatarContainer}>
@@ -97,7 +105,7 @@ function NewMatchItem({ match, onPress }: { match: typeof NEW_MATCHES[0]; onPres
   );
 }
 
-function ConversationItem({ conversation, onPress }: { conversation: typeof CONVERSATIONS[0]; onPress: () => void }) {
+function ConversationItemCard({ conversation, onPress }: { conversation: ConversationItem; onPress: () => void }) {
   const theme = useTheme();
 
   return (
@@ -137,12 +145,185 @@ function ConversationItem({ conversation, onPress }: { conversation: typeof CONV
   );
 }
 
+// Safta message card
+function SaftaMessageCard({ safta, onPress }: { safta: SaftaMessageItem; onPress: () => void }) {
+  const theme = useTheme();
+
+  return (
+    <Pressable style={styles.conversationItem} onPress={onPress}>
+      <View style={styles.conversationAvatarContainer}>
+        <Image source={{ uri: safta.saftaPhoto || SAFTA_DEFAULT_PHOTO }} style={styles.conversationAvatar} />
+        <View style={styles.saftaIndicator}>
+          <Text style={styles.saftaIndicatorText}>👵</Text>
+        </View>
+      </View>
+      <View style={styles.conversationContent}>
+        <View style={styles.conversationHeader}>
+          <View style={styles.saftaNameRow}>
+            <Text style={[styles.conversationName, { color: theme.colors.text }]}>
+              {safta.saftaName}
+            </Text>
+            <View style={styles.saftaRelationshipBadge}>
+              <Text style={styles.saftaRelationshipText}>{safta.relationship}</Text>
+            </View>
+          </View>
+          <Text style={[styles.conversationTime, { color: theme.colors.textSecondary }]}>
+            {formatTime(safta.lastMessageTime)}
+          </Text>
+        </View>
+        <View style={styles.conversationMessageRow}>
+          <Text
+            style={[
+              styles.conversationMessage,
+              { color: safta.unread > 0 ? theme.colors.text : theme.colors.textSecondary },
+              safta.unread > 0 && styles.conversationMessageUnread,
+            ]}
+            numberOfLines={1}
+          >
+            {safta.lastMessage}
+          </Text>
+          {safta.unread > 0 && (
+            <View style={styles.unreadBadge}>
+              <Text style={styles.unreadBadgeText}>{safta.unread}</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+// Others (prompt reply) card with actions
+function PromptReplyCard({
+  reply,
+  onViewProfile,
+  onBlock,
+  onMatch,
+}: {
+  reply: PromptReplyItem;
+  onViewProfile: () => void;
+  onBlock: () => void;
+  onMatch: () => void;
+}) {
+  const theme = useTheme();
+  const [showActions, setShowActions] = useState(false);
+
+  return (
+    <View style={[styles.promptReplyCard, { backgroundColor: theme.colors.surface }]}>
+      <Pressable
+        style={styles.promptReplyHeader}
+        onPress={() => setShowActions(!showActions)}
+      >
+        <Image source={{ uri: reply.senderPhoto }} style={styles.promptReplyAvatar} />
+        <View style={styles.promptReplyContent}>
+          <View style={styles.promptReplyNameRow}>
+            <Text style={[styles.promptReplyName, { color: theme.colors.text }]}>
+              {reply.senderName}
+            </Text>
+            {!reply.isRead && <View style={styles.unreadDot} />}
+          </View>
+          <Text style={[styles.promptReplyPrompt, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+            Replied to: {reply.promptQuestion}
+          </Text>
+        </View>
+        <Text style={[styles.promptReplyTime, { color: theme.colors.textSecondary }]}>
+          {formatTime(reply.sentAt)}
+        </Text>
+      </Pressable>
+
+      {/* The reply message */}
+      <View style={styles.promptReplyMessage}>
+        <Text style={[styles.promptReplyMessageText, { color: theme.colors.text }]}>
+          "{reply.replyMessage}"
+        </Text>
+      </View>
+
+      {/* Action buttons */}
+      <View style={styles.promptReplyActions}>
+        <Pressable
+          style={[styles.promptReplyActionButton, styles.viewProfileButton]}
+          onPress={onViewProfile}
+        >
+          <Ionicons name="person-outline" size={16} color={colors.primary.gold} />
+          <Text style={styles.viewProfileText}>View Profile</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.promptReplyActionButton, styles.matchButton]}
+          onPress={onMatch}
+        >
+          <Ionicons name="heart" size={16} color={colors.primary.white} />
+          <Text style={styles.matchButtonText}>Match</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.promptReplyActionButton, styles.blockButton]}
+          onPress={onBlock}
+        >
+          <Ionicons name="close-circle-outline" size={16} color={colors.semantic.error} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+// Placeholder photo for Saftas without photos
+const SAFTA_DEFAULT_PHOTO = 'https://images.unsplash.com/photo-1581579438747-1dc8d17bbce4?w=200';
+
+// Prompt replies will come from Supabase when the feature is implemented
+
 export default function MatchesScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
 
+  // Check if demo mode is enabled
+  const isDemoMode = useUIStore((s) => s.isDemoMode);
+
+  // Active tab for sorting
+  const [activeTab, setActiveTab] = useState<MessageCategory>('matches');
+
+  // State for prompt replies (others) - empty until feature is implemented
+  const [promptReplies, setPromptReplies] = useState<PromptReplyItem[]>([]);
+
   // Fetch matches from API
   const { data: apiMatches, isLoading, refetch, isRefetching } = useMatches();
+
+  // Fetch Safta connections from API
+  const { data: saftaConnections } = useSaftaConnections();
+
+  // Transform Safta connections to message format (use demo data if in demo mode)
+  const saftaMessages: SaftaMessageItem[] = useMemo(() => {
+    // Use demo data if in demo mode
+    if (isDemoMode) {
+      return DEMO_SAFTA_CONNECTIONS.map((conn) => ({
+        id: conn.id,
+        saftaId: conn.saftaId,
+        saftaName: conn.saftaName,
+        saftaPhoto: conn.saftaPhoto || SAFTA_DEFAULT_PHOTO,
+        relationship: conn.relationship === 'grandmother' ? 'Grandparent' :
+                     conn.relationship === 'aunt' ? 'Aunt/Uncle' : 'Family',
+        lastMessage: conn.lastMessage || 'Connected! Tap to chat.',
+        lastMessageTime: new Date(conn.lastMessageTime || conn.connectedAt),
+        unread: conn.unreadCount,
+      }));
+    }
+
+    if (!saftaConnections || saftaConnections.length === 0) {
+      return [];
+    }
+
+    return saftaConnections.map((conn) => ({
+      id: conn.id,
+      saftaId: conn.saftaId,
+      saftaName: conn.saftaName,
+      saftaPhoto: conn.saftaPhoto || SAFTA_DEFAULT_PHOTO,
+      relationship: conn.relationship === 'grandparent' ? 'Grandparent' :
+                   conn.relationship === 'parent' ? 'Parent' :
+                   conn.relationship === 'aunt_uncle' ? 'Aunt/Uncle' :
+                   conn.relationship === 'sibling' ? 'Sibling' : 'Family',
+      lastMessage: conn.lastMessage || 'Connected! Tap to chat.',
+      lastMessageTime: new Date(conn.lastMessageTime || conn.connectedAt),
+      unread: conn.unreadCount,
+    }));
+  }, [saftaConnections, isDemoMode]);
 
   // Subscribe to real-time updates
   useAllMessagesSubscription();
@@ -150,16 +331,28 @@ export default function MatchesScreen() {
 
   // Separate new matches (no messages) from conversations
   const { newMatches, conversations } = useMemo(() => {
-    if (!apiMatches || apiMatches.length === 0) {
-      // Use sample data when no API data
+    // Use demo data if in demo mode
+    if (isDemoMode) {
+      const demoConversations = getDemoConversations();
       return {
-        newMatches: NEW_MATCHES,
-        conversations: CONVERSATIONS,
+        newMatches: [] as NewMatchItem[],
+        conversations: demoConversations.map(c => ({
+          ...c,
+          isOnline: Math.random() > 0.5,
+        })) as ConversationItem[],
       };
     }
 
-    const newMatchesList: typeof NEW_MATCHES = [];
-    const conversationsList: typeof CONVERSATIONS = [];
+    if (!apiMatches || apiMatches.length === 0) {
+      // No matches yet - show empty state
+      return {
+        newMatches: [] as NewMatchItem[],
+        conversations: [] as ConversationItem[],
+      };
+    }
+
+    const newMatchesList: NewMatchItem[] = [];
+    const conversationsList: ConversationItem[] = [];
 
     apiMatches.forEach((match) => {
       if (!match.lastMessage) {
@@ -179,16 +372,17 @@ export default function MatchesScreen() {
           lastMessage: match.lastMessage.content || '[Media]',
           lastMessageTime: new Date(match.lastMessage.createdAt),
           unread: match.unreadCount,
-          isOnline: false, // Will be updated with presence subscription
+          isOnline: false,
+          category: 'matches',
         });
       }
     });
 
     return {
-      newMatches: newMatchesList.length > 0 ? newMatchesList : NEW_MATCHES,
-      conversations: conversationsList.length > 0 ? conversationsList : CONVERSATIONS,
+      newMatches: newMatchesList,
+      conversations: conversationsList,
     };
-  }, [apiMatches]);
+  }, [apiMatches, isDemoMode]);
 
   const handleNewMatchPress = (matchId: string) => {
     router.push(`/(tabs)/messages/${matchId}`);
@@ -196,6 +390,50 @@ export default function MatchesScreen() {
 
   const handleConversationPress = (conversationId: string) => {
     router.push(`/(tabs)/messages/${conversationId}`);
+  };
+
+  const handleSaftaPress = (connectionId: string) => {
+    // Navigate to Safta chat
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push(`/(tabs)/safta-chat/${connectionId}`);
+  };
+
+  const handleViewProfile = (userId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Navigate to profile view (we'll create this route)
+    Alert.alert('View Profile', `Viewing profile for user ${userId}`);
+  };
+
+  const handleBlockUser = (replyId: string, userName: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert(
+      'Block User',
+      `Are you sure you want to block ${userName}? They won't be able to see your profile or contact you.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: () => {
+            setPromptReplies((prev) => prev.filter((r) => r.id !== replyId));
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          },
+        },
+      ]
+    );
+  };
+
+  const handleMatchFromReply = (reply: PromptReplyItem) => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Alert.alert(
+      'It\'s a Match!',
+      `You matched with ${reply.senderName}! You can now chat freely.`,
+      [{ text: 'Start Chatting', onPress: () => {
+        // Remove from prompt replies and add to matches
+        setPromptReplies((prev) => prev.filter((r) => r.id !== reply.id));
+        router.push(`/(tabs)/messages/${reply.senderId}`);
+      }}]
+    );
   };
 
   if (isLoading) {
@@ -206,11 +444,114 @@ export default function MatchesScreen() {
     );
   }
 
+  // Calculate badge counts
+  const matchesCount = conversations.length + newMatches.length;
+  const saftasCount = saftaMessages.length;
+  const othersCount = promptReplies.length;
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + spacing[2] }]}>
-        <Text style={[styles.title, { color: theme.colors.text }]}>Matches</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>Messages</Text>
+      </View>
+
+      {/* Ad Banner - only shows for free users */}
+      <AdBanner />
+
+      {/* Sorting Tabs */}
+      <View style={[styles.tabsContainer, { backgroundColor: theme.colors.background }]}>
+        <Pressable
+          style={[
+            styles.tab,
+            activeTab === 'matches' && styles.tabActive,
+          ]}
+          onPress={() => {
+            setActiveTab('matches');
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }}
+        >
+          <Ionicons
+            name="heart"
+            size={16}
+            color={activeTab === 'matches' ? colors.primary.gold : theme.colors.textSecondary}
+          />
+          <Text
+            style={[
+              styles.tabText,
+              { color: activeTab === 'matches' ? colors.primary.gold : theme.colors.textSecondary },
+            ]}
+          >
+            Matches
+          </Text>
+          {matchesCount > 0 && (
+            <View style={[styles.tabBadge, activeTab === 'matches' && styles.tabBadgeActive]}>
+              <Text style={[styles.tabBadgeText, activeTab === 'matches' && styles.tabBadgeTextActive]}>
+                {matchesCount}
+              </Text>
+            </View>
+          )}
+        </Pressable>
+
+        <Pressable
+          style={[
+            styles.tab,
+            activeTab === 'saftas' && styles.tabActive,
+          ]}
+          onPress={() => {
+            setActiveTab('saftas');
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }}
+        >
+          <Text style={styles.tabEmoji}>👵</Text>
+          <Text
+            style={[
+              styles.tabText,
+              { color: activeTab === 'saftas' ? colors.primary.gold : theme.colors.textSecondary },
+            ]}
+          >
+            Saftas
+          </Text>
+          {saftasCount > 0 && (
+            <View style={[styles.tabBadge, activeTab === 'saftas' && styles.tabBadgeActive]}>
+              <Text style={[styles.tabBadgeText, activeTab === 'saftas' && styles.tabBadgeTextActive]}>
+                {saftasCount}
+              </Text>
+            </View>
+          )}
+        </Pressable>
+
+        <Pressable
+          style={[
+            styles.tab,
+            activeTab === 'others' && styles.tabActive,
+          ]}
+          onPress={() => {
+            setActiveTab('others');
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }}
+        >
+          <Ionicons
+            name="chatbubble-ellipses-outline"
+            size={16}
+            color={activeTab === 'others' ? colors.primary.gold : theme.colors.textSecondary}
+          />
+          <Text
+            style={[
+              styles.tabText,
+              { color: activeTab === 'others' ? colors.primary.gold : theme.colors.textSecondary },
+            ]}
+          >
+            Others
+          </Text>
+          {othersCount > 0 && (
+            <View style={[styles.tabBadge, activeTab === 'others' && styles.tabBadgeActive]}>
+              <Text style={[styles.tabBadgeText, activeTab === 'others' && styles.tabBadgeTextActive]}>
+                {othersCount}
+              </Text>
+            </View>
+          )}
+        </Pressable>
       </View>
 
       <ScrollView
@@ -225,50 +566,114 @@ export default function MatchesScreen() {
           />
         }
       >
-        {/* New Matches Section */}
-        {newMatches.length > 0 && (
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
-              New Matches
-            </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.newMatchesList}
-            >
-              {newMatches.map((match) => (
-                <NewMatchItem
-                  key={match.id}
-                  match={match}
-                  onPress={() => handleNewMatchPress(match.id)}
-                />
-              ))}
-            </ScrollView>
-          </View>
+        {/* MATCHES TAB */}
+        {activeTab === 'matches' && (
+          <>
+            {/* New Matches Section */}
+            {newMatches.length > 0 && (
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
+                  New Matches
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.newMatchesList}
+                >
+                  {newMatches.map((match) => (
+                    <NewMatchItemCard
+                      key={match.id}
+                      match={match}
+                      onPress={() => handleNewMatchPress(match.id)}
+                    />
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Conversations */}
+            {conversations.length > 0 ? (
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
+                  Conversations
+                </Text>
+                {conversations.map((conversation) => (
+                  <ConversationItemCard
+                    key={conversation.id}
+                    conversation={conversation}
+                    onPress={() => handleConversationPress(conversation.id)}
+                  />
+                ))}
+              </View>
+            ) : newMatches.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="heart-outline" size={48} color={colors.neutral[300]} />
+                <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
+                  When you match with someone, they'll appear here
+                </Text>
+              </View>
+            ) : null}
+          </>
         )}
 
-        {/* Conversations Section */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
-            Messages
-          </Text>
-          {conversations.length > 0 ? (
-            conversations.map((conversation) => (
-              <ConversationItem
-                key={conversation.id}
-                conversation={conversation}
-                onPress={() => handleConversationPress(conversation.id)}
-              />
-            ))
-          ) : (
-            <View style={styles.emptyState}>
-              <Ionicons name="chatbubbles-outline" size={48} color={colors.neutral[300]} />
-              <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
-                When you match, start the conversation here
-              </Text>
-            </View>
-          )}
-        </View>
+        {/* SAFTAS TAB */}
+        {activeTab === 'saftas' && (
+          <>
+            {saftaMessages.length > 0 ? (
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
+                  From Your Saftas
+                </Text>
+                {saftaMessages.map((safta) => (
+                  <SaftaMessageCard
+                    key={safta.id}
+                    safta={safta}
+                    onPress={() => handleSaftaPress(safta.id)}
+                  />
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyEmoji}>👵</Text>
+                <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
+                  Messages from your Saftas will appear here
+                </Text>
+              </View>
+            )}
+          </>
+        )}
+
+        {/* OTHERS TAB */}
+        {activeTab === 'others' && (
+          <>
+            {promptReplies.length > 0 ? (
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
+                  Prompt Replies
+                </Text>
+                <Text style={[styles.sectionSubtitle, { color: theme.colors.textSecondary }]}>
+                  People who replied to your prompts
+                </Text>
+                {promptReplies.map((reply) => (
+                  <PromptReplyCard
+                    key={reply.id}
+                    reply={reply}
+                    onViewProfile={() => handleViewProfile(reply.senderId)}
+                    onBlock={() => handleBlockUser(reply.id, reply.senderName)}
+                    onMatch={() => handleMatchFromReply(reply)}
+                  />
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="chatbubble-ellipses-outline" size={48} color={colors.neutral[300]} />
+                <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
+                  When someone replies to your prompts, they'll appear here
+                </Text>
+              </View>
+            )}
+          </>
+        )}
       </ScrollView>
     </View>
   );
@@ -289,6 +694,53 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '700',
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: spacing[4],
+    paddingBottom: spacing[3],
+    gap: spacing[2],
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing[2.5],
+    paddingHorizontal: spacing[3],
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.transparent.white10,
+    gap: spacing[1.5],
+  },
+  tabActive: {
+    backgroundColor: colors.transparent.gold20,
+  },
+  tabText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  tabEmoji: {
+    fontSize: 14,
+  },
+  tabBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.neutral[300],
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing[1],
+  },
+  tabBadgeActive: {
+    backgroundColor: colors.primary.gold,
+  },
+  tabBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.neutral[600],
+  },
+  tabBadgeTextActive: {
+    color: colors.primary.navy,
   },
   scrollView: {
     flex: 1,
@@ -426,5 +878,177 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing[4],
     lineHeight: 22,
+  },
+  emptyEmoji: {
+    fontSize: 48,
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    paddingHorizontal: spacing[4],
+    marginBottom: spacing[3],
+  },
+  // New section header styles
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    paddingHorizontal: spacing[4],
+    marginBottom: spacing[3],
+  },
+  sectionEmoji: {
+    fontSize: 16,
+  },
+  sectionBadge: {
+    backgroundColor: colors.primary.gold,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing[1.5],
+    marginLeft: spacing[1],
+  },
+  sectionBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.primary.navy,
+  },
+  sectionDescription: {
+    fontSize: 13,
+    paddingHorizontal: spacing[4],
+    marginTop: -spacing[2],
+    marginBottom: spacing[3],
+  },
+  sectionEmptyState: {
+    paddingVertical: spacing[6],
+    paddingHorizontal: spacing[4],
+    alignItems: 'center',
+  },
+  sectionEmptyText: {
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  // Safta styles
+  saftaIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.primary.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: colors.primary.white,
+  },
+  saftaIndicatorText: {
+    fontSize: 10,
+  },
+  saftaNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    flex: 1,
+  },
+  saftaRelationshipBadge: {
+    backgroundColor: colors.transparent.gold20,
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[0.5],
+    borderRadius: borderRadius.sm,
+  },
+  saftaRelationshipText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: colors.primary.gold,
+  },
+  // Prompt reply (Others) styles
+  promptReplyCard: {
+    marginHorizontal: spacing[4],
+    marginBottom: spacing[3],
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+  },
+  promptReplyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing[3],
+    gap: spacing[3],
+  },
+  promptReplyAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  promptReplyContent: {
+    flex: 1,
+  },
+  promptReplyNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+  },
+  promptReplyName: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary.gold,
+  },
+  promptReplyPrompt: {
+    fontSize: 12,
+    marginTop: spacing[0.5],
+  },
+  promptReplyTime: {
+    fontSize: 11,
+  },
+  promptReplyMessage: {
+    paddingHorizontal: spacing[3],
+    paddingBottom: spacing[3],
+  },
+  promptReplyMessageText: {
+    fontSize: 15,
+    fontStyle: 'italic',
+    lineHeight: 21,
+  },
+  promptReplyActions: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: colors.neutral[200],
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[2],
+    gap: spacing[2],
+  },
+  promptReplyActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1.5],
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+    borderRadius: borderRadius.full,
+  },
+  viewProfileButton: {
+    backgroundColor: colors.transparent.gold10,
+  },
+  viewProfileText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.primary.gold,
+  },
+  matchButton: {
+    backgroundColor: colors.primary.gold,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  matchButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.primary.white,
+  },
+  blockButton: {
+    backgroundColor: colors.transparent.white10,
   },
 });

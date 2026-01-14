@@ -15,3 +15,4 @@ export {
   useDeactivateAccount,
 } from './useProfile';
 export { useUnmatch, useBlockUser, useUnblockUser, useReportUser } from './useMatch';
+export { useSendSaftaMessage, useSendSaftaMessageAsSafta, useMarkSaftaMessagesAsRead } from './useSaftaMessage';

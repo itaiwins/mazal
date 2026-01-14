@@ -76,6 +76,100 @@ function Star({ delay, x, y, size }: { delay: number; x: number; y: number; size
   );
 }
 
+// Animated logo star that floats and twinkles
+function LogoStar({ index, baseLeft, baseTop, size }: { index: number; baseLeft: number; baseTop: number; size: number }) {
+  const opacity = useSharedValue(0.6);
+  const translateY = useSharedValue(0);
+  const translateX = useSharedValue(0);
+  const scale = useSharedValue(1);
+
+  useEffect(() => {
+    const delay = index * 150;
+
+    // Twinkling opacity
+    opacity.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.5, { duration: 1200, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        true
+      )
+    );
+
+    // Gentle floating up and down
+    translateY.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(-4, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
+          withTiming(4, { duration: 2000, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        true
+      )
+    );
+
+    // Subtle side-to-side movement
+    translateX.value = withDelay(
+      delay + 500,
+      withRepeat(
+        withSequence(
+          withTiming(2, { duration: 2500, easing: Easing.inOut(Easing.ease) }),
+          withTiming(-2, { duration: 2500, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        true
+      )
+    );
+
+    // Gentle pulsing
+    scale.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(1.3, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.9, { duration: 1500, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        true
+      )
+    );
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [
+      { translateY: translateY.value },
+      { translateX: translateX.value },
+      { scale: scale.value },
+    ],
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        {
+          position: 'absolute',
+          left: baseLeft,
+          top: baseTop,
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: colors.primary.gold,
+          shadowColor: colors.primary.gold,
+          shadowOffset: { width: 0, height: 0 },
+          shadowOpacity: 0.8,
+          shadowRadius: 4,
+        },
+        animatedStyle,
+      ]}
+    />
+  );
+}
+
 // Generate random stars
 const stars = Array.from({ length: 20 }, (_, i) => ({
   id: i,
@@ -136,17 +230,12 @@ export default function WelcomeScreen() {
           <Text style={styles.logoText}>Mazal</Text>
           <View style={styles.starsContainer}>
             {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-              <View
+              <LogoStar
                 key={i}
-                style={[
-                  styles.logoStar,
-                  {
-                    left: 20 + i * 15 + (i > 3 ? 5 : 0),
-                    top: Math.sin(i * 0.8) * 8 + 10,
-                    width: i === 3 ? 8 : 5,
-                    height: i === 3 ? 8 : 5,
-                  },
-                ]}
+                index={i}
+                baseLeft={20 + i * 15 + (i > 3 ? 5 : 0)}
+                baseTop={Math.sin(i * 0.8) * 8 + 10}
+                size={i === 3 ? 8 : 5}
               />
             ))}
           </View>
@@ -154,16 +243,16 @@ export default function WelcomeScreen() {
 
         {/* Tagline */}
         <Animated.Text style={[styles.tagline, logoAnimatedStyle]}>
-          Where Destiny Swipes Right
+          L'chaim to love
         </Animated.Text>
       </View>
 
       {/* Bottom section with buttons */}
       <View style={[styles.bottomSection, { paddingBottom: insets.bottom + 20 }]}>
-        {/* Create Account button */}
+        {/* Create Account button (Dating) */}
         <Link href="/(auth)/register" asChild>
           <Pressable style={styles.primaryButton}>
-            <Text style={styles.primaryButtonText}>Create Account</Text>
+            <Text style={styles.primaryButtonText}>Find My Match</Text>
           </Pressable>
         </Link>
 
@@ -171,6 +260,24 @@ export default function WelcomeScreen() {
         <Link href="/(auth)/login" asChild>
           <Pressable style={styles.secondaryButton}>
             <Text style={styles.secondaryButtonText}>Sign In</Text>
+          </Pressable>
+        </Link>
+
+        {/* Safta Mode Divider */}
+        <View style={styles.divider}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerText}>or</Text>
+          <View style={styles.dividerLine} />
+        </View>
+
+        {/* Safta Mode Button */}
+        <Link href="/(safta-auth)/welcome" asChild>
+          <Pressable style={styles.saftaButton}>
+            <Text style={styles.saftaButtonEmoji}>👵👴</Text>
+            <View style={styles.saftaButtonContent}>
+              <Text style={styles.saftaButtonTitle}>I'm a Parent or Grandparent</Text>
+              <Text style={styles.saftaButtonSubtitle}>Help your family find love</Text>
+            </View>
           </Pressable>
         </Link>
 
@@ -205,11 +312,6 @@ const styles = StyleSheet.create({
     top: -25,
     width: 140,
     height: 30,
-  },
-  logoStar: {
-    position: 'absolute',
-    backgroundColor: colors.primary.gold,
-    borderRadius: 10,
   },
   logoText: {
     fontSize: 64,
@@ -252,6 +354,48 @@ const styles = StyleSheet.create({
     color: colors.primary.white,
     fontSize: 17,
     fontWeight: '600',
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: spacing[2],
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.transparent.white20,
+  },
+  dividerText: {
+    color: colors.transparent.white50,
+    fontSize: 14,
+    paddingHorizontal: spacing[4],
+  },
+  saftaButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.transparent.white10,
+    paddingVertical: spacing[3],
+    paddingHorizontal: spacing[4],
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.transparent.white20,
+    gap: spacing[3],
+  },
+  saftaButtonEmoji: {
+    fontSize: 28,
+  },
+  saftaButtonContent: {
+    flex: 1,
+  },
+  saftaButtonTitle: {
+    color: colors.primary.white,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  saftaButtonSubtitle: {
+    color: colors.transparent.white60,
+    fontSize: 13,
+    marginTop: 2,
   },
   termsText: {
     color: colors.transparent.white50,

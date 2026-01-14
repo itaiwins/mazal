@@ -7,7 +7,8 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { PremiumEntitlements, PremiumFeature } from '@/types';
+import type { PremiumEntitlements, PremiumFeature, PremiumPlan } from '@/types';
+import { FEATURE_LIMITS } from '@/lib/config/revenuecat';
 
 interface PremiumState {
   // Entitlements
@@ -16,9 +17,11 @@ interface PremiumState {
   // Offerings (from RevenueCat)
   offerings: Record<string, unknown> | null;
 
-  // Usage
+  // Weekly usage tracking
   superLikesRemaining: number;
   boostsRemaining: number;
+  dailySwipesRemaining: number;
+  weekStartDate: string; // ISO date of when the week started
   lastBoostTime: string | null;
 
   // UI state
@@ -26,20 +29,40 @@ interface PremiumState {
   error: string | null;
   showPaywall: boolean;
   paywallReason: string | null;
+  selectedPlan: 'gold' | 'platinum' | null;
 
   // Actions
   setEntitlements: (entitlements: PremiumEntitlements) => void;
   setOfferings: (offerings: Record<string, unknown> | null) => void;
   useSuperLike: () => boolean;
   useBoost: () => boolean;
-  resetDailyLimits: () => void;
+  useSwipe: () => boolean;
+  resetWeeklyLimits: () => void;
+  resetDailySwipes: () => void;
+  checkAndResetLimits: () => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
-  showPaywallModal: (reason?: string) => void;
+  showPaywallModal: (reason?: string, plan?: 'gold' | 'platinum') => void;
   hidePaywallModal: () => void;
   hasFeature: (feature: PremiumFeature) => boolean;
+  getFeatureLimit: (feature: keyof typeof FEATURE_LIMITS.free) => number | boolean;
   reset: () => void;
 }
+
+const getWeekStart = (): string => {
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // Monday
+  const monday = new Date(now.setDate(diff));
+  monday.setHours(0, 0, 0, 0);
+  return monday.toISOString();
+};
+
+const getDayStart = (): string => {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return now.toISOString();
+};
 
 const freeEntitlements: PremiumEntitlements = {
   isPremium: false,
@@ -52,13 +75,16 @@ const freeEntitlements: PremiumEntitlements = {
 const initialState = {
   entitlements: freeEntitlements,
   offerings: null,
-  superLikesRemaining: 1,
-  boostsRemaining: 0,
+  superLikesRemaining: FEATURE_LIMITS.free.superLikesPerWeek,
+  boostsRemaining: FEATURE_LIMITS.free.boostsPerWeek,
+  dailySwipesRemaining: FEATURE_LIMITS.free.dailySwipes,
+  weekStartDate: getWeekStart(),
   lastBoostTime: null,
   isLoading: false,
   error: null,
   showPaywall: false,
   paywallReason: null,
+  selectedPlan: null as 'gold' | 'platinum' | null,
 };
 
 export const usePremiumStore = create<PremiumState>()(
@@ -66,25 +92,42 @@ export const usePremiumStore = create<PremiumState>()(
     (set, get) => ({
       ...initialState,
 
-      setEntitlements: (entitlements) =>
+      setEntitlements: (entitlements) => {
+        const plan = entitlements.plan as keyof typeof FEATURE_LIMITS;
+        const limits = FEATURE_LIMITS[plan] || FEATURE_LIMITS.free;
         set({
           entitlements,
-          superLikesRemaining: entitlements.superLikesRemaining,
-          boostsRemaining: entitlements.boostsRemaining,
-        }),
+          superLikesRemaining: limits.superLikesPerWeek,
+          boostsRemaining: limits.boostsPerWeek,
+          dailySwipesRemaining: limits.dailySwipes,
+        });
+      },
 
       setOfferings: (offerings) => set({ offerings }),
 
       useSuperLike: () => {
-        const { superLikesRemaining, entitlements } = get();
-
-        // Gold users have unlimited
-        if (entitlements.plan === 'mazal_gold') {
-          return true;
-        }
+        const { superLikesRemaining } = get();
 
         if (superLikesRemaining > 0) {
           set({ superLikesRemaining: superLikesRemaining - 1 });
+          return true;
+        }
+
+        return false;
+      },
+
+      useSwipe: () => {
+        const { dailySwipesRemaining, entitlements } = get();
+        const plan = entitlements.plan as keyof typeof FEATURE_LIMITS;
+        const limits = FEATURE_LIMITS[plan] || FEATURE_LIMITS.free;
+
+        // Unlimited swipes for premium
+        if (limits.dailySwipes === Infinity) {
+          return true;
+        }
+
+        if (dailySwipesRemaining > 0) {
+          set({ dailySwipesRemaining: dailySwipesRemaining - 1 });
           return true;
         }
 
@@ -113,36 +156,64 @@ export const usePremiumStore = create<PremiumState>()(
         return false;
       },
 
-      resetDailyLimits: () => {
+      resetWeeklyLimits: () => {
         const { entitlements } = get();
+        const plan = entitlements.plan as keyof typeof FEATURE_LIMITS;
+        const limits = FEATURE_LIMITS[plan] || FEATURE_LIMITS.free;
         set({
-          superLikesRemaining: entitlements.plan === 'mazal_platinum'
-            ? Infinity
-            : entitlements.plan === 'mazal_gold'
-              ? 5
-              : 1,
+          superLikesRemaining: limits.superLikesPerWeek,
+          boostsRemaining: limits.boostsPerWeek,
+          weekStartDate: getWeekStart(),
         });
+      },
+
+      resetDailySwipes: () => {
+        const { entitlements } = get();
+        const plan = entitlements.plan as keyof typeof FEATURE_LIMITS;
+        const limits = FEATURE_LIMITS[plan] || FEATURE_LIMITS.free;
+        set({
+          dailySwipesRemaining: limits.dailySwipes,
+        });
+      },
+
+      checkAndResetLimits: () => {
+        const { weekStartDate } = get();
+        const currentWeekStart = getWeekStart();
+
+        // Check if we're in a new week
+        if (weekStartDate !== currentWeekStart) {
+          get().resetWeeklyLimits();
+        }
       },
 
       setLoading: (isLoading) => set({ isLoading }),
 
       setError: (error) => set({ error }),
 
-      showPaywallModal: (reason) =>
+      showPaywallModal: (reason, plan) =>
         set({
           showPaywall: true,
           paywallReason: reason ?? null,
+          selectedPlan: plan ?? null,
         }),
 
       hidePaywallModal: () =>
         set({
           showPaywall: false,
           paywallReason: null,
+          selectedPlan: null,
         }),
 
       hasFeature: (feature) => {
         const { entitlements } = get();
         return entitlements.features.includes(feature);
+      },
+
+      getFeatureLimit: (feature) => {
+        const { entitlements } = get();
+        const plan = entitlements.plan as keyof typeof FEATURE_LIMITS;
+        const limits = FEATURE_LIMITS[plan] || FEATURE_LIMITS.free;
+        return limits[feature] as any;
       },
 
       reset: () => set(initialState),
@@ -153,6 +224,8 @@ export const usePremiumStore = create<PremiumState>()(
       partialize: (state) => ({
         superLikesRemaining: state.superLikesRemaining,
         boostsRemaining: state.boostsRemaining,
+        dailySwipesRemaining: state.dailySwipesRemaining,
+        weekStartDate: state.weekStartDate,
         lastBoostTime: state.lastBoostTime,
       }),
     }
@@ -162,11 +235,35 @@ export const usePremiumStore = create<PremiumState>()(
 // Selectors
 export const selectIsPremium = (state: PremiumState) => state.entitlements.isPremium;
 export const selectPlan = (state: PremiumState) => state.entitlements.plan;
-export const selectCanSuperLike = (state: PremiumState) =>
-  state.entitlements.plan === 'mazal_gold' || state.superLikesRemaining > 0;
+export const selectCanSuperLike = (state: PremiumState) => state.superLikesRemaining > 0;
+export const selectCanSwipe = (state: PremiumState) => {
+  const plan = state.entitlements.plan as keyof typeof FEATURE_LIMITS;
+  const limits = FEATURE_LIMITS[plan] || FEATURE_LIMITS.free;
+  return limits.dailySwipes === Infinity || state.dailySwipesRemaining > 0;
+};
 export const selectCanBoost = (state: PremiumState) => {
   if (state.boostsRemaining <= 0) return false;
   if (!state.lastBoostTime) return true;
   const timeSinceLastBoost = Date.now() - new Date(state.lastBoostTime).getTime();
   return timeSinceLastBoost >= 30 * 60 * 1000;
+};
+export const selectCanSeeLikes = (state: PremiumState) => {
+  const plan = state.entitlements.plan as keyof typeof FEATURE_LIMITS;
+  const limits = FEATURE_LIMITS[plan] || FEATURE_LIMITS.free;
+  return limits.canSeeLikes;
+};
+export const selectCanRewind = (state: PremiumState) => {
+  const plan = state.entitlements.plan as keyof typeof FEATURE_LIMITS;
+  const limits = FEATURE_LIMITS[plan] || FEATURE_LIMITS.free;
+  return limits.canRewind;
+};
+export const selectHasReadReceipts = (state: PremiumState) => {
+  const plan = state.entitlements.plan as keyof typeof FEATURE_LIMITS;
+  const limits = FEATURE_LIMITS[plan] || FEATURE_LIMITS.free;
+  return limits.hasReadReceipts;
+};
+export const selectCanMessageBeforeMatch = (state: PremiumState) => {
+  const plan = state.entitlements.plan as keyof typeof FEATURE_LIMITS;
+  const limits = FEATURE_LIMITS[plan] || FEATURE_LIMITS.free;
+  return limits.canMessageBeforeMatch;
 };

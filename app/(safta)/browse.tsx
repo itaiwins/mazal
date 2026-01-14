@@ -26,85 +26,25 @@ import Animated, { FadeIn, FadeInDown, FadeInUp, SlideInRight } from 'react-nati
 import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius, shadows } from '@/theme/spacing';
+import { useAuthStore } from '@/stores/authStore';
+import { supabase } from '@/api/supabase/client';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Sample profiles - in production, this would come from Supabase
-const ALL_PROFILES = [
-  {
-    id: '1',
-    name: 'David',
-    age: 28,
-    occupation: 'Doctor',
-    jewish_background: 'Conservative',
-    location: 'New York, NY',
-    distance: 5,
-    photos: ['https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400'],
-    prompts: [
-      { question: 'My Shabbat looks like...', answer: 'Quality time with family and friends' },
-    ],
-  },
-  {
-    id: '2',
-    name: 'Michael',
-    age: 30,
-    occupation: 'Lawyer',
-    jewish_background: 'Modern Orthodox',
-    location: 'Brooklyn, NY',
-    distance: 8,
-    photos: ['https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400'],
-    prompts: [
-      { question: 'Best Jewish food take:', answer: 'Nothing beats homemade matzo ball soup' },
-    ],
-  },
-  {
-    id: '3',
-    name: 'Joshua',
-    age: 27,
-    occupation: 'Tech Entrepreneur',
-    jewish_background: 'Reform',
-    location: 'Manhattan, NY',
-    distance: 3,
-    photos: ['https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400'],
-    prompts: [
-      { question: 'Looking for someone who...', answer: 'Values family as much as I do' },
-    ],
-  },
-  {
-    id: '4',
-    name: 'Benjamin',
-    age: 32,
-    occupation: 'Investment Banker',
-    jewish_background: 'Orthodox',
-    location: 'Upper East Side, NY',
-    distance: 6,
-    photos: ['https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400'],
-    prompts: [
-      { question: 'A Jewish value that guides me...', answer: 'Tikkun Olam - repairing the world' },
-    ],
-  },
-  {
-    id: '5',
-    name: 'Ethan',
-    age: 26,
-    occupation: 'Software Engineer',
-    jewish_background: 'Conservative',
-    location: 'Jersey City, NJ',
-    distance: 12,
-    photos: ['https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=400'],
-    prompts: [
-      { question: 'My ideal first date...', answer: 'Coffee and a walk through Central Park' },
-    ],
-  },
-];
-
-// Grandchild's preferences (would come from their profile in production)
-const GRANDCHILD_PREFERENCES = {
-  minAge: 25,
-  maxAge: 35,
-  maxDistance: 50,
-  jewishBackgrounds: ['Conservative', 'Reform', 'Modern Orthodox'],
+// Profile type for browse
+type BrowseProfile = {
+  id: string;
+  name: string;
+  age: number;
+  occupation: string;
+  jewish_background: string;
+  location: string;
+  distance: number;
+  photos: string[];
+  prompts: { question: string; answer: string }[];
 };
+
+// Empty arrays - will be populated from Supabase when implemented
 
 const JEWISH_BACKGROUNDS = [
   'Reform',
@@ -118,6 +58,10 @@ const JEWISH_BACKGROUNDS = [
 export default function SaftaBrowseScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const isOnboardingComplete = useAuthStore((s) => s.isOnboardingComplete);
+  const setCurrentMode = useAuthStore((s) => s.setCurrentMode);
+  const logout = useAuthStore((s) => s.logout);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   // Filter state
   const [useGrandchildFilters, setUseGrandchildFilters] = useState(true);
@@ -135,24 +79,25 @@ export default function SaftaBrowseScreen() {
   const [recommendNote, setRecommendNote] = useState('');
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
 
+  // Profiles - empty until fetched from Supabase
+  const [profiles, setProfiles] = useState<BrowseProfile[]>([]);
+
   // Filter profiles based on current filter settings
   const filteredProfiles = useMemo(() => {
-    const filters = useGrandchildFilters
-      ? GRANDCHILD_PREFERENCES
-      : {
-          minAge: customMinAge,
-          maxAge: customMaxAge,
-          maxDistance: customMaxDistance,
-          jewishBackgrounds: customBackgrounds,
-        };
+    const filters = {
+      minAge: customMinAge,
+      maxAge: customMaxAge,
+      maxDistance: customMaxDistance,
+      jewishBackgrounds: customBackgrounds,
+    };
 
-    return ALL_PROFILES.filter((profile) => {
+    return profiles.filter((profile) => {
       const ageMatch = profile.age >= filters.minAge && profile.age <= filters.maxAge;
       const distanceMatch = profile.distance <= filters.maxDistance;
       const backgroundMatch = filters.jewishBackgrounds.includes(profile.jewish_background);
       return ageMatch && distanceMatch && backgroundMatch;
     });
-  }, [useGrandchildFilters, customMinAge, customMaxAge, customMaxDistance, customBackgrounds]);
+  }, [profiles, customMinAge, customMaxAge, customMaxDistance, customBackgrounds]);
 
   const currentProfile = filteredProfiles[currentIndex];
 
@@ -203,6 +148,26 @@ export default function SaftaBrowseScreen() {
     router.back();
   };
 
+  const handleSwitchToUserMode = () => {
+    setShowSettingsModal(false);
+    if (isOnboardingComplete) {
+      // User has completed regular onboarding, go to tabs
+      setCurrentMode('user');
+      router.replace('/(tabs)');
+    } else {
+      // User needs to complete regular onboarding first
+      setCurrentMode('user');
+      router.replace('/(onboarding)/welcome');
+    }
+  };
+
+  const handleLogout = async () => {
+    setShowSettingsModal(false);
+    await supabase.auth.signOut();
+    logout();
+    router.replace('/(auth)/welcome');
+  };
+
   return (
     <View
       style={[
@@ -215,8 +180,8 @@ export default function SaftaBrowseScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={handleBack}>
-          <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
+        <Pressable style={styles.menuButton} onPress={() => setShowSettingsModal(true)}>
+          <Ionicons name="menu" size={28} color={theme.colors.text} />
         </Pressable>
         <View style={styles.headerCenter}>
           <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
@@ -567,16 +532,10 @@ export default function SaftaBrowseScreen() {
             {useGrandchildFilters && (
               <View style={[styles.preferencesPreview, { backgroundColor: colors.transparent.gold20 }]}>
                 <Text style={[styles.preferencesTitle, { color: theme.colors.text }]}>
-                  Sarah's Current Preferences
+                  Connected User's Preferences
                 </Text>
                 <Text style={[styles.preferencesDetail, { color: theme.colors.textSecondary }]}>
-                  Age: {GRANDCHILD_PREFERENCES.minAge} - {GRANDCHILD_PREFERENCES.maxAge}
-                </Text>
-                <Text style={[styles.preferencesDetail, { color: theme.colors.textSecondary }]}>
-                  Distance: Up to {GRANDCHILD_PREFERENCES.maxDistance} miles
-                </Text>
-                <Text style={[styles.preferencesDetail, { color: theme.colors.textSecondary }]}>
-                  Background: {GRANDCHILD_PREFERENCES.jewishBackgrounds.join(', ')}
+                  No connected users yet. Connect with a grandchild to use their preferences.
                 </Text>
               </View>
             )}
@@ -586,6 +545,80 @@ export default function SaftaBrowseScreen() {
             <Pressable style={styles.applyButton} onPress={handleApplyFilters}>
               <Text style={styles.applyButtonText}>Apply Filters</Text>
             </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Settings Modal */}
+      <Modal
+        visible={showSettingsModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowSettingsModal(false)}
+      >
+        <View
+          style={[
+            styles.modalContainer,
+            { backgroundColor: theme.colors.background },
+          ]}
+        >
+          <View style={styles.modalHeader}>
+            <Pressable onPress={() => setShowSettingsModal(false)}>
+              <Ionicons name="close" size={28} color={theme.colors.text} />
+            </Pressable>
+            <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
+              Safta Settings
+            </Text>
+            <View style={{ width: 28 }} />
+          </View>
+
+          <View style={styles.settingsModalContent}>
+            {/* Switch to User Mode */}
+            <Pressable
+              style={styles.settingsOption}
+              onPress={handleSwitchToUserMode}
+            >
+              <View style={styles.settingsOptionIcon}>
+                <Ionicons name="heart" size={24} color={colors.primary.gold} />
+              </View>
+              <View style={styles.settingsOptionText}>
+                <Text style={[styles.settingsOptionTitle, { color: theme.colors.text }]}>
+                  Switch to Dating Mode
+                </Text>
+                <Text style={[styles.settingsOptionDesc, { color: theme.colors.textSecondary }]}>
+                  {isOnboardingComplete
+                    ? 'Browse profiles for yourself'
+                    : 'Set up your dating profile'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color={colors.neutral[400]} />
+            </Pressable>
+
+            {/* Divider */}
+            <View style={[styles.settingsDivider, { backgroundColor: colors.neutral[100] }]} />
+
+            {/* Logout */}
+            <Pressable
+              style={styles.settingsOption}
+              onPress={handleLogout}
+            >
+              <View style={[styles.settingsOptionIcon, { backgroundColor: colors.transparent.white10 }]}>
+                <Ionicons name="log-out-outline" size={24} color={colors.semantic.error} />
+              </View>
+              <View style={styles.settingsOptionText}>
+                <Text style={[styles.settingsOptionTitle, { color: colors.semantic.error }]}>
+                  Log Out
+                </Text>
+              </View>
+            </Pressable>
+          </View>
+
+          {/* Safta badge */}
+          <View style={styles.saftaBadge}>
+            <Text style={styles.saftaBadgeEmoji}>👵👴</Text>
+            <Text style={[styles.saftaBadgeText, { color: theme.colors.textSecondary }]}>
+              You're in Safta Mode
+            </Text>
           </View>
         </View>
       </Modal>
@@ -604,7 +637,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4],
     height: 56,
   },
-  backButton: {
+  menuButton: {
     width: 44,
     height: 44,
     justifyContent: 'center',
@@ -940,5 +973,52 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: colors.primary.navy,
+  },
+  // Settings Modal styles
+  settingsModalContent: {
+    padding: spacing[4],
+  },
+  settingsOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing[4],
+    gap: spacing[4],
+  },
+  settingsOptionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.transparent.gold20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  settingsOptionText: {
+    flex: 1,
+  },
+  settingsOptionTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  settingsOptionDesc: {
+    fontSize: 14,
+    marginTop: spacing[0.5],
+  },
+  settingsDivider: {
+    height: 1,
+    marginVertical: spacing[2],
+  },
+  saftaBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing[2],
+    marginTop: 'auto',
+    paddingVertical: spacing[6],
+  },
+  saftaBadgeEmoji: {
+    fontSize: 24,
+  },
+  saftaBadgeText: {
+    fontSize: 14,
   },
 });

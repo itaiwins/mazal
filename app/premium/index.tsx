@@ -4,7 +4,7 @@
  * Subscription screen with tier comparison
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,83 +15,157 @@ import {
   Alert,
   Platform,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { PurchasesPackage } from 'react-native-purchases';
+import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
-import { spacing, borderRadius, shadows } from '@/theme/spacing';
-import { usePremium } from '@/features/premium/hooks/usePremium';
-import { PREMIUM_FEATURES, ENTITLEMENTS } from '@/lib/config/revenuecat';
+import { spacing, borderRadius } from '@/theme/spacing';
+import { usePremiumStore } from '@/stores/premiumStore';
+import {
+  PRICING,
+  PREMIUM_FEATURES,
+  ENTITLEMENTS,
+  PLAN_COMPARISON,
+  purchasePackage,
+  restorePurchases,
+  getOfferings,
+} from '@/lib/config/revenuecat';
+import type { PurchasesPackage } from 'react-native-purchases';
 
 type PlanType = 'gold' | 'platinum';
 type BillingPeriod = 'monthly' | 'yearly';
 
-const MOCK_PACKAGES = {
-  gold: {
-    monthly: { price: '$19.99', period: '/month', savings: null },
-    yearly: { price: '$149.99', period: '/year', savings: 'Save 37%' },
-  },
-  platinum: {
-    monthly: { price: '$34.99', period: '/month', savings: null },
-    yearly: { price: '$249.99', period: '/year', savings: 'Save 40%' },
-  },
-};
-
 export default function PremiumPaywallScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const { packages, isLoading, purchase, restore } = usePremium();
+  const params = useLocalSearchParams<{ plan?: string; reason?: string }>();
 
-  const [selectedPlan, setSelectedPlan] = useState<PlanType>('gold');
+  const hidePaywall = usePremiumStore((s) => s.hidePaywallModal);
+  const setEntitlements = usePremiumStore((s) => s.setEntitlements);
+
+  const [selectedPlan, setSelectedPlan] = useState<PlanType>(
+    (params.plan as PlanType) || 'gold'
+  );
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('yearly');
   const [isPurchasing, setIsPurchasing] = useState(false);
+  const [packages, setPackages] = useState<PurchasesPackage[]>([]);
+
+  useEffect(() => {
+    loadOfferings();
+  }, []);
+
+  const loadOfferings = async () => {
+    try {
+      const offerings = await getOfferings();
+      setPackages(offerings);
+    } catch (error) {
+      console.error('Failed to load offerings:', error);
+    }
+  };
 
   const currentFeatures = PREMIUM_FEATURES[
     selectedPlan === 'gold' ? ENTITLEMENTS.GOLD : ENTITLEMENTS.PLATINUM
   ];
 
+  const pricing = selectedPlan === 'gold' ? PRICING.gold : PRICING.platinum;
+
   const handlePurchase = async () => {
-    // In production, find the right package and purchase
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setIsPurchasing(true);
+
     try {
-      // Simulate purchase for demo
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      Alert.alert(
-        'Purchase Successful!',
-        `Welcome to Mazal ${selectedPlan === 'gold' ? 'Gold' : 'Platinum'}!`,
-        [{ text: 'OK', onPress: () => router.back() }]
-      );
-    } catch (error) {
-      Alert.alert('Error', 'Purchase failed. Please try again.');
+      // Find the right package based on selection
+      const productId = `mazal_${selectedPlan}_${billingPeriod}`;
+      const pkg = packages.find((p) => p.product.identifier === productId);
+
+      if (!pkg) {
+        // For development/testing without RevenueCat configured
+        Alert.alert(
+          'Demo Mode',
+          `In production, this would purchase Mazal ${selectedPlan.charAt(0).toUpperCase() + selectedPlan.slice(1)} (${billingPeriod}).\n\nPrice: ${billingPeriod === 'yearly' ? pricing.yearly.displayPrice : pricing.monthly.displayPrice}`,
+          [{ text: 'OK' }]
+        );
+        setIsPurchasing(false);
+        return;
+      }
+
+      const customerInfo = await purchasePackage(pkg);
+
+      if (customerInfo) {
+        const isGold = customerInfo.entitlements.active[ENTITLEMENTS.GOLD]?.isActive;
+        const isPlatinum = customerInfo.entitlements.active[ENTITLEMENTS.PLATINUM]?.isActive;
+
+        if (isPlatinum) {
+          setEntitlements({
+            isPremium: true,
+            plan: 'mazal_platinum',
+            features: ['see_likes', 'unlimited_swipes', 'super_likes', 'rewind', 'boost', 'read_receipts', 'advanced_filters', 'message_before_match'],
+            superLikesRemaining: 5,
+            boostsRemaining: 1,
+            expiresAt: customerInfo.entitlements.active[ENTITLEMENTS.PLATINUM]?.expirationDate ?? undefined,
+          });
+        } else if (isGold) {
+          setEntitlements({
+            isPremium: true,
+            plan: 'mazal_gold',
+            features: ['see_likes', 'unlimited_swipes', 'super_likes', 'rewind', 'read_receipts', 'advanced_filters'],
+            superLikesRemaining: 5,
+            boostsRemaining: 0,
+            expiresAt: customerInfo.entitlements.active[ENTITLEMENTS.GOLD]?.expirationDate ?? undefined,
+          });
+        }
+
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert(
+          'Welcome to Mazal Premium!',
+          'Your subscription is now active. Enjoy all the premium features!',
+          [{ text: 'Let\'s Go!', onPress: () => router.back() }]
+        );
+      }
+    } catch (error: any) {
+      if (!error.userCancelled) {
+        Alert.alert('Purchase Failed', 'Something went wrong. Please try again.');
+      }
     } finally {
       setIsPurchasing(false);
     }
   };
 
   const handleRestore = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setIsPurchasing(true);
+
     try {
-      const success = await restore();
-      if (success) {
-        Alert.alert('Restored!', 'Your purchases have been restored.');
-      } else {
-        Alert.alert('No Purchases', 'No previous purchases found.');
+      const customerInfo = await restorePurchases();
+
+      if (customerInfo) {
+        const isGold = customerInfo.entitlements.active[ENTITLEMENTS.GOLD]?.isActive;
+        const isPlatinum = customerInfo.entitlements.active[ENTITLEMENTS.PLATINUM]?.isActive;
+
+        if (isPlatinum || isGold) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          Alert.alert('Restored!', 'Your subscription has been restored.', [
+            { text: 'OK', onPress: () => router.back() }
+          ]);
+        } else {
+          Alert.alert('No Subscription Found', 'We couldn\'t find an active subscription to restore.');
+        }
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to restore purchases.');
+      Alert.alert('Restore Failed', 'Something went wrong. Please try again.');
     } finally {
       setIsPurchasing(false);
     }
   };
 
   const handleClose = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    hidePaywall();
     router.back();
   };
-
-  const pricing = MOCK_PACKAGES[selectedPlan][billingPeriod];
 
   return (
     <View
@@ -103,10 +177,15 @@ export default function PremiumPaywallScreen() {
         },
       ]}
     >
-      {/* Close Button */}
-      <Pressable style={styles.closeButton} onPress={handleClose}>
-        <Ionicons name="close" size={28} color={colors.primary.white} />
-      </Pressable>
+      {/* Header */}
+      <View style={styles.header}>
+        <Pressable style={styles.closeButton} onPress={handleClose}>
+          <Ionicons name="close" size={28} color={colors.primary.white} />
+        </Pressable>
+        <Pressable style={styles.restoreHeaderButton} onPress={handleRestore}>
+          <Text style={styles.restoreHeaderText}>Restore</Text>
+        </Pressable>
+      </View>
 
       <ScrollView
         style={styles.content}
@@ -116,19 +195,32 @@ export default function PremiumPaywallScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
+        {/* Hero */}
         <Animated.View
           entering={FadeInUp.delay(100).springify()}
-          style={styles.header}
+          style={styles.hero}
         >
           <View style={styles.starBadge}>
-            <Ionicons name="star" size={32} color={colors.primary.gold} />
+            <Ionicons
+              name={selectedPlan === 'platinum' ? 'diamond' : 'star'}
+              size={32}
+              color={colors.primary.gold}
+            />
           </View>
-          <Text style={styles.title}>Upgrade to Premium</Text>
-          <Text style={styles.subtitle}>
-            Get more matches and find your bashert faster
-          </Text>
+          <Text style={styles.title}>{currentFeatures.name}</Text>
+          <Text style={styles.subtitle}>{currentFeatures.tagline}</Text>
         </Animated.View>
+
+        {/* Reason Banner */}
+        {params.reason && (
+          <Animated.View
+            entering={FadeInDown.delay(150).springify()}
+            style={styles.reasonBanner}
+          >
+            <Ionicons name="information-circle" size={20} color={colors.primary.gold} />
+            <Text style={styles.reasonText}>{params.reason}</Text>
+          </Animated.View>
+        )}
 
         {/* Plan Selector */}
         <Animated.View
@@ -140,7 +232,10 @@ export default function PremiumPaywallScreen() {
               styles.planTab,
               selectedPlan === 'gold' && styles.planTabActive,
             ]}
-            onPress={() => setSelectedPlan('gold')}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setSelectedPlan('gold');
+            }}
           >
             <Ionicons
               name="star"
@@ -161,7 +256,10 @@ export default function PremiumPaywallScreen() {
               styles.planTab,
               selectedPlan === 'platinum' && styles.planTabActive,
             ]}
-            onPress={() => setSelectedPlan('platinum')}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setSelectedPlan('platinum');
+            }}
           >
             <Ionicons
               name="diamond"
@@ -184,7 +282,7 @@ export default function PremiumPaywallScreen() {
           entering={FadeInDown.delay(300).springify()}
           style={styles.features}
         >
-          {currentFeatures.features.map((feature, index) => (
+          {currentFeatures.features.map((feature) => (
             <View key={feature.id} style={styles.featureItem}>
               <View style={styles.featureIcon}>
                 <Ionicons
@@ -194,6 +292,7 @@ export default function PremiumPaywallScreen() {
                 />
               </View>
               <Text style={styles.featureText}>{feature.label}</Text>
+              <Ionicons name="checkmark-circle" size={22} color={colors.semantic.success} />
             </View>
           ))}
         </Animated.View>
@@ -203,22 +302,22 @@ export default function PremiumPaywallScreen() {
           entering={FadeInDown.delay(400).springify()}
           style={styles.billingSection}
         >
-          <Text style={styles.billingLabel}>Choose your plan</Text>
+          <Text style={styles.billingLabel}>Choose your billing</Text>
           <View style={styles.billingOptions}>
+            {/* Yearly Option */}
             <Pressable
               style={[
                 styles.billingOption,
                 billingPeriod === 'yearly' && styles.billingOptionActive,
               ]}
-              onPress={() => setBillingPeriod('yearly')}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setBillingPeriod('yearly');
+              }}
             >
-              {MOCK_PACKAGES[selectedPlan].yearly.savings && (
-                <View style={styles.savingsBadge}>
-                  <Text style={styles.savingsText}>
-                    {MOCK_PACKAGES[selectedPlan].yearly.savings}
-                  </Text>
-                </View>
-              )}
+              <View style={styles.savingsBadge}>
+                <Text style={styles.savingsText}>SAVE {pricing.yearly.savings}</Text>
+              </View>
               <Text
                 style={[
                   styles.billingPeriodText,
@@ -233,16 +332,23 @@ export default function PremiumPaywallScreen() {
                   billingPeriod === 'yearly' && styles.billingPriceActive,
                 ]}
               >
-                {MOCK_PACKAGES[selectedPlan].yearly.price}
+                {pricing.yearly.displayPrice}
+              </Text>
+              <Text style={styles.billingSubtext}>
+                {pricing.yearly.monthlyEquivalent}/month
               </Text>
             </Pressable>
 
+            {/* Monthly Option */}
             <Pressable
               style={[
                 styles.billingOption,
                 billingPeriod === 'monthly' && styles.billingOptionActive,
               ]}
-              onPress={() => setBillingPeriod('monthly')}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setBillingPeriod('monthly');
+              }}
             >
               <Text
                 style={[
@@ -258,9 +364,72 @@ export default function PremiumPaywallScreen() {
                   billingPeriod === 'monthly' && styles.billingPriceActive,
                 ]}
               >
-                {MOCK_PACKAGES[selectedPlan].monthly.price}
+                {pricing.monthly.displayPrice}
               </Text>
+              <Text style={styles.billingSubtext}>/month</Text>
             </Pressable>
+          </View>
+        </Animated.View>
+
+        {/* Comparison Table */}
+        <Animated.View
+          entering={FadeInDown.delay(450).springify()}
+          style={styles.comparisonSection}
+        >
+          <Text style={styles.comparisonTitle}>Compare Plans</Text>
+          <View style={styles.comparisonTable}>
+            {/* Header Row */}
+            <View style={styles.comparisonHeader}>
+              <Text style={[styles.comparisonHeaderText, { flex: 1.5 }]}>Feature</Text>
+              <Text style={styles.comparisonHeaderText}>Free</Text>
+              <Text style={[styles.comparisonHeaderText, { color: colors.primary.gold }]}>Gold</Text>
+              <Text style={[styles.comparisonHeaderText, { color: colors.semantic.info }]}>Plat</Text>
+            </View>
+            {/* Rows */}
+            {PLAN_COMPARISON.slice(0, 6).map((row, index) => (
+              <View
+                key={row.feature}
+                style={[
+                  styles.comparisonRow,
+                  index === 5 && styles.comparisonRowLast,
+                ]}
+              >
+                <Text style={[styles.comparisonFeature, { flex: 1.5 }]}>{row.feature}</Text>
+                <View style={styles.comparisonValue}>
+                  {typeof row.free === 'boolean' ? (
+                    <Ionicons
+                      name={row.free ? 'checkmark' : 'close'}
+                      size={16}
+                      color={row.free ? colors.semantic.success : colors.neutral[500]}
+                    />
+                  ) : (
+                    <Text style={styles.comparisonValueText}>{row.free}</Text>
+                  )}
+                </View>
+                <View style={styles.comparisonValue}>
+                  {typeof row.gold === 'boolean' ? (
+                    <Ionicons
+                      name={row.gold ? 'checkmark' : 'close'}
+                      size={16}
+                      color={row.gold ? colors.semantic.success : colors.neutral[500]}
+                    />
+                  ) : (
+                    <Text style={[styles.comparisonValueText, { color: colors.primary.gold }]}>{row.gold}</Text>
+                  )}
+                </View>
+                <View style={styles.comparisonValue}>
+                  {typeof row.platinum === 'boolean' ? (
+                    <Ionicons
+                      name={row.platinum ? 'checkmark' : 'close'}
+                      size={16}
+                      color={row.platinum ? colors.semantic.success : colors.neutral[500]}
+                    />
+                  ) : (
+                    <Text style={[styles.comparisonValueText, { color: colors.semantic.info }]}>{row.platinum}</Text>
+                  )}
+                </View>
+              </View>
+            ))}
           </View>
         </Animated.View>
 
@@ -276,22 +445,21 @@ export default function PremiumPaywallScreen() {
             ) : (
               <>
                 <Text style={styles.ctaText}>
-                  Get {currentFeatures.name} for {pricing.price}
-                  {pricing.period}
+                  Get {currentFeatures.name}
+                </Text>
+                <Text style={styles.ctaPrice}>
+                  {billingPeriod === 'yearly'
+                    ? `${pricing.yearly.displayPrice}/year`
+                    : `${pricing.monthly.displayPrice}/month`}
                 </Text>
               </>
             )}
           </Pressable>
 
-          <Pressable style={styles.restoreButton} onPress={handleRestore}>
-            <Text style={styles.restoreText}>Restore Purchases</Text>
-          </Pressable>
-
           <Text style={styles.legalText}>
-            Payment will be charged to your {' '}
-            {Platform.OS === 'ios' ? 'Apple ID' : 'Google Play'} account.
+            Payment will be charged to your {Platform.OS === 'ios' ? 'Apple ID' : 'Google Play'} account.
             Subscription automatically renews unless cancelled at least 24
-            hours before the end of the current period.
+            hours before the end of the current period. Manage subscriptions in your device settings.
           </Text>
         </Animated.View>
       </ScrollView>
@@ -303,26 +471,37 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing[4],
+    marginBottom: spacing[2],
+  },
   closeButton: {
-    position: 'absolute',
-    top: 60,
-    left: spacing[4],
-    zIndex: 10,
     width: 44,
     height: 44,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  restoreHeaderButton: {
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+  },
+  restoreHeaderText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.primary.gold,
+  },
   content: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: spacing[6],
-    paddingTop: spacing[16],
+    paddingHorizontal: spacing[5],
   },
-  header: {
+  hero: {
     alignItems: 'center',
-    marginBottom: spacing[8],
+    marginBottom: spacing[6],
   },
   starBadge: {
     width: 64,
@@ -343,6 +522,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.transparent.white80,
     textAlign: 'center',
+  },
+  reasonBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    backgroundColor: colors.transparent.gold10,
+    padding: spacing[3],
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing[4],
+  },
+  reasonText: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.primary.white,
   },
   planSelector: {
     flexDirection: 'row',
@@ -372,13 +565,13 @@ const styles = StyleSheet.create({
     color: colors.primary.navy,
   },
   features: {
-    gap: spacing[4],
-    marginBottom: spacing[8],
+    gap: spacing[3],
+    marginBottom: spacing[6],
   },
   featureItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing[4],
+    gap: spacing[3],
   },
   featureIcon: {
     width: 40,
@@ -389,7 +582,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   featureText: {
-    fontSize: 16,
+    fontSize: 15,
     color: colors.primary.white,
     flex: 1,
   },
@@ -397,7 +590,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing[6],
   },
   billingLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: colors.transparent.white60,
     textTransform: 'uppercase',
@@ -412,14 +605,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.transparent.white10,
     padding: spacing[4],
-    borderRadius: borderRadius.lg,
+    borderRadius: borderRadius.xl,
     alignItems: 'center',
     borderWidth: 2,
     borderColor: 'transparent',
+    position: 'relative',
   },
   billingOptionActive: {
     borderColor: colors.primary.gold,
-    backgroundColor: colors.transparent.gold20,
+    backgroundColor: colors.transparent.gold10,
   },
   savingsBadge: {
     position: 'absolute',
@@ -427,10 +621,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.semantic.success,
     paddingHorizontal: spacing[2],
     paddingVertical: spacing[1],
-    borderRadius: borderRadius.sm,
+    borderRadius: borderRadius.full,
   },
   savingsText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     color: colors.primary.white,
   },
@@ -443,37 +637,90 @@ const styles = StyleSheet.create({
     color: colors.primary.white,
   },
   billingPrice: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
     color: colors.transparent.white80,
   },
   billingPriceActive: {
     color: colors.primary.gold,
   },
+  billingSubtext: {
+    fontSize: 12,
+    color: colors.transparent.white50,
+    marginTop: spacing[0.5],
+  },
+  comparisonSection: {
+    marginBottom: spacing[6],
+  },
+  comparisonTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.primary.white,
+    marginBottom: spacing[3],
+  },
+  comparisonTable: {
+    backgroundColor: colors.transparent.white10,
+    borderRadius: borderRadius.xl,
+    overflow: 'hidden',
+  },
+  comparisonHeader: {
+    flexDirection: 'row',
+    paddingVertical: spacing[3],
+    paddingHorizontal: spacing[3],
+    borderBottomWidth: 1,
+    borderBottomColor: colors.transparent.white10,
+  },
+  comparisonHeaderText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.transparent.white60,
+    textAlign: 'center',
+  },
+  comparisonRow: {
+    flexDirection: 'row',
+    paddingVertical: spacing[2.5],
+    paddingHorizontal: spacing[3],
+    borderBottomWidth: 1,
+    borderBottomColor: colors.transparent.white10,
+  },
+  comparisonRowLast: {
+    borderBottomWidth: 0,
+  },
+  comparisonFeature: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.primary.white,
+  },
+  comparisonValue: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  comparisonValueText: {
+    fontSize: 11,
+    color: colors.transparent.white60,
+  },
   ctaButton: {
     backgroundColor: colors.primary.gold,
     paddingVertical: spacing[4],
     borderRadius: borderRadius.xl,
     alignItems: 'center',
-    marginBottom: spacing[3],
+    marginBottom: spacing[4],
   },
   ctaButtonDisabled: {
     opacity: 0.7,
   },
   ctaText: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.primary.navy,
   },
-  restoreButton: {
-    alignItems: 'center',
-    paddingVertical: spacing[2],
-    marginBottom: spacing[4],
-  },
-  restoreText: {
+  ctaPrice: {
     fontSize: 14,
-    color: colors.transparent.white60,
-    textDecorationLine: 'underline',
+    color: colors.primary.navy,
+    opacity: 0.8,
+    marginTop: spacing[0.5],
   },
   legalText: {
     fontSize: 11,

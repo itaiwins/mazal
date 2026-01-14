@@ -5,7 +5,7 @@
  */
 
 export const APP_NAME = 'Mazal';
-export const APP_TAGLINE = 'Where Destiny Swipes Right';
+export const APP_TAGLINE = "L'chaim to love";
 
 // Pagination
 export const DEFAULT_PAGE_SIZE = 20;

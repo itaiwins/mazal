@@ -22,32 +22,25 @@ import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 
-// Sample blocked users for demo
-const SAMPLE_BLOCKED = [
-  {
-    id: '1',
-    name: 'Alex',
-    photo: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200',
-    blockedAt: '2024-01-15',
-  },
-  {
-    id: '2',
-    name: 'Jordan',
-    photo: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200',
-    blockedAt: '2024-01-10',
-  },
-];
+// Blocked user type
+type BlockedUser = {
+  id: string;
+  name: string;
+  photo: string;
+  blockedAt: string;
+};
 
 export default function BlockedUsersScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const [blockedUsers, setBlockedUsers] = useState(SAMPLE_BLOCKED);
+  // Empty array - will be populated from Supabase when the feature is implemented
+  const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
 
   const handleBack = () => {
     router.back();
   };
 
-  const handleUnblock = (user: typeof SAMPLE_BLOCKED[0]) => {
+  const handleUnblock = (user: BlockedUser) => {
     Alert.alert(
       'Unblock User',
       `Are you sure you want to unblock ${user.name}? They will be able to see your profile and message you again.`,

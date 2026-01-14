@@ -28,18 +28,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useUserProfile } from '@/api/queries';
 import { useUpdateProfile, useUpdatePhotos, useUpdatePrompts } from '@/api/mutations';
 import { usePhotoUpload } from '@/api/storage';
-
-// Available prompts
-const AVAILABLE_PROMPTS = [
-  { id: 'shabbat', text: 'My ideal Shabbat dinner includes...' },
-  { id: 'jewish_value', text: 'A Jewish value that guides my life...' },
-  { id: 'family_tradition', text: 'My favorite family tradition is...' },
-  { id: 'perfect_date', text: 'A perfect first date would be...' },
-  { id: 'fun_fact', text: "Something you wouldn't guess about me..." },
-  { id: 'looking_for', text: "I'm looking for someone who..." },
-  { id: 'travel', text: 'My dream Jewish heritage trip would be...' },
-  { id: 'food', text: 'My go-to comfort food is...' },
-];
+import { PROFILE_PROMPTS, getPromptById } from '@/lib/constants/prompts';
 
 interface PhotoSlot {
   id: string;
@@ -65,7 +54,7 @@ export default function ProfileEditScreen() {
   const updateProfile = useUpdateProfile();
   const updatePhotos = useUpdatePhotos();
   const updatePrompts = useUpdatePrompts();
-  const { uploadPhoto, isUploading: photoUploading, deletePhoto } = usePhotoUpload();
+  const { pickAndUploadPhoto, isUploading: photoUploading, deletePhoto } = usePhotoUpload();
 
   // Local state
   const [photos, setPhotos] = useState<PhotoSlot[]>([]);
@@ -106,7 +95,7 @@ export default function ProfileEditScreen() {
         setPrompts(
           profile.prompts.map((p) => ({
             prompt_id: p.prompt_id,
-            prompt_text: AVAILABLE_PROMPTS.find((ap) => ap.id === p.prompt_id)?.text || '',
+            prompt_text: getPromptById(p.prompt_id)?.text || p.prompt_id,
             answer: p.answer,
             display_order: p.display_order,
           }))
@@ -131,7 +120,7 @@ export default function ProfileEditScreen() {
     }
     setPhotos(newPhotos);
 
-    const url = await uploadPhoto('');
+    const url = await pickAndUploadPhoto();
 
     if (url) {
       setPhotos((prev) => {
@@ -147,7 +136,7 @@ export default function ProfileEditScreen() {
       });
       setHasChanges(true);
     } else {
-      // Remove temp slot if upload failed
+      // Remove temp slot if upload failed or cancelled
       setPhotos((prev) => prev.filter((p) => p.id !== tempId && !p.isUploading));
     }
   };
@@ -508,7 +497,7 @@ export default function ProfileEditScreen() {
               Choose a prompt
             </Text>
 
-            {AVAILABLE_PROMPTS.filter(
+            {PROFILE_PROMPTS.filter(
               (p) => !prompts.some((ep) => ep.prompt_id === p.id) || editingPrompt?.prompt_id === p.id
             ).map((prompt) => (
               <Pressable

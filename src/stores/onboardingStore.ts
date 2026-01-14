@@ -72,6 +72,7 @@ interface OnboardingState {
 
   updateRelationshipGoals: (data: {
     looking_for?: LookingFor | null;
+    gender_preference?: Gender[];
     wants_children?: WantsChildren | null;
     partner_must_be_jewish?: boolean;
     raise_children_jewish?: boolean;

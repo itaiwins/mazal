@@ -133,6 +133,10 @@ CREATE POLICY "Users can update own badges"
   ON user_badges FOR UPDATE
   USING (user_id = (SELECT id FROM users WHERE auth_id = auth.uid()));
 
+CREATE POLICY "Users can delete own badges"
+  ON user_badges FOR DELETE
+  USING (user_id = (SELECT id FROM users WHERE auth_id = auth.uid()));
+
 -- =====================================================
 -- SWIPES POLICIES
 -- =====================================================

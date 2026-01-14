@@ -34,7 +34,7 @@ import { spacing, borderRadius } from '@/theme/spacing';
 import { useOnboardingStore } from '@/stores/onboardingStore';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/api/supabase/client';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { decode } from 'base64-arraybuffer';
 
 // FileSystem encoding type
@@ -110,17 +110,82 @@ export default function CompleteScreen() {
     setIsSaving(true);
 
     try {
-      // Get the authenticated user
-      const { data: authData, error: authError } = await supabase.auth.getUser();
+      console.log('[Complete] Starting profile save...');
 
-      if (authError || !authData.user) {
-        console.error('Error getting auth user:', authError);
-        Alert.alert('Error', 'Could not verify your account. Please try again.');
+      // Get auth from session with retry logic
+      console.log('[Complete] Getting session...');
+      let authUser = null;
+      let retries = 3;
+
+      while (retries > 0 && !authUser) {
+        try {
+          const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+
+          if (sessionError) {
+            console.log('[Complete] Session error:', sessionError.message);
+            throw sessionError;
+          }
+
+          if (sessionData?.session?.user) {
+            authUser = sessionData.session.user;
+            break;
+          }
+
+          // If no session, wait and retry
+          console.log('[Complete] No session yet, retrying... (' + retries + ' left)');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          retries--;
+        } catch (e: any) {
+          console.log('[Complete] Session attempt failed:', e.message);
+          retries--;
+          if (retries > 0) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+      }
+
+      console.log('[Complete] Session result:', !!authUser);
+
+      if (!authUser) {
+        console.error('[Complete] No session found after retries');
+        Alert.alert('Error', 'Could not verify your account. Please try logging in again.');
         setIsSaving(false);
         return;
       }
 
-      const authId = authData.user.id;
+      const authId = authUser.id;
+      console.log('[Complete] Got auth user:', authId);
+      console.log('[Complete] Auth user email:', authUser.email);
+      console.log('[Complete] Auth user created_at:', authUser.created_at);
+
+      // Verify the auth user actually exists by calling getUser
+      const { data: verifyUser, error: verifyError } = await supabase.auth.getUser();
+      console.log('[Complete] Verify user result:', verifyUser?.user?.id, verifyError?.message);
+
+      if (verifyError || !verifyUser?.user) {
+        console.error('[Complete] Auth user verification failed:', verifyError?.message);
+
+        // The auth user was likely deleted - sign out and redirect to login
+        console.log('[Complete] Signing out stale session...');
+        await supabase.auth.signOut();
+
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please sign in again.',
+          [{ text: 'OK', onPress: () => router.replace('/') }]
+        );
+        setIsSaving(false);
+        return;
+      }
+
+      // Use the verified user ID to be safe
+      const verifiedAuthId = verifyUser.user.id;
+      if (verifiedAuthId !== authId) {
+        console.warn('[Complete] Auth ID mismatch - using verified ID');
+      }
+
+      // Small delay to ensure auth.users entry is fully committed
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       // Calculate age from date of birth
       const calculateAge = (dob: Date | null): number | null => {
@@ -146,8 +211,8 @@ export default function CompleteScreen() {
 
       // Create or update user profile in Supabase
       const profileData = {
-        auth_id: authId,
-        email: authData.user.email || `${authId}@mazal.app`,
+        auth_id: verifiedAuthId,
+        email: authUser.email || `${verifiedAuthId}@mazal.app`,
         first_name: firstName,
         display_name: firstName, // Required NOT NULL field
         date_of_birth: dateOfBirth,
@@ -179,22 +244,94 @@ export default function CompleteScreen() {
         is_active: true,
       };
 
-      // Upsert user profile (insert or update if exists)
-      const { data: userData, error: userError } = await supabase
+      console.log('[Complete] Saving profile to database...', JSON.stringify(profileData, null, 2));
+
+      // Check if user already exists
+      const { data: existingUser, error: checkError } = await supabase
         .from('users')
-        .upsert(profileData, { onConflict: 'auth_id' })
-        .select()
-        .single();
+        .select('id')
+        .eq('auth_id', verifiedAuthId)
+        .maybeSingle();
+
+      console.log('[Complete] Existing user check:', existingUser, checkError?.message);
+
+      let userData;
+      let userError;
+
+      if (existingUser) {
+        // Update existing user
+        console.log('[Complete] Updating existing user:', existingUser.id);
+        const { data, error } = await supabase
+          .from('users')
+          .update(profileData)
+          .eq('auth_id', verifiedAuthId)
+          .select()
+          .single();
+        userData = data;
+        userError = error;
+      } else {
+        // Insert new user
+        console.log('[Complete] Inserting new user with auth_id:', verifiedAuthId);
+
+        const { data, error } = await supabase
+          .from('users')
+          .insert(profileData)
+          .select()
+          .single();
+        userData = data;
+        userError = error;
+
+        // If insert fails with foreign key error, retry after a delay
+        // This handles potential timing issues with auth.users replication
+        if (userError && userError.code === '23503') {
+          console.log('[Complete] Insert failed with FK error, retrying after delay...');
+
+          // Wait longer for the auth.users entry to be committed
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
+          const retryResult = await supabase
+            .from('users')
+            .insert(profileData)
+            .select()
+            .single();
+
+          if (!retryResult.error) {
+            userData = retryResult.data;
+            userError = null;
+            console.log('[Complete] Retry successful!');
+          } else {
+            console.error('[Complete] Retry also failed:', retryResult.error.message, retryResult.error.code);
+          }
+        }
+      }
 
       if (userError) {
-        console.error('Error saving profile:', userError);
-        Alert.alert('Error', 'Could not save your profile. Please try again.');
+        console.error('[Complete] Error saving profile:', userError.message, userError.code, userError.details, userError.hint);
+
+        // More specific error messages
+        let errorMessage = userError.message;
+        if (userError.code === '23503') {
+          errorMessage = 'Account sync issue. Please close the app completely and try signing up again.';
+        } else if (userError.code === '23505') {
+          errorMessage = 'A profile already exists. Please try logging in instead.';
+        }
+
+        Alert.alert('Error', `Could not save your profile: ${errorMessage}`);
         setIsSaving(false);
         return;
       }
 
+      if (!userData) {
+        console.error('[Complete] No user data returned');
+        Alert.alert('Error', 'Profile saved but no data returned. Please try again.');
+        setIsSaving(false);
+        return;
+      }
+
+      console.log('[Complete] Profile saved successfully, user ID:', userData.id);
       const userId = userData.id;
 
+      console.log('[Complete] Processing photos...');
       // Upload and save photos if any
       if (data?.photos && data.photos.length > 0) {
         // Delete existing photos first
@@ -221,13 +358,13 @@ export default function CompleteScreen() {
               encoding: Base64Encoding,
             });
 
-            // Generate unique filename
+            // Generate unique filename - use verifiedAuthId for storage folder (matches RLS policy)
             const fileExt = photoUri.split('.').pop()?.toLowerCase() || 'jpg';
-            const fileName = `${userId}/${Date.now()}_${i}.${fileExt}`;
+            const fileName = `${verifiedAuthId}/${Date.now()}_${i}.${fileExt}`;
 
             // Upload to Supabase storage
             const { data: uploadData, error: uploadError } = await supabase.storage
-              .from('photos')
+              .from('profile-photos')
               .upload(fileName, decode(base64), {
                 contentType: `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`,
                 upsert: true,
@@ -240,7 +377,7 @@ export default function CompleteScreen() {
 
             // Get public URL
             const { data: urlData } = supabase.storage
-              .from('photos')
+              .from('profile-photos')
               .getPublicUrl(fileName);
 
             if (urlData?.publicUrl) {
@@ -272,6 +409,7 @@ export default function CompleteScreen() {
         }
       }
 
+      console.log('[Complete] Processing prompts...');
       // Save prompts if any
       if (data?.prompts && data.prompts.length > 0) {
         // Delete existing prompts first
@@ -295,17 +433,19 @@ export default function CompleteScreen() {
         }
       }
 
+      console.log('[Complete] Updating auth store...');
       // Update the auth store with the saved user
       setUser(userData);
 
       // Reset onboarding store
       reset();
 
+      console.log('[Complete] Navigating to main app...');
       // Navigate to main app
       router.replace('/(tabs)');
-    } catch (error) {
-      console.error('Error completing onboarding:', error);
-      Alert.alert('Error', 'Something went wrong. Please try again.');
+    } catch (error: any) {
+      console.error('[Complete] Error completing onboarding:', error?.message || error);
+      Alert.alert('Error', `Something went wrong: ${error?.message || 'Unknown error'}. Please try again.`);
       setIsSaving(false);
     }
   };

@@ -9,6 +9,8 @@ import { supabase } from '@/api/supabase/client';
 import { queryKeys } from '@/lib/config/queryClient';
 import { useAuthStore } from '@/stores/authStore';
 import { useDiscoveryStore } from '@/stores/discoveryStore';
+import { useUIStore } from '@/stores/uiStore';
+import { DEMO_PROFILES } from '@/lib/demo/demoProfiles';
 import type { DiscoveryUser } from '@/types/user.types';
 import type { UserPhoto, UserPrompt, UserBadge } from '@/types/database.types';
 
@@ -223,10 +225,18 @@ async function fetchDiscoveryProfiles(
 export function useDiscoveryProfiles() {
   const user = useAuthStore((s) => s.user);
   const filters = useDiscoveryStore((s) => s.filters);
+  const isDemoMode = useUIStore((s) => s.isDemoMode);
 
   return useQuery({
-    queryKey: queryKeys.discovery.profiles(filters as unknown as Record<string, unknown>),
+    queryKey: isDemoMode
+      ? ['demo', 'profiles']
+      : queryKeys.discovery.profiles(filters as unknown as Record<string, unknown>),
     queryFn: () => {
+      // Return demo profiles when demo mode is enabled
+      if (isDemoMode) {
+        return Promise.resolve(DEMO_PROFILES);
+      }
+
       if (!user?.id) {
         throw new Error('User not authenticated');
       }
@@ -243,7 +253,7 @@ export function useDiscoveryProfiles() {
         }
       );
     },
-    enabled: !!user?.id,
+    enabled: isDemoMode || !!user?.id,
     staleTime: 1000 * 60 * 2, // 2 minutes
     refetchOnMount: true,
   });

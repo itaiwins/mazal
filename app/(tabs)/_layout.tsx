@@ -135,6 +135,12 @@ export default function TabsLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="safta-chat/[connectionId]"
+        options={{
+          href: null, // Hide from tab bar (accessed through matches)
+        }}
+      />
     </Tabs>
   );
 }

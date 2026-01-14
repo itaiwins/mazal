@@ -236,6 +236,8 @@ export function useUpdateLocation() {
 
 /**
  * Hook to deactivate/delete account
+ * Handles both regular user accounts and Safta accounts
+ * For permanent deletion, uses Edge Function to delete auth user
  */
 export function useDeactivateAccount() {
   const logout = useAuthStore((s) => s.logout);
@@ -243,40 +245,51 @@ export function useDeactivateAccount() {
   return useMutation({
     mutationFn: async (permanent: boolean = false) => {
       const {
-        data: { user },
-      } = await supabase.auth.getUser();
+        data: { session },
+      } = await supabase.auth.getSession();
 
-      if (!user) {
+      if (!session) {
         throw new Error('User not authenticated');
       }
 
       if (permanent) {
-        // Permanent deletion - mark for deletion
-        const { error } = await supabase
-          .from('users')
-          .update({
-            is_active: false,
-            // In production, schedule actual deletion after grace period
-          })
-          .eq('auth_id', user.id);
+        // Permanent deletion - call Edge Function which handles everything
+        // including deleting from auth.users (requires service role)
+        const { data, error } = await supabase.functions.invoke('delete-account', {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
 
-        if (error) throw error;
+        if (error) {
+          console.error('Delete account error:', error);
+          throw new Error(error.message || 'Failed to delete account');
+        }
 
-        // Sign out and delete auth user
-        await supabase.auth.signOut();
+        if (!data?.success) {
+          throw new Error(data?.error || 'Failed to delete account');
+        }
+
+        return { success: true };
       } else {
-        // Temporary deactivation
-        const { error } = await supabase
+        // Temporary deactivation - just mark as inactive
+        const authId = session.user.id;
+
+        // Deactivate regular user account
+        await supabase
           .from('users')
           .update({ is_active: false })
-          .eq('auth_id', user.id);
+          .eq('auth_id', authId);
 
-        if (error) throw error;
+        // Deactivate Safta account if exists
+        await supabase
+          .from('safta_accounts')
+          .update({ is_active: false })
+          .eq('auth_id', authId);
 
         await supabase.auth.signOut();
+        return { success: true };
       }
-
-      return { success: true };
     },
     onSuccess: () => {
       logout();

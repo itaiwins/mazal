@@ -23,6 +23,16 @@ export const colors = {
     rose: '#D4847C',
   },
 
+  // Safta Mode Colors (Purple/Lavender theme)
+  safta: {
+    primary: '#7B68EE',       // Medium slate blue - main accent
+    secondary: '#9370DB',     // Medium purple
+    light: '#E6E0FA',         // Light lavender background
+    dark: '#1A1530',          // Dark purple-navy for dark mode
+    card: '#1E1A2E',          // Elevated card in dark mode
+    accent: '#A78BFA',        // Lighter purple for highlights
+  },
+
   // Semantic Colors
   semantic: {
     success: '#4CAF50',
@@ -73,12 +83,24 @@ export const colors = {
     black80: 'rgba(0, 0, 0, 0.8)',
     white10: 'rgba(255, 255, 255, 0.1)',
     white20: 'rgba(255, 255, 255, 0.2)',
+    white30: 'rgba(255, 255, 255, 0.3)',
     white40: 'rgba(255, 255, 255, 0.4)',
     white50: 'rgba(255, 255, 255, 0.5)',
     white60: 'rgba(255, 255, 255, 0.6)',
+    white70: 'rgba(255, 255, 255, 0.7)',
     white80: 'rgba(255, 255, 255, 0.8)',
+    gold10: 'rgba(201, 162, 39, 0.1)',
     gold20: 'rgba(201, 162, 39, 0.2)',
+    gold30: 'rgba(201, 162, 39, 0.3)',
     gold50: 'rgba(201, 162, 39, 0.5)',
+    gold70: 'rgba(201, 162, 39, 0.7)',
+    navy70: 'rgba(13, 27, 62, 0.7)',
+    // Safta purple transparents
+    purple10: 'rgba(123, 104, 238, 0.1)',
+    purple20: 'rgba(123, 104, 238, 0.2)',
+    purple30: 'rgba(123, 104, 238, 0.3)',
+    purple50: 'rgba(123, 104, 238, 0.5)',
+    purple70: 'rgba(123, 104, 238, 0.7)',
   },
 } as const;
 

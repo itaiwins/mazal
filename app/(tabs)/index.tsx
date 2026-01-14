@@ -1,11 +1,11 @@
 /**
  * Discovery Screen
  *
- * Main swiping interface for finding matches
+ * Profile Story experience - scroll through full profiles and engage with content
  */
 
-import { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, Pressable, Dimensions, ActivityIndicator, Modal, ScrollView, Image } from 'react-native';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { View, Text, StyleSheet, Pressable, Dimensions, ActivityIndicator, Modal, ScrollView, Image, Alert } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,268 +16,221 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
-  runOnJS,
-  interpolate,
-  Extrapolation,
+  FadeIn,
+  FadeOut,
+  SlideInRight,
+  SlideOutLeft,
 } from 'react-native-reanimated';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius, shadows } from '@/theme/spacing';
-import { useDiscoveryStore } from '@/stores/discoveryStore';
 import { useMatchStore } from '@/stores/matchStore';
+import { useUIStore } from '@/stores/uiStore';
+import { useDiscoveryStore } from '@/stores/discoveryStore';
+import { useAuthStore } from '@/stores/authStore';
 import { usePremiumStore } from '@/stores/premiumStore';
+import { useSuperLikes, useSwipeLimits } from '@/features/premium/hooks/usePremium';
 import { useDiscoveryProfiles } from '@/api/queries';
 import { useSwipe } from '@/api/mutations';
 import { useMatchesSubscription } from '@/api/realtime';
+import { StarOfDavid } from '@/components/icons/StarOfDavid';
+import { ProfileStory } from '@/components/discovery';
+import { AdBanner, useInterstitialAd } from '@/components/ads';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const CARD_WIDTH = SCREEN_WIDTH - spacing[8];
-const CARD_HEIGHT = SCREEN_HEIGHT * 0.65;
-const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.3;
-const SWIPE_VELOCITY = 500;
 
-// Sample profile data for demo
-const SAMPLE_PROFILES = [
-  {
-    id: '1',
-    first_name: 'Sarah',
-    age: 27,
-    current_city: 'Manhattan',
-    distance: 3,
-    jewish_background: 'Reform',
-    bio: 'Marketing by day, amateur challah baker by weekend.',
-    photos: ['https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=800'],
-    prompts: [{ question: "My Shabbat looks like...", answer: "Friends, wine, and way too much food" }],
-    safta_likes: 8,
-  },
-  {
-    id: '2',
-    first_name: 'David',
-    age: 29,
-    current_city: 'Brooklyn',
-    distance: 5,
-    jewish_background: 'Conservative',
-    bio: 'Building apps during the week, building community on weekends.',
-    photos: ['https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=800'],
-    prompts: [{ question: "Best Jewish food take:", answer: "Pastrami > Corned beef. Always." }],
-    safta_likes: 15,
-  },
-  {
-    id: '3',
-    first_name: 'Rachel',
-    age: 25,
-    current_city: 'Los Angeles',
-    distance: 2,
-    jewish_background: 'Just Jewish',
-    bio: 'Screenwriter who feels guilty about everything.',
-    photos: ['https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800'],
-    prompts: [{ question: "The way to my heart is...", answer: "Making me laugh and good pastrami" }],
-    safta_likes: 3,
-  },
-];
-
-interface ProfileCardProps {
-  profile: any; // Supports both API DiscoveryUser and SAMPLE_PROFILES format
-  isActive: boolean;
-  onSwipeLeft: () => void;
-  onSwipeRight: () => void;
-  onSwipeUp: () => void;
-  onTap: () => void;
-}
-
-// Helper to get photo URL from profile (handles both API and sample data formats)
-function getProfilePhotoUrl(profile: any, index: number = 0): string | null {
-  if (!profile.photos || profile.photos.length === 0) return null;
-  const photo = profile.photos[index];
-  if (typeof photo === 'string') return photo;
-  if (photo && photo.photo_url) return photo.photo_url;
-  return null;
-}
-
-// Helper to get first prompt from profile
-function getProfilePrompt(profile: any): { question: string; answer: string } | null {
-  if (!profile.prompts || profile.prompts.length === 0) return null;
-  const prompt = profile.prompts[0];
-  if (prompt.question && prompt.answer) return prompt;
-  if (prompt.prompt_id && prompt.answer) {
-    // API format - use prompt_id as question placeholder
-    return { question: 'My favorite thing about...', answer: prompt.answer };
-  }
-  return null;
-}
-
-function ProfileCard({ profile, isActive, onSwipeLeft, onSwipeRight, onSwipeUp, onTap }: ProfileCardProps) {
-  const translateX = useSharedValue(0);
-  const translateY = useSharedValue(0);
-  const cardRotation = useSharedValue(0);
-  const scale = useSharedValue(isActive ? 1 : 0.95);
+// Match Celebration Component
+function MatchCelebration({
+  match,
+  onClose,
+  onSendMessage
+}: {
+  match: any;
+  onClose: () => void;
+  onSendMessage: () => void;
+}) {
+  const celebrationScale = useSharedValue(0);
+  const celebrationOpacity = useSharedValue(0);
+  const starRotation = useSharedValue(0);
+  const photoScale = useSharedValue(0);
 
   useEffect(() => {
-    scale.value = withSpring(isActive ? 1 : 0.95);
-  }, [isActive]);
+    celebrationOpacity.value = withTiming(1, { duration: 300 });
+    celebrationScale.value = withSpring(1, { damping: 12, stiffness: 100 });
+    photoScale.value = withSpring(1, { damping: 10, stiffness: 80 });
+    starRotation.value = withTiming(360, { duration: 2000 });
 
-  const triggerHaptic = useCallback((type: 'like' | 'pass' | 'super') => {
-    if (type === 'like') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } else if (type === 'super') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } else {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
+    const interval = setInterval(() => {
+      starRotation.value = withTiming(starRotation.value + 360, { duration: 3000 });
+    }, 3000);
+
+    return () => clearInterval(interval);
   }, []);
 
-  const handleSwipeComplete = useCallback((direction: 'left' | 'right' | 'up') => {
-    if (direction === 'left') {
-      triggerHaptic('pass');
-      onSwipeLeft();
-    } else if (direction === 'right') {
-      triggerHaptic('like');
-      onSwipeRight();
-    } else {
-      triggerHaptic('super');
-      onSwipeUp();
-    }
-  }, [onSwipeLeft, onSwipeRight, onSwipeUp, triggerHaptic]);
-
-  const handleTap = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onTap();
-  }, [onTap]);
-
-  // Tap gesture for viewing profile
-  const tapGesture = Gesture.Tap()
-    .enabled(isActive)
-    .onEnd(() => {
-      runOnJS(handleTap)();
-    });
-
-  const gesture = Gesture.Pan()
-    .enabled(isActive)
-    .onUpdate((event) => {
-      translateX.value = event.translationX;
-      translateY.value = event.translationY;
-      cardRotation.value = interpolate(
-        event.translationX,
-        [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
-        [-15, 0, 15],
-        Extrapolation.CLAMP
-      );
-    })
-    .onEnd((event) => {
-      const shouldSwipeRight = translateX.value > SWIPE_THRESHOLD || event.velocityX > SWIPE_VELOCITY;
-      const shouldSwipeLeft = translateX.value < -SWIPE_THRESHOLD || event.velocityX < -SWIPE_VELOCITY;
-      const shouldSwipeUp = translateY.value < -SWIPE_THRESHOLD * 1.5 || event.velocityY < -SWIPE_VELOCITY;
-
-      if (shouldSwipeRight) {
-        translateX.value = withTiming(SCREEN_WIDTH * 1.5, { duration: 300 });
-        cardRotation.value = withTiming(30, { duration: 300 });
-        runOnJS(handleSwipeComplete)('right');
-      } else if (shouldSwipeLeft) {
-        translateX.value = withTiming(-SCREEN_WIDTH * 1.5, { duration: 300 });
-        cardRotation.value = withTiming(-30, { duration: 300 });
-        runOnJS(handleSwipeComplete)('left');
-      } else if (shouldSwipeUp) {
-        translateY.value = withTiming(-SCREEN_HEIGHT, { duration: 300 });
-        runOnJS(handleSwipeComplete)('up');
-      } else {
-        translateX.value = withSpring(0);
-        translateY.value = withSpring(0);
-        cardRotation.value = withSpring(0);
-      }
-    });
-
-  const cardStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: translateX.value },
-      { translateY: translateY.value },
-      { rotate: `${cardRotation.value}deg` },
-      { scale: scale.value },
-    ],
+  const containerStyle = useAnimatedStyle(() => ({
+    opacity: celebrationOpacity.value,
+    transform: [{ scale: celebrationScale.value }],
   }));
 
-  const likeIndicatorStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(translateX.value, [0, SWIPE_THRESHOLD], [0, 1], Extrapolation.CLAMP),
+  const photoStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: photoScale.value }],
   }));
 
-  const nopeIndicatorStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(translateX.value, [-SWIPE_THRESHOLD, 0], [1, 0], Extrapolation.CLAMP),
+  const starStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${starRotation.value}deg` }],
   }));
-
-  const superLikeIndicatorStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(translateY.value, [-SWIPE_THRESHOLD * 1.5, 0], [1, 0], Extrapolation.CLAMP),
-  }));
-
-  const photoUrl = getProfilePhotoUrl(profile);
-  const prompt = getProfilePrompt(profile);
-  const saftaLikes = profile.safta_likes || profile.safta_approved_count || 0;
-
-  // Combine tap and pan gestures
-  const combinedGesture = Gesture.Race(tapGesture, gesture);
 
   return (
-    <GestureDetector gesture={combinedGesture}>
-      <Animated.View style={[styles.card, cardStyle]}>
-        {/* Background image */}
-        {photoUrl ? (
-          <Animated.Image
-            source={{ uri: photoUrl }}
-            style={styles.cardImage}
-            resizeMode="cover"
-          />
-        ) : (
-          <View style={[styles.cardImage, { backgroundColor: colors.neutral[300] }]} />
-        )}
-
-        {/* Gradient overlay */}
+    <Modal visible={true} transparent animationType="none">
+      <Animated.View style={[celebrationStyles.overlay, containerStyle]}>
         <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.8)']}
-          locations={[0.5, 1]}
-          style={styles.cardGradient}
+          colors={['rgba(20, 35, 75, 0.98)', 'rgba(10, 20, 50, 0.98)']}
+          style={StyleSheet.absoluteFill}
         />
 
-        {/* Swipe indicators */}
-        <Animated.View style={[styles.likeIndicator, likeIndicatorStyle]}>
-          <Text style={styles.likeText}>LIKE</Text>
-        </Animated.View>
-        <Animated.View style={[styles.nopeIndicator, nopeIndicatorStyle]}>
-          <Text style={styles.nopeText}>NOPE</Text>
-        </Animated.View>
-        <Animated.View style={[styles.superLikeIndicator, superLikeIndicatorStyle]}>
-          <Text style={styles.superLikeText}>SUPER</Text>
-        </Animated.View>
-
-        {/* Content */}
-        <View style={styles.cardContent}>
-          {/* Safta badge */}
-          {saftaLikes > 0 && (
-            <View style={styles.saftaBadge}>
-              <Text style={styles.saftaText}>👵 {saftaLikes} Saftas approve!</Text>
+        <View style={celebrationStyles.starsBackground}>
+          {[...Array(12)].map((_, i) => (
+            <View
+              key={i}
+              style={[
+                celebrationStyles.backgroundStar,
+                {
+                  top: `${10 + Math.random() * 80}%`,
+                  left: `${5 + Math.random() * 90}%`,
+                  opacity: 0.3 + Math.random() * 0.4,
+                }
+              ]}
+            >
+              <StarOfDavid size={16 + Math.random() * 24} color={colors.primary.gold} />
             </View>
-          )}
+          ))}
+        </View>
 
-          {/* Basic info */}
-          <View style={styles.basicInfo}>
-            <Text style={styles.name}>{profile.first_name}, {profile.age}</Text>
-            <Text style={styles.location}>
-              {profile.current_city || 'Nearby'} {profile.distance ? `• ${profile.distance} miles` : ''}
-            </Text>
-            <View style={styles.backgroundBadge}>
-              <Text style={styles.backgroundText}>{profile.jewish_background}</Text>
-            </View>
-          </View>
+        <View style={celebrationStyles.content}>
+          <Animated.View style={starStyle}>
+            <StarOfDavid size={80} color={colors.primary.gold} />
+          </Animated.View>
 
-          {/* Prompt preview */}
-          {prompt && (
-            <View style={styles.promptPreview}>
-              <Text style={styles.promptQuestion}>{prompt.question}</Text>
-              <Text style={styles.promptAnswer} numberOfLines={2}>{prompt.answer}</Text>
-            </View>
-          )}
+          <Text style={celebrationStyles.mazalText}>Mazal Tov!</Text>
+          <Text style={celebrationStyles.subtitle}>It's a Match</Text>
+
+          <Animated.View style={[celebrationStyles.photoContainer, photoStyle]}>
+            <View style={celebrationStyles.photoGlow} />
+            <Image
+              source={{ uri: match?.other_user?.primary_photo_url || 'https://via.placeholder.com/150' }}
+              style={celebrationStyles.photo}
+            />
+          </Animated.View>
+
+          <Text style={celebrationStyles.matchName}>
+            You and {match?.other_user?.first_name || 'Someone special'}
+          </Text>
+          <Text style={celebrationStyles.matchHint}>
+            The stars have aligned
+          </Text>
+        </View>
+
+        <View style={celebrationStyles.actions}>
+          <Pressable style={celebrationStyles.messageButton} onPress={onSendMessage}>
+            <LinearGradient
+              colors={[colors.primary.gold, '#B8860B']}
+              style={celebrationStyles.buttonGradient}
+            >
+              <Ionicons name="chatbubble" size={20} color={colors.primary.navy} />
+              <Text style={celebrationStyles.messageButtonText}>Send a Message</Text>
+            </LinearGradient>
+          </Pressable>
+
+          <Pressable style={celebrationStyles.keepSwipingButton} onPress={onClose}>
+            <Text style={celebrationStyles.keepSwipingText}>Keep Browsing</Text>
+          </Pressable>
         </View>
       </Animated.View>
-    </GestureDetector>
+    </Modal>
+  );
+}
+
+// Discovery mode tabs
+type DiscoveryMode = 'profiles' | 'saftas';
+
+// Safta type for discovery
+type SaftaItem = {
+  id: string;
+  name: string;
+  photo: string;
+  relationship: string;
+  matchesCreated: number;
+  followers: number;
+  bio: string;
+  isVerified: boolean;
+  isFollowing: boolean;
+};
+
+// Safta Card Component
+function SaftaCard({
+  safta,
+  onFollow,
+  onMessage,
+}: {
+  safta: SaftaItem;
+  onFollow: () => void;
+  onMessage: () => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={[saftaStyles.card, { backgroundColor: theme.colors.surface }]}>
+      <View style={saftaStyles.cardHeader}>
+        <Image source={{ uri: safta.photo }} style={saftaStyles.avatar} />
+        <View style={saftaStyles.headerInfo}>
+          <View style={saftaStyles.nameRow}>
+            <Text style={[saftaStyles.name, { color: theme.colors.text }]}>{safta.name}</Text>
+            {safta.isVerified && (
+              <Ionicons name="checkmark-circle" size={18} color={colors.primary.gold} />
+            )}
+          </View>
+          <View style={saftaStyles.relationshipBadge}>
+            <Text style={saftaStyles.relationshipText}>{safta.relationship}</Text>
+          </View>
+        </View>
+      </View>
+
+      <Text style={[saftaStyles.bio, { color: theme.colors.textSecondary }]} numberOfLines={2}>
+        {safta.bio}
+      </Text>
+
+      <View style={saftaStyles.stats}>
+        <View style={saftaStyles.stat}>
+          <Text style={[saftaStyles.statNumber, { color: theme.colors.text }]}>{safta.matchesCreated}</Text>
+          <Text style={[saftaStyles.statLabel, { color: theme.colors.textSecondary }]}>Matches</Text>
+        </View>
+        <View style={saftaStyles.statDivider} />
+        <View style={saftaStyles.stat}>
+          <Text style={[saftaStyles.statNumber, { color: theme.colors.text }]}>{safta.followers}</Text>
+          <Text style={[saftaStyles.statLabel, { color: theme.colors.textSecondary }]}>Followers</Text>
+        </View>
+      </View>
+
+      <View style={saftaStyles.actions}>
+        <Pressable
+          style={[saftaStyles.followButton, safta.isFollowing && saftaStyles.followingButton]}
+          onPress={onFollow}
+        >
+          <Ionicons
+            name={safta.isFollowing ? 'checkmark' : 'add'}
+            size={18}
+            color={safta.isFollowing ? colors.primary.gold : colors.primary.white}
+          />
+          <Text style={[saftaStyles.followButtonText, safta.isFollowing && saftaStyles.followingButtonText]}>
+            {safta.isFollowing ? 'Following' : 'Follow'}
+          </Text>
+        </Pressable>
+        <Pressable style={saftaStyles.messageButton} onPress={onMessage}>
+          <Ionicons name="chatbubble-outline" size={18} color={colors.primary.gold} />
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -285,309 +238,379 @@ export default function DiscoveryScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [showProfileModal, setShowProfileModal] = useState(false);
-  const [selectedProfile, setSelectedProfile] = useState<any>(null);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  // Match state
+  const showMatchCelebration = useMatchStore((s) => s.showMatchCelebration);
+  const newMatch = useMatchStore((s) => s.newMatch);
+  const hideCelebration = useMatchStore((s) => s.hideCelebration);
   const showCelebration = useMatchStore((s) => s.showCelebration);
 
-  // Fetch discovery profiles from API
-  const { data: apiProfiles, isLoading, error, refetch } = useDiscoveryProfiles();
+  // Premium state and hooks
+  const showPaywallModal = usePremiumStore((s) => s.showPaywallModal);
+  const { remaining: superLikesRemaining, canUseSuperLike, useSuperLike } = useSuperLikes();
+  const { canSwipe, useSwipe: useSwipeLimit, isUnlimited, remaining: swipesRemaining, checkAndResetLimits } = useSwipeLimits();
 
-  // Swipe mutation
-  const swipeMutation = useSwipe();
+  // Interstitial ads - tracks swipes and shows ad every 10 swipes
+  const { trackSwipe } = useInterstitialAd();
 
-  // Subscribe to new matches
-  useMatchesSubscription((event) => {
-    // When a match happens from the swipe, show celebration
-    // The match check is done in the mutation, this is for external matches
-  });
+  // Check and reset limits on mount
+  useEffect(() => {
+    checkAndResetLimits();
+  }, []);
 
-  // Use API profiles if available, otherwise fall back to sample data
-  const profiles = apiProfiles && apiProfiles.length > 0 ? apiProfiles : SAMPLE_PROFILES;
+  // Orthodox mode
+  const isOrthodoxMode = useUIStore((s) => s.isOrthodoxMode);
+  const hasOrthodoxSubscription = useUIStore((s) => s.hasOrthodoxSubscription);
 
-  const handleSwipeLeft = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const profile = profiles[currentIndex];
-    if (profile && apiProfiles && apiProfiles.length > 0) {
-      swipeMutation.mutate({ swipedUserId: profile.id, action: 'pass' });
-    }
-    setTimeout(() => {
-      setCurrentIndex((prev) => prev + 1);
-    }, 300);
-  }, [currentIndex, profiles, apiProfiles, swipeMutation]);
+  // User profile for gender preference sync
+  const user = useAuthStore((s) => s.user);
+  const setFilters = useDiscoveryStore((s) => s.setFilters);
+  const filters = useDiscoveryStore((s) => s.filters);
 
-  const handleSwipeRight = useCallback(() => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const profile = profiles[currentIndex];
-    if (profile && apiProfiles && apiProfiles.length > 0) {
-      swipeMutation.mutate(
-        { swipedUserId: profile.id, action: 'like' },
-        {
-          onSuccess: (result) => {
-            if (result.isMatch) {
-              // Extra haptic for match!
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              showCelebration({
-                id: result.matchId || `match-${profile.id}`,
-                created_at: new Date().toISOString(),
-                other_user: {
-                  id: profile.id,
-                  first_name: profile.first_name,
-                  display_name: profile.first_name,
-                  primary_photo_url: getProfilePhotoUrl(profile, 0),
-                },
-                unread_count: 0,
-              });
-            }
-          },
-        }
-      );
-    } else {
-      // Demo mode: simulate match (50% chance)
-      if (Math.random() > 0.5) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        showCelebration({
-          id: `match-${profile.id}`,
-          created_at: new Date().toISOString(),
-          other_user: {
-            id: profile.id,
-            first_name: profile.first_name,
-            display_name: profile.first_name,
-            primary_photo_url: getProfilePhotoUrl(profile, 0),
-          },
-          unread_count: 0,
-        });
+  // Sync user's gender preference to discovery filters on mount
+  useEffect(() => {
+    if (user?.gender_preference && user.gender_preference.length > 0) {
+      // Only sync if discovery filters are empty (default)
+      if (filters.gender_preference.length === 0) {
+        console.log('[Discovery] Syncing gender preference from user profile:', user.gender_preference);
+        setFilters({ gender_preference: user.gender_preference });
       }
     }
-    setTimeout(() => {
-      setCurrentIndex((prev) => prev + 1);
-    }, 300);
-  }, [currentIndex, profiles, apiProfiles, swipeMutation, showCelebration]);
+  }, [user?.gender_preference]);
 
-  const handleSwipeUp = useCallback(() => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const profile = profiles[currentIndex];
-    if (profile && apiProfiles && apiProfiles.length > 0) {
-      swipeMutation.mutate(
-        { swipedUserId: profile.id, action: 'super_like' },
-        {
-          onSuccess: (result) => {
-            if (result.isMatch) {
-              // Extra haptic for match!
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              showCelebration({
-                id: result.matchId || `match-${profile.id}`,
-                created_at: new Date().toISOString(),
-                other_user: {
-                  id: profile.id,
-                  first_name: profile.first_name,
-                  display_name: profile.first_name,
-                  primary_photo_url: getProfilePhotoUrl(profile, 0),
-                },
-                unread_count: 0,
-              });
-            }
-          },
-        }
-      );
+  // Discovery mode
+  const [discoveryMode, setDiscoveryMode] = useState<DiscoveryMode>('profiles');
+  // Saftas - empty until feature is implemented with real data from Supabase
+  const [saftas, setSaftas] = useState<SaftaItem[]>([]);
+
+  // API queries
+  const { data: apiProfiles, isLoading, refetch } = useDiscoveryProfiles();
+  const swipeMutation = useSwipe();
+
+  // Subscribe to matches
+  useMatchesSubscription(() => {});
+
+  // Use API profiles only - no demo data fallback for authenticated users
+  const profiles = useMemo(() => {
+    if (apiProfiles && apiProfiles.length > 0) {
+      return apiProfiles.map((p: any) => ({
+        ...p,
+        photos: p.photos || [],
+        prompts: p.prompts || [],
+      }));
     }
-    setTimeout(() => {
-      setCurrentIndex((prev) => prev + 1);
-    }, 300);
-  }, [currentIndex, profiles, apiProfiles, swipeMutation, showCelebration]);
+    // Return empty array - don't show sample/fake profiles to real users
+    return [];
+  }, [apiProfiles]);
 
-  // Reset index when profiles change
+  const currentProfile = profiles[currentIndex];
+  const hasMoreProfiles = currentIndex < profiles.length;
+
+  // Helper to get primary photo URL
+  const getPhotoUrl = useCallback((profile: any) => {
+    if (!profile?.photos?.length) return null;
+    const primary = profile.photos.find((p: any) => p.photo_order === 0) || profile.photos[0];
+    return typeof primary === 'string' ? primary : primary?.photo_url;
+  }, []);
+
+  // Handle pass
+  const handlePass = useCallback(() => {
+    if (!currentProfile || isTransitioning) return;
+
+    // Check swipe limit for non-premium users
+    if (!canSwipe) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      showPaywallModal(
+        'You\'ve used all your daily swipes! Upgrade to Mazal Gold for unlimited swipes.',
+        'gold'
+      );
+      return;
+    }
+
+    // Use a swipe from the limit
+    if (!isUnlimited) {
+      useSwipeLimit();
+    }
+
+    setIsTransitioning(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    swipeMutation.mutate(
+      { swipedUserId: currentProfile.id, action: 'pass' },
+      {
+        onSettled: () => {
+          // Move to next profile after swipe completes
+          setCurrentIndex((prev) => prev + 1);
+          setIsTransitioning(false);
+          // Track swipe for interstitial ads
+          trackSwipe();
+        },
+      }
+    );
+  }, [currentProfile, swipeMutation, isTransitioning, canSwipe, isUnlimited, useSwipeLimit, showPaywallModal, trackSwipe]);
+
+  // Handle like
+  const handleLike = useCallback((likedContent: any[]) => {
+    if (!currentProfile || isTransitioning) return;
+
+    // Check if this is a super like (has message)
+    const isSuperLike = likedContent.some((l) => l.type === 'prompt' && l.message);
+
+    // Check super like availability for super likes
+    if (isSuperLike) {
+      if (!canUseSuperLike) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        showPaywallModal(
+          `You've used all your Super Likes this week! Upgrade to get 5 Super Likes per week.`,
+          'gold'
+        );
+        return;
+      }
+      useSuperLike();
+    } else {
+      // Regular like - check swipe limit
+      if (!canSwipe) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        showPaywallModal(
+          'You\'ve used all your daily swipes! Upgrade to Mazal Gold for unlimited swipes.',
+          'gold'
+        );
+        return;
+      }
+      if (!isUnlimited) {
+        useSwipeLimit();
+      }
+    }
+
+    setIsTransitioning(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    const action = isSuperLike ? 'super_like' : 'like';
+
+    swipeMutation.mutate(
+      { swipedUserId: currentProfile.id, action },
+      {
+        onSuccess: (result) => {
+          if (result.isMatch) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            showCelebration({
+              id: result.matchId || `match-${currentProfile.id}`,
+              created_at: new Date().toISOString(),
+              other_user: {
+                id: currentProfile.id,
+                first_name: currentProfile.first_name,
+                display_name: currentProfile.first_name,
+                primary_photo_url: getPhotoUrl(currentProfile),
+              },
+              unread_count: 0,
+            });
+          }
+        },
+        onSettled: () => {
+          // Move to next profile after swipe completes
+          setCurrentIndex((prev) => prev + 1);
+          setIsTransitioning(false);
+          // Track swipe for interstitial ads
+          trackSwipe();
+        },
+      }
+    );
+  }, [currentProfile, swipeMutation, showCelebration, getPhotoUrl, isTransitioning, canSwipe, canUseSuperLike, isUnlimited, useSwipeLimit, useSuperLike, showPaywallModal, trackSwipe]);
+
+  // Handle super like (Bashert)
+  const handleSuperLike = useCallback(() => {
+    if (!currentProfile || isTransitioning) return;
+
+    // Check super like availability
+    if (!canUseSuperLike) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      showPaywallModal(
+        `You've used all your Super Likes this week! Upgrade to get 5 Super Likes per week.`,
+        'gold'
+      );
+      return;
+    }
+
+    // Use the super like
+    useSuperLike();
+
+    setIsTransitioning(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    swipeMutation.mutate(
+      { swipedUserId: currentProfile.id, action: 'super_like' },
+      {
+        onSuccess: (result) => {
+          if (result.isMatch) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            showCelebration({
+              id: result.matchId || `match-${currentProfile.id}`,
+              created_at: new Date().toISOString(),
+              other_user: {
+                id: currentProfile.id,
+                first_name: currentProfile.first_name,
+                display_name: currentProfile.first_name,
+                primary_photo_url: getPhotoUrl(currentProfile),
+              },
+              unread_count: 0,
+            });
+          }
+        },
+        onSettled: () => {
+          // Move to next profile after swipe completes
+          setCurrentIndex((prev) => prev + 1);
+          setIsTransitioning(false);
+          // Track swipe for interstitial ads
+          trackSwipe();
+        },
+      }
+    );
+  }, [currentProfile, swipeMutation, showCelebration, getPhotoUrl, isTransitioning, canUseSuperLike, useSuperLike, showPaywallModal, trackSwipe]);
+
+  // Reset on profile change
   useEffect(() => {
     setCurrentIndex(0);
   }, [apiProfiles]);
 
-  const handleViewProfile = useCallback((profile: any) => {
-    setSelectedProfile(profile);
-    setShowProfileModal(true);
+  // Safta handlers
+  const handleFollowSafta = useCallback((saftaId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSaftas((prev) =>
+      prev.map((s) =>
+        s.id === saftaId
+          ? { ...s, isFollowing: !s.isFollowing, followers: s.isFollowing ? s.followers - 1 : s.followers + 1 }
+          : s
+      )
+    );
   }, []);
 
-  const hasMoreProfiles = currentIndex < profiles.length;
+  const handleMessageSafta = useCallback((saftaId: string, saftaName: string, isFollowing: boolean) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!isFollowing) {
+      Alert.alert('Follow First', `You need to follow ${saftaName} before you can message them.`);
+      return;
+    }
+    router.push(`/(tabs)/messages/${saftaId}`);
+  }, []);
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.dark.background }]}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + spacing[2] }]}>
-        <Text style={[styles.logoText, { color: theme.colors.text }]}>Mazal</Text>
-        <View style={styles.headerActions}>
-          <Pressable
-            style={styles.headerButton}
-            onPress={() => router.push('/settings')}
-          >
-            <Ionicons name="options-outline" size={24} color={theme.colors.icon} />
-          </Pressable>
+        <View style={styles.headerTitleRow}>
+          <Text style={styles.logoText}>Mazal</Text>
+          {isOrthodoxMode && hasOrthodoxSubscription && (
+            <View style={styles.orthodoxBadge}>
+              <StarOfDavid size={14} color={colors.primary.gold} />
+              <Text style={styles.orthodoxBadgeText}>Orthodox</Text>
+            </View>
+          )}
         </View>
+        <Pressable style={styles.headerButton} onPress={() => router.push('/settings')}>
+          <Ionicons name="options-outline" size={24} color={colors.transparent.white70} />
+        </Pressable>
       </View>
 
-      {/* Card stack */}
-      <View style={styles.cardStack}>
-        {isLoading ? (
-          <ActivityIndicator size="large" color={colors.primary.gold} />
-        ) : hasMoreProfiles ? (
-          profiles
-            .slice(currentIndex, currentIndex + 3)
-            .reverse()
-            .map((profile, index, arr) => (
-              <ProfileCard
-                key={profile.id}
-                profile={profile}
-                isActive={index === arr.length - 1}
-                onSwipeLeft={handleSwipeLeft}
-                onSwipeRight={handleSwipeRight}
-                onSwipeUp={handleSwipeUp}
-                onTap={() => handleViewProfile(profile)}
-              />
-            ))
-        ) : (
-          <View style={styles.emptyState}>
-            <Ionicons name="search" size={64} color={colors.neutral[300]} />
-            <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
-              You've seen everyone nearby!
-            </Text>
-            <Text style={[styles.emptySubtitle, { color: theme.colors.textSecondary }]}>
-              Check back later for new profiles
-            </Text>
-            <Pressable
-              style={styles.expandButton}
-              onPress={() => router.push('/settings')}
+      {/* Ad Banner - only shows for free users */}
+      <AdBanner />
+
+      {/* Mode Tabs */}
+      <View style={styles.modeTabs}>
+        <Pressable
+          style={[styles.modeTab, discoveryMode === 'profiles' && styles.modeTabActive]}
+          onPress={() => setDiscoveryMode('profiles')}
+        >
+          <Ionicons
+            name="heart"
+            size={18}
+            color={discoveryMode === 'profiles' ? colors.primary.gold : colors.transparent.white50}
+          />
+          <Text style={[styles.modeTabText, discoveryMode === 'profiles' && styles.modeTabTextActive]}>
+            Discover
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.modeTab, discoveryMode === 'saftas' && styles.modeTabActive]}
+          onPress={() => setDiscoveryMode('saftas')}
+        >
+          <Text style={styles.modeTabEmoji}>👵</Text>
+          <Text style={[styles.modeTabText, discoveryMode === 'saftas' && styles.modeTabTextActive]}>
+            Saftas
+          </Text>
+        </Pressable>
+      </View>
+
+      {/* Content */}
+      {discoveryMode === 'profiles' ? (
+        <View style={styles.profileContainer}>
+          {isLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={colors.primary.gold} />
+              <Text style={styles.loadingText}>Finding great people...</Text>
+            </View>
+          ) : hasMoreProfiles && currentProfile ? (
+            <Animated.View
+              key={currentProfile.id}
+              entering={SlideInRight.duration(400)}
+              exiting={SlideOutLeft.duration(300)}
+              style={styles.profileStoryContainer}
             >
-              <Text style={styles.expandButtonText}>Adjust Filters</Text>
-            </Pressable>
-          </View>
-        )}
-      </View>
-
-      {/* Action buttons - simplified to 3 core actions */}
-      {hasMoreProfiles && (
-        <View style={[styles.actionButtons, { paddingBottom: insets.bottom + spacing[2] }]}>
-          <Pressable style={[styles.actionButton, styles.nopeButton]} onPress={handleSwipeLeft}>
-            <Ionicons name="close" size={32} color={colors.semantic.error} />
-          </Pressable>
-          <Pressable style={[styles.actionButton, styles.superLikeButton]} onPress={handleSwipeUp}>
-            <Ionicons name="star" size={24} color={colors.semantic.info} />
-          </Pressable>
-          <Pressable style={[styles.actionButton, styles.likeButton]} onPress={handleSwipeRight}>
-            <Ionicons name="heart" size={32} color={colors.primary.white} />
-          </Pressable>
+              <ProfileStory
+                profile={currentProfile}
+                onPass={handlePass}
+                onLike={handleLike}
+                onSuperLike={handleSuperLike}
+              />
+            </Animated.View>
+          ) : (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIcon}>
+                <StarOfDavid size={48} color={colors.neutral[600]} />
+              </View>
+              <Text style={styles.emptyTitle}>You've seen everyone!</Text>
+              <Text style={styles.emptySubtitle}>
+                Check back later for new profiles, or adjust your preferences.
+              </Text>
+              <Pressable style={styles.refreshButton} onPress={() => refetch()}>
+                <Text style={styles.refreshButtonText}>Refresh</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
+      ) : (
+        <ScrollView
+          style={styles.saftaScrollView}
+          contentContainerStyle={[styles.saftaScrollContent, { paddingBottom: insets.bottom + spacing[4] }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={styles.saftaSectionTitle}>Discover Matchmakers</Text>
+          <Text style={styles.saftaSectionSubtitle}>
+            Follow Saftas to get personalized match recommendations
+          </Text>
+
+          {saftas.map((safta) => (
+            <SaftaCard
+              key={safta.id}
+              safta={safta}
+              onFollow={() => handleFollowSafta(safta.id)}
+              onMessage={() => handleMessageSafta(safta.id, safta.name, safta.isFollowing)}
+            />
+          ))}
+        </ScrollView>
       )}
 
-      {/* Profile Detail Modal */}
-      <Modal
-        visible={showProfileModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowProfileModal(false)}
-      >
-        {selectedProfile && (
-          <View style={[styles.modalContainer, { backgroundColor: theme.colors.background }]}>
-            <View style={[styles.modalHeader, { paddingTop: insets.top }]}>
-              <Pressable onPress={() => setShowProfileModal(false)} style={styles.modalCloseButton}>
-                <Ionicons name="close" size={28} color={theme.colors.text} />
-              </Pressable>
-              <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
-                {selectedProfile.first_name}'s Profile
-              </Text>
-              <View style={{ width: 44 }} />
-            </View>
-
-            <ScrollView
-              style={styles.modalContent}
-              contentContainerStyle={styles.modalScrollContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {/* Main Photo */}
-              <Image
-                source={{ uri: getProfilePhotoUrl(selectedProfile) || '' }}
-                style={styles.modalPhoto}
-                resizeMode="cover"
-              />
-
-              {/* Basic Info */}
-              <View style={styles.modalInfo}>
-                <Text style={[styles.modalName, { color: theme.colors.text }]}>
-                  {selectedProfile.first_name}, {selectedProfile.age}
-                </Text>
-                <Text style={[styles.modalLocation, { color: theme.colors.textSecondary }]}>
-                  {selectedProfile.current_city || 'Nearby'} {selectedProfile.distance ? `• ${selectedProfile.distance} miles` : ''}
-                </Text>
-                <View style={styles.modalBadge}>
-                  <Text style={styles.modalBadgeText}>{selectedProfile.jewish_background}</Text>
-                </View>
-              </View>
-
-              {/* Bio */}
-              {selectedProfile.bio && (
-                <View style={[styles.modalSection, { backgroundColor: theme.colors.surface }]}>
-                  <Text style={[styles.modalSectionTitle, { color: theme.colors.text }]}>About</Text>
-                  <Text style={[styles.modalBio, { color: theme.colors.textSecondary }]}>
-                    {selectedProfile.bio}
-                  </Text>
-                </View>
-              )}
-
-              {/* Prompts */}
-              {selectedProfile.prompts && selectedProfile.prompts.length > 0 && (
-                <View style={styles.modalPrompts}>
-                  {selectedProfile.prompts.map((prompt: any, idx: number) => (
-                    <View key={idx} style={[styles.modalPromptCard, { backgroundColor: theme.colors.surface }]}>
-                      <Text style={[styles.modalPromptQuestion, { color: theme.colors.textSecondary }]}>
-                        {prompt.question || 'My favorite thing about...'}
-                      </Text>
-                      <Text style={[styles.modalPromptAnswer, { color: theme.colors.text }]}>
-                        {prompt.answer}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              {/* Safta Likes */}
-              {(selectedProfile.safta_likes || selectedProfile.safta_approved_count) > 0 && (
-                <View style={[styles.modalSaftaBadge, { backgroundColor: colors.transparent.gold20 }]}>
-                  <Text style={styles.modalSaftaText}>
-                    👵 {selectedProfile.safta_likes || selectedProfile.safta_approved_count} Saftas approve!
-                  </Text>
-                </View>
-              )}
-            </ScrollView>
-
-            {/* Modal Action Buttons */}
-            <View style={[styles.modalActions, { paddingBottom: insets.bottom + spacing[4] }]}>
-              <Pressable
-                style={[styles.modalActionButton, styles.modalPassButton]}
-                onPress={() => {
-                  setShowProfileModal(false);
-                  handleSwipeLeft();
-                }}
-              >
-                <Ionicons name="close" size={28} color={colors.semantic.error} />
-              </Pressable>
-              <Pressable
-                style={[styles.modalActionButton, styles.modalSuperButton]}
-                onPress={() => {
-                  setShowProfileModal(false);
-                  handleSwipeUp();
-                }}
-              >
-                <Ionicons name="star" size={24} color={colors.semantic.info} />
-              </Pressable>
-              <Pressable
-                style={[styles.modalActionButton, styles.modalLikeButton]}
-                onPress={() => {
-                  setShowProfileModal(false);
-                  handleSwipeRight();
-                }}
-              >
-                <Ionicons name="heart" size={28} color={colors.primary.white} />
-              </Pressable>
-            </View>
-          </View>
-        )}
-      </Modal>
+      {/* Match Celebration */}
+      {showMatchCelebration && newMatch && (
+        <MatchCelebration
+          match={newMatch}
+          onClose={hideCelebration}
+          onSendMessage={() => {
+            hideCelebration();
+            router.push(`/(tabs)/messages/${newMatch.id}`);
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -600,344 +623,354 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: spacing[4],
+    paddingHorizontal: spacing[5],
     paddingBottom: spacing[2],
+    zIndex: 10,
+  },
+  headerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[3],
   },
   logoText: {
     fontSize: 28,
     fontWeight: '700',
+    color: colors.primary.white,
   },
-  headerActions: {
+  orthodoxBadge: {
     flexDirection: 'row',
-    gap: spacing[2],
+    alignItems: 'center',
+    gap: spacing[1.5],
+    backgroundColor: colors.transparent.gold20,
+    paddingHorizontal: spacing[2.5],
+    paddingVertical: spacing[1],
+    borderRadius: borderRadius.full,
+  },
+  orthodoxBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.primary.gold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   headerButton: {
     width: 44,
     height: 44,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  cardStack: {
+  modeTabs: {
+    flexDirection: 'row',
+    marginHorizontal: spacing[5],
+    marginBottom: spacing[3],
+    backgroundColor: colors.transparent.white10,
+    borderRadius: borderRadius.xl,
+    padding: spacing[1],
+  },
+  modeTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing[2],
+    paddingVertical: spacing[2.5],
+    borderRadius: borderRadius.lg,
+  },
+  modeTabActive: {
+    backgroundColor: colors.transparent.gold20,
+  },
+  modeTabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.transparent.white50,
+  },
+  modeTabTextActive: {
+    color: colors.primary.gold,
+  },
+  modeTabEmoji: {
+    fontSize: 16,
+  },
+  profileContainer: {
+    flex: 1,
+  },
+  profileStoryContainer: {
+    flex: 1,
+  },
+  loadingContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: spacing[4],
   },
-  card: {
-    position: 'absolute',
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT,
-    borderRadius: borderRadius['2xl'],
-    overflow: 'hidden',
-    ...shadows.card,
-  },
-  cardImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-  },
-  cardGradient: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  likeIndicator: {
-    position: 'absolute',
-    top: spacing[6],
-    left: spacing[6],
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[2],
-    borderRadius: borderRadius.md,
-    borderWidth: 4,
-    borderColor: colors.semantic.success,
-    transform: [{ rotate: '-15deg' }],
-  },
-  likeText: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: colors.semantic.success,
-  },
-  nopeIndicator: {
-    position: 'absolute',
-    top: spacing[6],
-    right: spacing[6],
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[2],
-    borderRadius: borderRadius.md,
-    borderWidth: 4,
-    borderColor: colors.semantic.error,
-    transform: [{ rotate: '15deg' }],
-  },
-  nopeText: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: colors.semantic.error,
-  },
-  superLikeIndicator: {
-    position: 'absolute',
-    bottom: spacing[20],
-    alignSelf: 'center',
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[2],
-    borderRadius: borderRadius.md,
-    borderWidth: 4,
-    borderColor: colors.semantic.info,
-  },
-  superLikeText: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: colors.semantic.info,
-  },
-  cardContent: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: spacing[4],
-  },
-  saftaBadge: {
-    backgroundColor: colors.transparent.gold50,
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[1.5],
-    borderRadius: borderRadius.full,
-    alignSelf: 'flex-start',
-    marginBottom: spacing[2],
-  },
-  saftaText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.primary.white,
-  },
-  basicInfo: {
-    marginBottom: spacing[3],
-  },
-  name: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: colors.primary.white,
-  },
-  location: {
-    fontSize: 14,
-    color: colors.transparent.white80,
-    marginTop: spacing[1],
-  },
-  backgroundBadge: {
-    backgroundColor: colors.transparent.white20,
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[1],
-    borderRadius: borderRadius.full,
-    alignSelf: 'flex-start',
-    marginTop: spacing[2],
-  },
-  backgroundText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: colors.primary.white,
-  },
-  promptPreview: {
-    backgroundColor: colors.transparent.white10,
-    padding: spacing[3],
-    borderRadius: borderRadius.lg,
-  },
-  promptQuestion: {
-    fontSize: 12,
-    color: colors.transparent.white80,
-    marginBottom: spacing[1],
-  },
-  promptAnswer: {
-    fontSize: 14,
-    color: colors.primary.white,
-    fontWeight: '500',
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: spacing[6],
-    paddingVertical: spacing[4],
-  },
-  actionButton: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...shadows.md,
-  },
-  nopeButton: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.primary.white,
-    borderWidth: 2,
-    borderColor: colors.semantic.error,
-  },
-  superLikeButton: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: colors.primary.white,
-    borderWidth: 2,
-    borderColor: colors.semantic.info,
-  },
-  likeButton: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.primary.gold,
+  loadingText: {
+    fontSize: 16,
+    color: colors.transparent.white60,
   },
   emptyState: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: spacing[8],
   },
+  emptyIcon: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: colors.transparent.white10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing[6],
+  },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginTop: spacing[4],
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.primary.white,
     textAlign: 'center',
+    marginBottom: spacing[2],
   },
   emptySubtitle: {
     fontSize: 15,
-    marginTop: spacing[2],
+    color: colors.transparent.white60,
     textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: spacing[6],
   },
-  expandButton: {
-    marginTop: spacing[6],
+  refreshButton: {
     backgroundColor: colors.primary.gold,
     paddingHorizontal: spacing[6],
     paddingVertical: spacing[3],
     borderRadius: borderRadius.xl,
   },
-  expandButtonText: {
-    color: colors.primary.navy,
-    fontSize: 15,
+  refreshButtonText: {
+    fontSize: 16,
     fontWeight: '600',
+    color: colors.primary.navy,
   },
-  // Modal styles
-  modalContainer: {
+  saftaScrollView: {
     flex: 1,
   },
-  modalHeader: {
+  saftaScrollContent: {
+    paddingHorizontal: spacing[5],
+    paddingTop: spacing[2],
+  },
+  saftaSectionTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.primary.white,
+    marginBottom: spacing[1],
+  },
+  saftaSectionSubtitle: {
+    fontSize: 14,
+    color: colors.transparent.white60,
+    marginBottom: spacing[5],
+  },
+});
+
+const saftaStyles = StyleSheet.create({
+  card: {
+    borderRadius: borderRadius.xl,
+    padding: spacing[4],
+    marginBottom: spacing[3],
+    ...shadows.card,
+  },
+  cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing[4],
-    paddingBottom: spacing[2],
+    gap: spacing[3],
+    marginBottom: spacing[3],
   },
-  modalCloseButton: {
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
+  avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: colors.primary.gold,
+  },
+  headerInfo: {
+    flex: 1,
+  },
+  nameRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing[2],
   },
-  modalTitle: {
+  name: {
     fontSize: 17,
     fontWeight: '600',
   },
-  modalContent: {
-    flex: 1,
-  },
-  modalScrollContent: {
-    paddingBottom: spacing[4],
-  },
-  modalPhoto: {
-    width: '100%',
-    height: SCREEN_HEIGHT * 0.5,
-  },
-  modalInfo: {
-    padding: spacing[4],
-  },
-  modalName: {
-    fontSize: 28,
-    fontWeight: '700',
-  },
-  modalLocation: {
-    fontSize: 15,
+  relationshipBadge: {
+    backgroundColor: colors.transparent.gold20,
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[0.5],
+    borderRadius: borderRadius.sm,
+    alignSelf: 'flex-start',
     marginTop: spacing[1],
   },
-  modalBadge: {
-    backgroundColor: colors.transparent.gold20,
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[1],
-    borderRadius: borderRadius.full,
-    alignSelf: 'flex-start',
-    marginTop: spacing[2],
-  },
-  modalBadgeText: {
-    fontSize: 13,
-    fontWeight: '500',
+  relationshipText: {
+    fontSize: 11,
+    fontWeight: '600',
     color: colors.primary.gold,
   },
-  modalSection: {
-    marginHorizontal: spacing[4],
-    padding: spacing[4],
-    borderRadius: borderRadius.lg,
+  bio: {
+    fontSize: 14,
+    lineHeight: 20,
     marginBottom: spacing[3],
   },
-  modalSectionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: spacing[2],
+  stats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing[4],
   },
-  modalBio: {
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  modalPrompts: {
-    paddingHorizontal: spacing[4],
-    gap: spacing[3],
-  },
-  modalPromptCard: {
-    padding: spacing[4],
-    borderRadius: borderRadius.lg,
-  },
-  modalPromptQuestion: {
-    fontSize: 13,
-    marginBottom: spacing[1],
-  },
-  modalPromptAnswer: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  modalSaftaBadge: {
-    marginHorizontal: spacing[4],
-    marginTop: spacing[4],
-    padding: spacing[3],
-    borderRadius: borderRadius.lg,
+  stat: {
+    flex: 1,
     alignItems: 'center',
   },
-  modalSaftaText: {
-    fontSize: 14,
+  statNumber: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  statLabel: {
+    fontSize: 12,
+    marginTop: spacing[0.5],
+  },
+  statDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: colors.neutral[700],
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: spacing[2],
+  },
+  followButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing[2],
+    backgroundColor: colors.primary.gold,
+    paddingVertical: spacing[3],
+    borderRadius: borderRadius.lg,
+  },
+  followingButton: {
+    backgroundColor: colors.transparent.gold20,
+    borderWidth: 1,
+    borderColor: colors.primary.gold,
+  },
+  followButtonText: {
+    fontSize: 15,
     fontWeight: '600',
+    color: colors.primary.navy,
+  },
+  followingButtonText: {
     color: colors.primary.gold,
   },
-  modalActions: {
-    flexDirection: 'row',
+  messageButton: {
+    width: 48,
+    height: 48,
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.transparent.gold10,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: spacing[6],
-    paddingTop: spacing[4],
+  },
+});
+
+const celebrationStyles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  starsBackground: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  backgroundStar: {
+    position: 'absolute',
+  },
+  content: {
+    alignItems: 'center',
     paddingHorizontal: spacing[6],
   },
-  modalActionButton: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...shadows.md,
+  mazalText: {
+    fontSize: 42,
+    fontWeight: '800',
+    color: colors.primary.gold,
+    textAlign: 'center',
+    marginTop: spacing[4],
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
-  modalPassButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: colors.primary.white,
-    borderWidth: 2,
-    borderColor: colors.semantic.error,
+  subtitle: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: colors.primary.white,
+    marginTop: spacing[2],
+    marginBottom: spacing[8],
   },
-  modalSuperButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: colors.primary.white,
-    borderWidth: 2,
-    borderColor: colors.semantic.info,
+  photoContainer: {
+    position: 'relative',
+    marginBottom: spacing[6],
   },
-  modalLikeButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+  photoGlow: {
+    position: 'absolute',
+    top: -8,
+    left: -8,
+    right: -8,
+    bottom: -8,
+    borderRadius: 84,
     backgroundColor: colors.primary.gold,
+    opacity: 0.3,
+  },
+  photo: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    borderWidth: 4,
+    borderColor: colors.primary.gold,
+  },
+  matchName: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.primary.white,
+    textAlign: 'center',
+  },
+  matchHint: {
+    fontSize: 16,
+    color: colors.transparent.white70,
+    marginTop: spacing[2],
+  },
+  actions: {
+    position: 'absolute',
+    bottom: 60,
+    left: spacing[6],
+    right: spacing[6],
+    gap: spacing[3],
+  },
+  messageButton: {
+    borderRadius: borderRadius.xl,
+    overflow: 'hidden',
+    ...shadows.lg,
+  },
+  buttonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing[3],
+    paddingVertical: spacing[4],
+  },
+  messageButtonText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.primary.navy,
+  },
+  keepSwipingButton: {
+    alignItems: 'center',
+    paddingVertical: spacing[3],
+  },
+  keepSwipingText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.transparent.white70,
   },
 });

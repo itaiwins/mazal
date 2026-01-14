@@ -20,10 +20,17 @@ import {
 import { Link, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
+import * as Crypto from 'expo-crypto';
 import { supabase } from '@/api/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+
+// Required for web browser auth to close properly
+WebBrowser.maybeCompleteAuthSession();
 
 export default function RegisterScreen() {
   const insets = useSafeAreaInsets();
@@ -101,13 +108,152 @@ export default function RegisterScreen() {
     }
   };
 
-  const handleSocialLogin = async (provider: 'apple' | 'google') => {
-    // Social login requires a development build - not available in Expo Go
-    Alert.alert(
-      'Not Available in Expo Go',
-      `${provider === 'apple' ? 'Apple' : 'Google'} Sign-In requires a development build. Please use email registration for now, or create a development build to enable social login.`,
-      [{ text: 'OK' }]
-    );
+  const handleAppleSignIn = async () => {
+    try {
+      // Check if Apple Authentication is available
+      const isAvailable = await AppleAuthentication.isAvailableAsync();
+      if (!isAvailable) {
+        Alert.alert('Not Available', 'Apple Sign In is not available on this device');
+        return;
+      }
+
+      setIsLoading(true);
+
+      // Generate nonce for security
+      const rawNonce = Crypto.getRandomBytes(16).reduce(
+        (acc, byte) => acc + byte.toString(16).padStart(2, '0'),
+        ''
+      );
+      const hashedNonce = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        rawNonce
+      );
+
+      // Request credentials from Apple
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+        nonce: hashedNonce,
+      });
+
+      if (credential.identityToken) {
+        // Sign in with Supabase using the Apple ID token
+        const { data, error } = await supabase.auth.signInWithIdToken({
+          provider: 'apple',
+          token: credential.identityToken,
+          nonce: rawNonce,
+        });
+
+        if (error) {
+          console.error('Supabase Apple auth error:', error);
+          Alert.alert('Error', error.message);
+          return;
+        }
+
+        if (data.session) {
+          console.log('[Register] Apple Sign In successful');
+          setSession(data.session);
+          router.replace('/');
+        }
+      }
+    } catch (e: any) {
+      if (e.code === 'ERR_REQUEST_CANCELED') {
+        console.log('Apple Sign In cancelled');
+      } else {
+        console.error('Apple Sign In error:', e);
+        Alert.alert('Error', 'Failed to sign in with Apple');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      setIsLoading(true);
+
+      // Use the app's custom scheme for redirect
+      const redirectUrl = 'mazal://auth/callback';
+
+      console.log('[Register] Google redirect URL:', redirectUrl);
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: true,
+        },
+      });
+
+      if (error) {
+        console.error('Google OAuth error:', error);
+        Alert.alert('Error', error.message);
+        return;
+      }
+
+      if (data?.url) {
+        // Open the OAuth URL in a web browser
+        const result = await WebBrowser.openAuthSessionAsync(
+          data.url,
+          redirectUrl,
+          { showInRecents: true }
+        );
+
+        console.log('[Register] Google OAuth result:', result.type);
+
+        if (result.type === 'success' && result.url) {
+          console.log('[Register] Callback URL:', result.url);
+
+          // Extract the tokens from the URL (could be in hash or query params)
+          const url = new URL(result.url);
+          let accessToken: string | null = null;
+          let refreshToken: string | null = null;
+
+          // Check hash fragment first (implicit flow)
+          if (url.hash) {
+            const hashParams = new URLSearchParams(url.hash.substring(1));
+            accessToken = hashParams.get('access_token');
+            refreshToken = hashParams.get('refresh_token');
+          }
+
+          // Check query params (PKCE flow)
+          if (!accessToken) {
+            accessToken = url.searchParams.get('access_token');
+            refreshToken = url.searchParams.get('refresh_token');
+          }
+
+          if (accessToken) {
+            console.log('[Register] Google Sign In successful, setting session...');
+
+            // Fire setSession without awaiting
+            supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken || '',
+            });
+
+            // Wait 500ms for session to be set, then navigate
+            setTimeout(() => {
+              console.log('[Register] Navigating after delay...');
+              setIsLoading(false);
+              router.replace('/');
+            }, 500);
+            return;
+          } else {
+            console.error('No access token in callback URL');
+            Alert.alert('Error', 'Authentication failed. Please try again.');
+          }
+        } else if (result.type === 'cancel') {
+          console.log('Google Sign In cancelled by user');
+        }
+      }
+    } catch (e) {
+      console.error('Google Sign In error:', e);
+      Alert.alert('Error', 'Failed to sign in with Google');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -127,7 +273,7 @@ export default function RegisterScreen() {
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Ionicons name="chevron-back" size={28} color={colors.primary.navy} />
+          <Ionicons name="chevron-back" size={28} color={colors.primary.white} />
         </Pressable>
 
         {/* Header */}
@@ -175,7 +321,7 @@ export default function RegisterScreen() {
                 <Ionicons
                   name={showPassword ? 'eye-off' : 'eye'}
                   size={22}
-                  color={colors.neutral[500]}
+                  color={colors.transparent.white50}
                 />
               </Pressable>
             </View>
@@ -203,7 +349,7 @@ export default function RegisterScreen() {
                 <Ionicons
                   name={showPassword ? 'eye-off' : 'eye'}
                   size={22}
-                  color={colors.neutral[500]}
+                  color={colors.transparent.white50}
                 />
               </Pressable>
             </View>
@@ -242,17 +388,19 @@ export default function RegisterScreen() {
           {Platform.OS === 'ios' && (
             <Pressable
               style={styles.socialButton}
-              onPress={() => handleSocialLogin('apple')}
+              onPress={handleAppleSignIn}
+              disabled={isLoading}
             >
-              <Ionicons name="logo-apple" size={24} color={colors.primary.navy} />
+              <Ionicons name="logo-apple" size={24} color={colors.primary.white} />
               <Text style={styles.socialButtonText}>Apple</Text>
             </Pressable>
           )}
           <Pressable
             style={styles.socialButton}
-            onPress={() => handleSocialLogin('google')}
+            onPress={handleGoogleSignIn}
+            disabled={isLoading}
           >
-            <Ionicons name="logo-google" size={22} color={colors.primary.navy} />
+            <Ionicons name="logo-google" size={22} color={colors.primary.white} />
             <Text style={styles.socialButtonText}>Google</Text>
           </Pressable>
         </View>
@@ -282,7 +430,7 @@ export default function RegisterScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.secondary.cream,
+    backgroundColor: colors.primary.navy,
   },
   scrollContent: {
     flexGrow: 1,
@@ -301,12 +449,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 32,
     fontWeight: '700',
-    color: colors.primary.navy,
+    color: colors.primary.white,
     marginBottom: spacing[2],
   },
   subtitle: {
     fontSize: 16,
-    color: colors.neutral[600],
+    color: colors.transparent.white70,
   },
   form: {
     gap: spacing[4],
@@ -317,17 +465,17 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '500',
-    color: colors.primary.navy,
+    color: colors.primary.white,
   },
   input: {
-    backgroundColor: colors.primary.white,
+    backgroundColor: colors.transparent.white10,
     borderRadius: borderRadius.lg,
     paddingHorizontal: spacing[4],
     paddingVertical: spacing[3.5],
     fontSize: 16,
-    color: colors.primary.navy,
+    color: colors.primary.white,
     borderWidth: 1,
-    borderColor: colors.neutral[200],
+    borderColor: colors.transparent.white20,
   },
   passwordContainer: {
     position: 'relative',
@@ -343,7 +491,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   errorContainer: {
-    backgroundColor: colors.transparent.black10,
+    backgroundColor: colors.transparent.white10,
     padding: spacing[3],
     borderRadius: borderRadius.md,
     borderLeftWidth: 3,
@@ -376,10 +524,10 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: colors.neutral[300],
+    backgroundColor: colors.transparent.white20,
   },
   dividerText: {
-    color: colors.neutral[500],
+    color: colors.transparent.white50,
     paddingHorizontal: spacing[4],
     fontSize: 14,
   },
@@ -393,20 +541,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing[2],
-    backgroundColor: colors.primary.white,
+    backgroundColor: colors.transparent.white10,
     paddingVertical: spacing[3.5],
     borderRadius: borderRadius.xl,
     borderWidth: 1,
-    borderColor: colors.neutral[200],
+    borderColor: colors.transparent.white20,
   },
   socialButtonText: {
     fontSize: 15,
     fontWeight: '500',
-    color: colors.primary.navy,
+    color: colors.primary.white,
   },
   termsText: {
     fontSize: 12,
-    color: colors.neutral[500],
+    color: colors.transparent.white50,
     textAlign: 'center',
     marginTop: spacing[6],
     lineHeight: 18,
@@ -422,7 +570,7 @@ const styles = StyleSheet.create({
   },
   signInText: {
     fontSize: 15,
-    color: colors.neutral[600],
+    color: colors.transparent.white60,
   },
   signInLink: {
     fontSize: 15,

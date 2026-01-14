@@ -154,6 +154,8 @@ export default function BasicsScreen() {
             }}
             maximumDate={new Date(new Date().getFullYear() - 18, 0, 1)}
             minimumDate={new Date(1940, 0, 1)}
+            themeVariant={theme.isDark ? 'dark' : 'light'}
+            textColor={theme.isDark ? '#FFFFFF' : '#000000'}
           />
         )}
 

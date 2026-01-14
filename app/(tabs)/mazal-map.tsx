@@ -1,11 +1,11 @@
 /**
  * Mazal Map Screen
  *
- * Geographic discovery - browse users on a map
- * Note: Full map functionality requires a development build
+ * Geographic discovery - browse users on an interactive map
+ * Shows nearby Jewish singles with markers and profile previews
  */
 
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,173 +15,478 @@ import {
   ScrollView,
   Modal,
   Alert,
+  Dimensions,
+  Platform,
+  ActivityIndicator,
 } from 'react-native';
+import MapView, { Marker, PROVIDER_DEFAULT, Region, Callout } from 'react-native-maps';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Location from 'expo-location';
+import * as Haptics from 'expo-haptics';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  SlideInDown,
+  SlideOutDown,
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius, shadows } from '@/theme/spacing';
+import { StarOfDavid } from '@/components/icons/StarOfDavid';
+import { usePremiumStore } from '@/stores/premiumStore';
+import { useUIStore } from '@/stores/uiStore';
+import { FEATURE_LIMITS } from '@/lib/config/revenuecat';
+import { DEMO_NEARBY_USERS } from '@/lib/demo/demoProfiles';
 
-// Sample data for demo
-const SAVED_LOCATIONS = [
-  { id: '1', name: 'Home', type: 'home' },
-  { id: '2', name: 'Work', type: 'work' },
-  { id: '3', name: 'NYU', type: 'college' },
-];
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-const NEARBY_USERS = [
-  {
-    id: '1',
-    name: 'Sarah',
-    age: 27,
-    photo: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200',
-    distance: 0.5,
-  },
-  {
-    id: '2',
-    name: 'David',
-    age: 29,
-    photo: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200',
-    distance: 1.2,
-  },
-  {
-    id: '3',
-    name: 'Rachel',
-    age: 25,
-    photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
-    distance: 0.8,
-  },
-  {
-    id: '4',
-    name: 'Michael',
-    age: 31,
-    photo: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200',
-    distance: 2.1,
-  },
-];
+// Initial region will be set to user's location once obtained
+// This is just a fallback that won't be used since we wait for location
+const FALLBACK_REGION: Region = {
+  latitude: 30.4383,  // Tallahassee as fallback
+  longitude: -84.2807,
+  latitudeDelta: 0.1,
+  longitudeDelta: 0.1,
+};
+
+// Nearby users type - will be populated from Supabase
+type NearbyUser = {
+  id: string;
+  name: string;
+  age: number;
+  photo: string;
+  distance: number;
+  latitude: number;
+  longitude: number;
+  jewishBackground: string;
+  occupation: string;
+  isVerified: boolean;
+  saftaApproved: number;
+};
+
+type UserType = NearbyUser;
+type LocationType = {
+  id: string;
+  name: string;
+  type: 'home' | 'college';
+  latitude: number;
+  longitude: number;
+};
+
+// Saved locations - Home will be set to user's actual location
+const DEFAULT_LOCATIONS: LocationType[] = [];
+
+// User marker component
+function UserMarker({ user, isSelected, onPress }: { user: UserType; isSelected: boolean; onPress: () => void }) {
+  return (
+    <Marker
+      coordinate={{ latitude: user.latitude, longitude: user.longitude }}
+      onPress={onPress}
+      tracksViewChanges={false}
+    >
+      <View style={[styles.markerContainer, isSelected && styles.markerContainerSelected]}>
+        <Image
+          source={{ uri: user.photo }}
+          style={[styles.markerImage, isSelected && styles.markerImageSelected]}
+        />
+        {user.isVerified && (
+          <View style={styles.verifiedBadge}>
+            <Ionicons name="checkmark" size={8} color={colors.primary.navy} />
+          </View>
+        )}
+        {user.saftaApproved > 0 && (
+          <View style={styles.saftaBadge}>
+            <Text style={styles.saftaBadgeText}>👵{user.saftaApproved}</Text>
+          </View>
+        )}
+      </View>
+    </Marker>
+  );
+}
+
+// Profile preview card component
+function ProfilePreview({
+  user,
+  onClose,
+  onViewProfile
+}: {
+  user: UserType;
+  onClose: () => void;
+  onViewProfile: () => void;
+}) {
+  return (
+    <Animated.View
+      entering={SlideInDown.springify().damping(15)}
+      exiting={SlideOutDown.springify()}
+      style={styles.previewContainer}
+    >
+      <LinearGradient
+        colors={[colors.dark.elevated, colors.dark.card]}
+        style={styles.previewGradient}
+      >
+        <Pressable style={styles.previewCloseButton} onPress={onClose}>
+          <Ionicons name="close" size={20} color={colors.transparent.white60} />
+        </Pressable>
+
+        <View style={styles.previewContent}>
+          <Image source={{ uri: user.photo }} style={styles.previewImage} />
+
+          <View style={styles.previewInfo}>
+            <View style={styles.previewHeader}>
+              <Text style={styles.previewName}>{user.name}, {user.age}</Text>
+              {user.isVerified && (
+                <Ionicons name="checkmark-circle" size={18} color={colors.primary.gold} />
+              )}
+            </View>
+
+            <Text style={styles.previewOccupation}>{user.occupation}</Text>
+
+            <View style={styles.previewTags}>
+              <View style={styles.previewTag}>
+                <StarOfDavid size={12} color={colors.primary.gold} />
+                <Text style={styles.previewTagText}>{user.jewishBackground}</Text>
+              </View>
+              <View style={styles.previewTag}>
+                <Ionicons name="location" size={12} color={colors.primary.gold} />
+                <Text style={styles.previewTagText}>{user.distance} mi</Text>
+              </View>
+            </View>
+
+            {user.saftaApproved > 0 && (
+              <View style={styles.saftaApprovedRow}>
+                <Text style={styles.saftaApprovedEmoji}>👵</Text>
+                <Text style={styles.saftaApprovedText}>
+                  {user.saftaApproved} Safta{user.saftaApproved > 1 ? 's' : ''} approved
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.previewActions}>
+          <Pressable style={styles.previewPassButton} onPress={onClose}>
+            <Ionicons name="close" size={24} color={colors.semantic.error} />
+          </Pressable>
+          <Pressable style={styles.previewViewButton} onPress={onViewProfile}>
+            <Text style={styles.previewViewButtonText}>View Profile</Text>
+            <Ionicons name="arrow-forward" size={18} color={colors.primary.navy} />
+          </Pressable>
+          <Pressable style={styles.previewLikeButton} onPress={() => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            Alert.alert('Liked!', `You liked ${user.name}. If they like you back, it's a match!`);
+            onClose();
+          }}>
+            <Ionicons name="heart" size={24} color={colors.primary.gold} />
+          </Pressable>
+        </View>
+      </LinearGradient>
+    </Animated.View>
+  );
+}
 
 export default function MazalMapScreen() {
   const insets = useSafeAreaInsets();
+  const mapRef = useRef<MapView>(null);
+
+  // Premium state
+  const entitlements = usePremiumStore((s) => s.entitlements);
+  const showPaywallModal = usePremiumStore((s) => s.showPaywallModal);
+  const isPlatinum = entitlements.plan === 'mazal_platinum';
+
+  // State
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newLocationName, setNewLocationName] = useState('');
-  const [newLocationType, setNewLocationType] = useState<'home' | 'work' | 'college'>('home');
-  const [savedLocations, setSavedLocations] = useState(SAVED_LOCATIONS);
+  const [newLocationType, setNewLocationType] = useState<'home' | 'college'>('college');
+  const [savedLocations, setSavedLocations] = useState<LocationType[]>(DEFAULT_LOCATIONS);
+  const [selectedUser, setSelectedUser] = useState<UserType | null>(null);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [isLoadingLocation, setIsLoadingLocation] = useState(true);
+  const [mapReady, setMapReady] = useState(false);
+  const [region, setRegion] = useState<Region | null>(null);
 
-  const handleAddLocation = () => {
+  // Nearby users - empty until real data is fetched from Supabase
+  const [nearbyUsers, setNearbyUsers] = useState<NearbyUser[]>([]);
+
+  // Check if demo mode is enabled
+  const isDemoMode = useUIStore((s) => s.isDemoMode);
+
+  // Set demo users when demo mode is enabled
+  useEffect(() => {
+    if (isDemoMode) {
+      setNearbyUsers(DEMO_NEARBY_USERS);
+    } else {
+      setNearbyUsers([]);
+    }
+  }, [isDemoMode]);
+
+  // Get user location
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          setIsLoadingLocation(false);
+          return;
+        }
+
+        const location = await Location.getCurrentPositionAsync({});
+        const userCoords = {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        };
+        setUserLocation(userCoords);
+
+        // Center map on user location
+        setRegion({
+          ...userCoords,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        });
+
+        // Set Home location to user's actual location
+        setSavedLocations([{
+          id: 'home',
+          name: 'Home',
+          type: 'home',
+          latitude: userCoords.latitude,
+          longitude: userCoords.longitude,
+        }]);
+      } catch (error) {
+        console.error('Error getting location:', error);
+      } finally {
+        setIsLoadingLocation(false);
+      }
+    })();
+  }, []);
+
+  // Handle marker press - Platinum only feature
+  const handleMarkerPress = useCallback((user: UserType) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Check if user has Platinum - map profile viewing is Platinum-only
+    if (!isPlatinum) {
+      showPaywallModal(
+        'Upgrade to Mazal Platinum to view profiles on the map and like or pass directly!',
+        'platinum'
+      );
+      return;
+    }
+
+    setSelectedUser(user);
+
+    // Animate to user location
+    mapRef.current?.animateToRegion({
+      latitude: user.latitude,
+      longitude: user.longitude,
+      latitudeDelta: 0.02,
+      longitudeDelta: 0.02,
+    }, 500);
+  }, [isPlatinum, showPaywallModal]);
+
+  // Center on user location
+  const handleCenterOnUser = useCallback(() => {
+    if (userLocation) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      mapRef.current?.animateToRegion({
+        ...userLocation,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      }, 500);
+    }
+  }, [userLocation]);
+
+  // Handle saved location press
+  const handleLocationPress = useCallback((location: LocationType) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    mapRef.current?.animateToRegion({
+      latitude: location.latitude,
+      longitude: location.longitude,
+      latitudeDelta: 0.02,
+      longitudeDelta: 0.02,
+    }, 500);
+  }, []);
+
+  // Add new location
+  const handleAddLocation = useCallback(() => {
     if (!newLocationName.trim()) {
       Alert.alert('Error', 'Please enter a location name');
       return;
     }
-    const newLocation = {
+
+    const centerCoords = region || FALLBACK_REGION;
+    const newLocation: LocationType = {
       id: Date.now().toString(),
       name: newLocationName.trim(),
       type: newLocationType,
+      latitude: centerCoords.latitude,
+      longitude: centerCoords.longitude,
     };
-    setSavedLocations([...savedLocations, newLocation]);
+
+    setSavedLocations(prev => [...prev, newLocation]);
     setNewLocationName('');
     setShowAddModal(false);
-  };
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }, [newLocationName, newLocationType, region]);
+
+  // View full profile
+  const handleViewProfile = useCallback(() => {
+    if (selectedUser) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      Alert.alert(
+        'Coming Soon',
+        `Full profile view for ${selectedUser.name} will open in the Discover tab.`,
+        [{ text: 'OK', onPress: () => setSelectedUser(null) }]
+      );
+    }
+  }, [selectedUser]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Search bar */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchBar}>
-          <Ionicons name="search" size={20} color={colors.neutral[400]} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search location or campus"
-            placeholderTextColor={colors.neutral[400]}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-          {searchQuery.length > 0 && (
-            <Pressable onPress={() => setSearchQuery('')}>
-              <Ionicons name="close-circle" size={20} color={colors.neutral[400]} />
-            </Pressable>
-          )}
-        </View>
-        <Pressable
-          style={styles.filterButton}
-          onPress={() => router.push('/settings/preferences')}
-        >
-          <Ionicons name="options-outline" size={22} color={colors.primary.navy} />
-        </Pressable>
-      </View>
-
-      {/* Saved locations chips */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.savedLocations}
-        contentContainerStyle={styles.savedLocationsContent}
+      {/* Map */}
+      <MapView
+        ref={mapRef}
+        style={styles.map}
+        provider={PROVIDER_DEFAULT}
+        initialRegion={region || FALLBACK_REGION}
+        region={mapReady ? undefined : (region || FALLBACK_REGION)}
+        onRegionChangeComplete={setRegion}
+        onMapReady={() => setMapReady(true)}
+        showsUserLocation
+        showsMyLocationButton={false}
+        showsCompass={false}
+        customMapStyle={darkMapStyle}
+        onPress={() => setSelectedUser(null)}
       >
-        {savedLocations.map((location) => (
-          <Pressable key={location.id} style={styles.locationChip}>
-            <Ionicons
-              name={
-                location.type === 'home' ? 'home' :
-                location.type === 'work' ? 'briefcase' : 'school'
-              }
-              size={14}
-              color={colors.primary.navy}
-            />
-            <Text style={styles.locationChipText}>{location.name}</Text>
-          </Pressable>
+        {/* User markers */}
+        {nearbyUsers.map((user) => (
+          <UserMarker
+            key={user.id}
+            user={user}
+            isSelected={selectedUser?.id === user.id}
+            onPress={() => handleMarkerPress(user)}
+          />
         ))}
-        <Pressable
-          style={[styles.locationChip, styles.addLocationChip]}
-          onPress={() => setShowAddModal(true)}
-        >
-          <Ionicons name="add" size={14} color={colors.primary.gold} />
-          <Text style={[styles.locationChipText, { color: colors.primary.gold }]}>Add</Text>
-        </Pressable>
-      </ScrollView>
+      </MapView>
 
-      {/* Map placeholder */}
-      <View style={styles.mapPlaceholder}>
-        <View style={styles.mapIconContainer}>
-          <Ionicons name="map" size={64} color={colors.primary.gold} />
+      {/* Overlay UI */}
+      <View style={styles.overlayContainer} pointerEvents="box-none">
+        {/* Search bar */}
+        <View style={styles.searchContainer}>
+          <View style={styles.searchBar}>
+            <Ionicons name="search" size={20} color={colors.transparent.white50} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search location or campus"
+              placeholderTextColor={colors.transparent.white40}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery.length > 0 && (
+              <Pressable onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={20} color={colors.transparent.white50} />
+              </Pressable>
+            )}
+          </View>
+          <Pressable
+            style={styles.filterButton}
+            onPress={() => router.push('/settings/preferences')}
+          >
+            <Ionicons name="options-outline" size={22} color={colors.transparent.white70} />
+          </Pressable>
         </View>
-        <Text style={styles.mapPlaceholderTitle}>Map View</Text>
-        <Text style={styles.mapPlaceholderText}>
-          Full map functionality requires a development build.
-          {'\n'}Browse nearby users below.
-        </Text>
-      </View>
 
-      {/* Nearby users list */}
-      <View style={styles.nearbySection}>
-        <Text style={styles.nearbyTitle}>Nearby Users ({NEARBY_USERS.length})</Text>
+        {/* Saved locations chips */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.nearbyList}
+          style={styles.savedLocations}
+          contentContainerStyle={styles.savedLocationsContent}
         >
-          {NEARBY_USERS.map((user) => (
+          {savedLocations.map((location) => (
             <Pressable
-              key={user.id}
-              style={styles.userCard}
-              onPress={() => Alert.alert(
-                `${user.name}, ${user.age}`,
-                `${user.distance} mi away\n\nView full profile and swipe on the Discover tab.`,
-                [{ text: 'OK' }]
-              )}
+              key={location.id}
+              style={styles.locationChip}
+              onPress={() => handleLocationPress(location)}
             >
-              <Image
-                source={{ uri: user.photo }}
-                style={styles.userCardImage}
-                contentFit="cover"
+              <Ionicons
+                name={location.type === 'home' ? 'home' : 'school'}
+                size={14}
+                color={colors.primary.gold}
               />
-              <View style={styles.userCardContent}>
-                <Text style={styles.userCardName}>{user.name}, {user.age}</Text>
-                <Text style={styles.userCardDistance}>{user.distance} mi away</Text>
-              </View>
+              <Text style={styles.locationChipText}>{location.name}</Text>
             </Pressable>
           ))}
+          <Pressable
+            style={[styles.locationChip, styles.addLocationChip]}
+            onPress={() => setShowAddModal(true)}
+          >
+            <Ionicons name="add" size={14} color={colors.primary.gold} />
+            <Text style={[styles.locationChipText, { color: colors.primary.gold }]}>Add</Text>
+          </Pressable>
         </ScrollView>
+
+        {/* Map controls */}
+        <View style={styles.mapControls}>
+          <Pressable style={styles.mapControlButton} onPress={handleCenterOnUser}>
+            <Ionicons name="locate" size={22} color={colors.primary.white} />
+          </Pressable>
+          <Pressable
+            style={styles.mapControlButton}
+            onPress={() => {
+              const currentRegion = region || FALLBACK_REGION;
+              mapRef.current?.animateToRegion({
+                ...currentRegion,
+                latitudeDelta: currentRegion.latitudeDelta * 0.5,
+                longitudeDelta: currentRegion.longitudeDelta * 0.5,
+              }, 300);
+            }}
+          >
+            <Ionicons name="add" size={22} color={colors.primary.white} />
+          </Pressable>
+          <Pressable
+            style={styles.mapControlButton}
+            onPress={() => {
+              const currentRegion = region || FALLBACK_REGION;
+              mapRef.current?.animateToRegion({
+                ...currentRegion,
+                latitudeDelta: currentRegion.latitudeDelta * 2,
+                longitudeDelta: currentRegion.longitudeDelta * 2,
+              }, 300);
+            }}
+          >
+            <Ionicons name="remove" size={22} color={colors.primary.white} />
+          </Pressable>
+        </View>
+
+        {/* User count badge */}
+        <View style={styles.userCountBadge}>
+          <StarOfDavid size={14} color={colors.primary.gold} />
+          <Text style={styles.userCountText}>{nearbyUsers.length} nearby</Text>
+        </View>
+
+        {/* Loading indicator */}
+        {isLoadingLocation && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color={colors.primary.gold} />
+            <Text style={styles.loadingText}>Finding your location...</Text>
+          </View>
+        )}
+
+        {/* Selected user preview */}
+        {selectedUser && (
+          <ProfilePreview
+            user={selectedUser}
+            onClose={() => setSelectedUser(null)}
+            onViewProfile={handleViewProfile}
+          />
+        )}
       </View>
 
       {/* Add Location Modal */}
@@ -207,7 +512,7 @@ export default function MazalMapScreen() {
             <TextInput
               style={styles.modalInput}
               placeholder="e.g., NYU, Home, Gym"
-              placeholderTextColor={colors.neutral[400]}
+              placeholderTextColor={colors.transparent.white40}
               value={newLocationName}
               onChangeText={setNewLocationName}
               autoFocus
@@ -217,7 +522,6 @@ export default function MazalMapScreen() {
             <View style={styles.typeOptions}>
               {[
                 { type: 'home' as const, icon: 'home', label: 'Home' },
-                { type: 'work' as const, icon: 'briefcase', label: 'Work' },
                 { type: 'college' as const, icon: 'school', label: 'Campus' },
               ].map((option) => (
                 <Pressable
@@ -231,7 +535,7 @@ export default function MazalMapScreen() {
                   <Ionicons
                     name={option.icon as any}
                     size={24}
-                    color={newLocationType === option.type ? colors.primary.gold : colors.neutral[400]}
+                    color={newLocationType === option.type ? colors.primary.gold : colors.transparent.white50}
                   />
                   <Text
                     style={[
@@ -246,6 +550,7 @@ export default function MazalMapScreen() {
             </View>
 
             <Text style={styles.modalHint}>
+              This will save the current map center as your location.
               Saved locations help you discover Jewish singles near places you frequent.
             </Text>
           </View>
@@ -255,10 +560,37 @@ export default function MazalMapScreen() {
   );
 }
 
+// Dark map style
+const darkMapStyle = [
+  { elementType: 'geometry', stylers: [{ color: '#0A0E1A' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#0A0E1A' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#746855' }] },
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
+  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
+  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#1a2d26' }] },
+  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#6b9a76' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1e2640' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#0D1B3E' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#2c3e50' }] },
+  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#1a252f' }] },
+  { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#f3d19c' }] },
+  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#1e2640' }] },
+  { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0D1B3E' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#515c6d' }] },
+  { featureType: 'water', elementType: 'labels.text.stroke', stylers: [{ color: '#0A0E1A' }] },
+];
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.neutral[50],
+    backgroundColor: colors.dark.background,
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  overlayContainer: {
+    flex: 1,
   },
   searchContainer: {
     flexDirection: 'row',
@@ -270,26 +602,26 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.primary.white,
+    backgroundColor: colors.dark.card,
     borderRadius: borderRadius.xl,
     paddingHorizontal: spacing[4],
     paddingVertical: spacing[3],
     gap: spacing[2],
-    ...shadows.md,
+    ...shadows.card,
   },
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: colors.primary.navy,
+    color: colors.primary.white,
   },
   filterButton: {
     width: 48,
     height: 48,
-    backgroundColor: colors.primary.white,
+    backgroundColor: colors.dark.card,
     borderRadius: borderRadius.xl,
     justifyContent: 'center',
     alignItems: 'center',
-    ...shadows.md,
+    ...shadows.card,
   },
   savedLocations: {
     maxHeight: 50,
@@ -301,7 +633,7 @@ const styles = StyleSheet.create({
   locationChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.primary.white,
+    backgroundColor: colors.dark.card,
     paddingHorizontal: spacing[3],
     paddingVertical: spacing[2],
     borderRadius: borderRadius.full,
@@ -313,81 +645,228 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.primary.gold,
     borderStyle: 'dashed',
-    backgroundColor: 'transparent',
+    backgroundColor: colors.transparent.gold10,
   },
   locationChipText: {
     fontSize: 13,
     fontWeight: '500',
-    color: colors.primary.navy,
+    color: colors.primary.white,
   },
-  mapPlaceholder: {
-    flex: 1,
+  mapControls: {
+    position: 'absolute',
+    right: spacing[4],
+    top: 140,
+    gap: spacing[2],
+  },
+  mapControlButton: {
+    width: 44,
+    height: 44,
+    backgroundColor: colors.dark.card,
+    borderRadius: borderRadius.lg,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: spacing[6],
+    ...shadows.card,
   },
-  mapIconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+  userCountBadge: {
+    position: 'absolute',
+    bottom: spacing[4],
+    left: spacing[4],
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.dark.card,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+    borderRadius: borderRadius.full,
+    gap: spacing[2],
+    ...shadows.card,
+  },
+  userCountText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.primary.white,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(10, 14, 26, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing[4],
+  },
+  loadingText: {
+    fontSize: 16,
+    color: colors.transparent.white70,
+  },
+  // Marker styles
+  markerContainer: {
+    alignItems: 'center',
+  },
+  markerContainerSelected: {
+    transform: [{ scale: 1.2 }],
+  },
+  markerImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 3,
+    borderColor: colors.primary.gold,
+  },
+  markerImageSelected: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 4,
+  },
+  verifiedBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: colors.primary.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: colors.dark.background,
+  },
+  saftaBadge: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: colors.dark.card,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.primary.gold,
+  },
+  saftaBadgeText: {
+    fontSize: 10,
+    color: colors.primary.white,
+  },
+  // Preview card styles
+  previewContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: spacing[4],
+    paddingBottom: spacing[4],
+  },
+  previewGradient: {
+    borderRadius: borderRadius.xl,
+    padding: spacing[4],
+    ...shadows.lg,
+  },
+  previewCloseButton: {
+    position: 'absolute',
+    top: spacing[3],
+    right: spacing[3],
+    zIndex: 1,
+    padding: spacing[1],
+  },
+  previewContent: {
+    flexDirection: 'row',
+    gap: spacing[4],
+  },
+  previewImage: {
+    width: 100,
+    height: 100,
+    borderRadius: borderRadius.lg,
+  },
+  previewInfo: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: spacing[1],
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+  },
+  previewName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.primary.white,
+  },
+  previewOccupation: {
+    fontSize: 14,
+    color: colors.transparent.white60,
+  },
+  previewTags: {
+    flexDirection: 'row',
+    gap: spacing[2],
+    marginTop: spacing[1],
+  },
+  previewTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
+    backgroundColor: colors.transparent.gold10,
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[1],
+    borderRadius: borderRadius.sm,
+  },
+  previewTagText: {
+    fontSize: 11,
+    color: colors.primary.gold,
+    fontWeight: '500',
+  },
+  saftaApprovedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
+    marginTop: spacing[1],
+  },
+  saftaApprovedEmoji: {
+    fontSize: 12,
+  },
+  saftaApprovedText: {
+    fontSize: 12,
+    color: colors.transparent.white60,
+  },
+  previewActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing[4],
+    gap: spacing[3],
+  },
+  previewPassButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: colors.transparent.white10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  previewLikeButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: colors.transparent.gold20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: spacing[4],
   },
-  mapPlaceholderTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.primary.navy,
-    marginBottom: spacing[2],
+  previewViewButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing[2],
+    backgroundColor: colors.primary.gold,
+    paddingVertical: spacing[3],
+    borderRadius: borderRadius.xl,
   },
-  mapPlaceholderText: {
-    fontSize: 15,
-    color: colors.neutral[500],
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  nearbySection: {
-    paddingBottom: spacing[4],
-  },
-  nearbyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.primary.navy,
-    paddingHorizontal: spacing[4],
-    marginBottom: spacing[3],
-  },
-  nearbyList: {
-    paddingHorizontal: spacing[4],
-  },
-  userCard: {
-    width: 140,
-    backgroundColor: colors.primary.white,
-    borderRadius: borderRadius.lg,
-    overflow: 'hidden',
-    marginRight: spacing[3],
-    ...shadows.md,
-  },
-  userCardImage: {
-    width: '100%',
-    height: 140,
-  },
-  userCardContent: {
-    padding: spacing[3],
-  },
-  userCardName: {
-    fontSize: 15,
+  previewViewButtonText: {
+    fontSize: 16,
     fontWeight: '600',
     color: colors.primary.navy,
   },
-  userCardDistance: {
-    fontSize: 12,
-    color: colors.neutral[500],
-    marginTop: spacing[1],
-  },
+  // Modal styles
   modalContainer: {
     flex: 1,
-    backgroundColor: colors.primary.white,
+    backgroundColor: colors.dark.background,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -396,16 +875,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4],
     paddingVertical: spacing[4],
     borderBottomWidth: 1,
-    borderBottomColor: colors.neutral[100],
+    borderBottomColor: colors.transparent.white10,
   },
   modalCancel: {
     fontSize: 16,
-    color: colors.neutral[600],
+    color: colors.transparent.white70,
   },
   modalTitle: {
     fontSize: 17,
     fontWeight: '600',
-    color: colors.primary.navy,
+    color: colors.primary.white,
   },
   modalSave: {
     fontSize: 16,
@@ -418,16 +897,16 @@ const styles = StyleSheet.create({
   modalLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: colors.primary.navy,
+    color: colors.primary.white,
     marginBottom: spacing[2],
     marginTop: spacing[4],
   },
   modalInput: {
-    backgroundColor: colors.neutral[50],
+    backgroundColor: colors.dark.card,
     borderRadius: borderRadius.lg,
     padding: spacing[4],
     fontSize: 16,
-    color: colors.primary.navy,
+    color: colors.primary.white,
   },
   typeOptions: {
     flexDirection: 'row',
@@ -437,20 +916,20 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     padding: spacing[4],
-    backgroundColor: colors.neutral[50],
+    backgroundColor: colors.dark.card,
     borderRadius: borderRadius.lg,
     borderWidth: 2,
     borderColor: 'transparent',
   },
   typeOptionActive: {
     borderColor: colors.primary.gold,
-    backgroundColor: colors.transparent.gold20,
+    backgroundColor: colors.transparent.gold10,
   },
   typeOptionText: {
     marginTop: spacing[2],
     fontSize: 13,
     fontWeight: '500',
-    color: colors.neutral[600],
+    color: colors.transparent.white60,
   },
   typeOptionTextActive: {
     color: colors.primary.gold,
@@ -458,7 +937,7 @@ const styles = StyleSheet.create({
   modalHint: {
     marginTop: spacing[6],
     fontSize: 14,
-    color: colors.neutral[500],
+    color: colors.transparent.white50,
     textAlign: 'center',
     lineHeight: 20,
   },

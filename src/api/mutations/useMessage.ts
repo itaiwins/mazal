@@ -8,6 +8,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/api/supabase/client';
 import { queryKeys } from '@/lib/config/queryClient';
 import { useAuthStore } from '@/stores/authStore';
+import { validateMessageContent, sanitizeContent } from '@/lib/moderation';
 import type { MessageType } from '@/types/database.types';
 
 interface SendMessageParams {
@@ -35,12 +36,21 @@ export function useSendMessage() {
         throw new Error('User not authenticated');
       }
 
+      // Validate message content for inappropriate material
+      const validation = validateMessageContent(content);
+      if (!validation.isValid) {
+        throw new Error(validation.error || 'Message contains inappropriate content');
+      }
+
+      // Sanitize the content (replaces any remaining flagged patterns)
+      const sanitizedMessage = sanitizeContent(content);
+
       const { data, error } = await supabase
         .from('messages')
         .insert({
           match_id: matchId,
           sender_id: user.id,
-          content,
+          content: sanitizedMessage,
           message_type: messageType,
           media_url: mediaUrl,
         })

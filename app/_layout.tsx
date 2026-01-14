@@ -11,7 +11,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Font from 'expo-font';
-import { useColorScheme, StyleSheet, View, Text } from 'react-native';
+import { StyleSheet, View, Text } from 'react-native';
 
 // Providers
 import { ThemeProvider } from '@/theme';
@@ -22,12 +22,16 @@ import { validateEnv, env } from '@/lib/config/env';
 
 // Stores
 import { useAuthStore } from '@/stores/authStore';
+import { useUIStore } from '@/stores/uiStore';
 
 // Supabase
 import { supabase, onAuthStateChange } from '@/api/supabase/client';
 
 // Notifications
 import { useNotificationHandler, useNotificationNavigation } from '@/lib/notifications';
+
+// Premium
+import { PaywallPromptModal } from '@/components/premium/PaywallPromptModal';
 
 // Keep splash screen visible while loading
 SplashScreen.preventAutoHideAsync();
@@ -48,7 +52,9 @@ function NotificationSetup() {
 export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const colorScheme = useColorScheme();
+
+  // Theme state from UI store (defaults to dark)
+  const isDarkMode = useUIStore((s) => s.isDarkMode);
 
   // Auth store actions
   const setSession = useAuthStore((s) => s.setSession);
@@ -70,19 +76,55 @@ export default function RootLayout() {
           await Font.loadAsync(fontsToLoad);
         }
 
+        console.log('[Layout] Initializing auth...');
+
         // Initialize auth state
         const { data: { session } } = await supabase.auth.getSession();
-        setSession(session);
+        console.log('[Layout] Got session:', !!session);
 
         if (session?.user) {
-          // Fetch user profile
-          const { data: profile } = await supabase
-            .from('users')
-            .select('*')
-            .eq('auth_id', session.user.id)
-            .single();
+          // Verify the auth user still exists with timeout
+          try {
+            const verifyPromise = supabase.auth.getUser();
+            const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Timeout')), 5000)
+            );
 
-          setUser(profile);
+            const { data: verifyUser, error: verifyError } = await Promise.race([
+              verifyPromise,
+              timeoutPromise
+            ]) as any;
+
+            if (verifyError || !verifyUser?.user) {
+              // Auth user was deleted - sign out and clear the stale session
+              console.log('[Layout] Auth user no longer exists, signing out...');
+              await supabase.auth.signOut();
+              setSession(null);
+              setUser(null);
+            } else {
+              // User exists, proceed normally
+              console.log('[Layout] Auth user verified');
+              setSession(session);
+
+              // Fetch user profile
+              const { data: profile } = await supabase
+                .from('users')
+                .select('*')
+                .eq('auth_id', session.user.id)
+                .single();
+
+              setUser(profile);
+            }
+          } catch (verifyErr) {
+            // Timeout or error - clear session to be safe
+            console.log('[Layout] Verify failed, clearing session:', verifyErr);
+            await supabase.auth.signOut();
+            setSession(null);
+            setUser(null);
+          }
+        } else {
+          console.log('[Layout] No session');
+          setSession(null);
         }
 
         setInitialized(true);
@@ -143,15 +185,15 @@ export default function RootLayout() {
     <GestureHandlerRootView style={styles.container}>
       <SafeAreaProvider>
         <QueryProvider>
-          <ThemeProvider>
+          <ThemeProvider forcedColorScheme={isDarkMode ? 'dark' : 'light'}>
             <NotificationSetup />
-            <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+            <StatusBar style={isDarkMode ? 'light' : 'dark'} />
             <Stack
               screenOptions={{
                 headerShown: false,
                 animation: 'slide_from_right',
                 contentStyle: {
-                  backgroundColor: colorScheme === 'dark' ? '#0A0E1A' : '#FFFFFF',
+                  backgroundColor: isDarkMode ? '#0A0E1A' : '#FFFFFF',
                 },
               }}
             >
@@ -166,6 +208,15 @@ export default function RootLayout() {
               {/* Onboarding group */}
               <Stack.Screen
                 name="(onboarding)"
+                options={{
+                  headerShown: false,
+                  gestureEnabled: false,
+                }}
+              />
+
+              {/* Safta auth/onboarding group */}
+              <Stack.Screen
+                name="(safta-auth)"
                 options={{
                   headerShown: false,
                   gestureEnabled: false,
@@ -188,9 +239,17 @@ export default function RootLayout() {
                 }}
               />
 
-              {/* Safta mode */}
+              {/* Safta mode (old) */}
               <Stack.Screen
                 name="(safta)"
+                options={{
+                  headerShown: false,
+                }}
+              />
+
+              {/* Safta mode tabs */}
+              <Stack.Screen
+                name="(safta-tabs)"
                 options={{
                   headerShown: false,
                 }}
@@ -207,7 +266,7 @@ export default function RootLayout() {
 
               {/* Profile editing */}
               <Stack.Screen
-                name="profile/index"
+                name="profile"
                 options={{
                   presentation: 'modal',
                   headerShown: false,
@@ -232,6 +291,7 @@ export default function RootLayout() {
                 }}
               />
             </Stack>
+            <PaywallPromptModal />
           </ThemeProvider>
         </QueryProvider>
       </SafeAreaProvider>
