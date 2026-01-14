@@ -24,6 +24,7 @@ export default function SaftaAuthLayout() {
       <Stack.Screen name="enter-code" />
       <Stack.Screen name="profile-setup" />
       <Stack.Screen name="complete" />
+      <Stack.Screen name="paywall" options={{ presentation: 'modal' }} />
     </Stack>
   );
 }

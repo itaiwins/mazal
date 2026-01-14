@@ -105,6 +105,16 @@ export default function CompleteScreen() {
     ],
   }));
 
+  // Helper function to add timeout to promises
+  const withTimeout = <T,>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> => {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(errorMsg)), ms)
+      ),
+    ]);
+  };
+
   const handleStart = async () => {
     if (isSaving) return;
     setIsSaving(true);
@@ -112,80 +122,69 @@ export default function CompleteScreen() {
     try {
       console.log('[Complete] Starting profile save...');
 
-      // Get auth from session with retry logic
-      console.log('[Complete] Getting session...');
+      // Get auth user with timeout - try getUser first (more reliable), then fallback to getSession
+      console.log('[Complete] Getting authenticated user...');
       let authUser = null;
-      let retries = 3;
 
-      while (retries > 0 && !authUser) {
+      // Try getUser first with timeout (5 seconds)
+      try {
+        console.log('[Complete] Trying getUser...');
+        const { data: userData, error: userError } = await withTimeout(
+          supabase.auth.getUser(),
+          5000,
+          'getUser timed out'
+        );
+
+        if (!userError && userData?.user) {
+          authUser = userData.user;
+          console.log('[Complete] Got user from getUser:', authUser.id);
+        } else {
+          console.log('[Complete] getUser failed:', userError?.message);
+        }
+      } catch (e: any) {
+        console.log('[Complete] getUser error:', e.message);
+      }
+
+      // If getUser failed, try getSession with timeout
+      if (!authUser) {
         try {
-          const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+          console.log('[Complete] Trying getSession...');
+          const { data: sessionData, error: sessionError } = await withTimeout(
+            supabase.auth.getSession(),
+            5000,
+            'getSession timed out'
+          );
 
-          if (sessionError) {
-            console.log('[Complete] Session error:', sessionError.message);
-            throw sessionError;
-          }
-
-          if (sessionData?.session?.user) {
+          if (!sessionError && sessionData?.session?.user) {
             authUser = sessionData.session.user;
-            break;
+            console.log('[Complete] Got user from session:', authUser.id);
+          } else {
+            console.log('[Complete] getSession failed:', sessionError?.message);
           }
-
-          // If no session, wait and retry
-          console.log('[Complete] No session yet, retrying... (' + retries + ' left)');
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          retries--;
         } catch (e: any) {
-          console.log('[Complete] Session attempt failed:', e.message);
-          retries--;
-          if (retries > 0) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
+          console.log('[Complete] getSession error:', e.message);
         }
       }
 
-      console.log('[Complete] Session result:', !!authUser);
+      console.log('[Complete] Auth result:', !!authUser);
 
       if (!authUser) {
-        console.error('[Complete] No session found after retries');
-        Alert.alert('Error', 'Could not verify your account. Please try logging in again.');
-        setIsSaving(false);
-        return;
-      }
-
-      const authId = authUser.id;
-      console.log('[Complete] Got auth user:', authId);
-      console.log('[Complete] Auth user email:', authUser.email);
-      console.log('[Complete] Auth user created_at:', authUser.created_at);
-
-      // Verify the auth user actually exists by calling getUser
-      const { data: verifyUser, error: verifyError } = await supabase.auth.getUser();
-      console.log('[Complete] Verify user result:', verifyUser?.user?.id, verifyError?.message);
-
-      if (verifyError || !verifyUser?.user) {
-        console.error('[Complete] Auth user verification failed:', verifyError?.message);
-
-        // The auth user was likely deleted - sign out and redirect to login
-        console.log('[Complete] Signing out stale session...');
-        await supabase.auth.signOut();
-
+        console.error('[Complete] No auth user found');
         Alert.alert(
-          'Session Expired',
-          'Your session has expired. Please sign in again.',
+          'Authentication Error',
+          'Could not verify your account. Please close the app completely and sign in again.',
           [{ text: 'OK', onPress: () => router.replace('/') }]
         );
         setIsSaving(false);
         return;
       }
 
-      // Use the verified user ID to be safe
-      const verifiedAuthId = verifyUser.user.id;
-      if (verifiedAuthId !== authId) {
-        console.warn('[Complete] Auth ID mismatch - using verified ID');
-      }
+      const verifiedAuthId = authUser.id;
+      console.log('[Complete] Using auth ID:', verifiedAuthId);
+      console.log('[Complete] Auth user email:', authUser.email);
 
       // Small delay to ensure auth.users entry is fully committed
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       // Calculate age from date of birth
       const calculateAge = (dob: Date | null): number | null => {
@@ -244,16 +243,29 @@ export default function CompleteScreen() {
         is_active: true,
       };
 
-      console.log('[Complete] Saving profile to database...', JSON.stringify(profileData, null, 2));
+      console.log('[Complete] Saving profile to database...');
 
-      // Check if user already exists
-      const { data: existingUser, error: checkError } = await supabase
-        .from('users')
-        .select('id')
-        .eq('auth_id', verifiedAuthId)
-        .maybeSingle();
+      // Check if user already exists (with timeout)
+      let existingUser = null;
+      let checkError = null;
+      try {
+        const result = await withTimeout(
+          supabase
+            .from('users')
+            .select('id')
+            .eq('auth_id', verifiedAuthId)
+            .maybeSingle(),
+          10000,
+          'Check existing user timed out'
+        );
+        existingUser = result.data;
+        checkError = result.error;
+      } catch (e: any) {
+        console.log('[Complete] Check existing user error:', e.message);
+        checkError = { message: e.message };
+      }
 
-      console.log('[Complete] Existing user check:', existingUser, checkError?.message);
+      console.log('[Complete] Existing user check:', existingUser?.id || 'none', checkError?.message || 'no error');
 
       let userData;
       let userError;
@@ -261,25 +273,43 @@ export default function CompleteScreen() {
       if (existingUser) {
         // Update existing user
         console.log('[Complete] Updating existing user:', existingUser.id);
-        const { data, error } = await supabase
-          .from('users')
-          .update(profileData)
-          .eq('auth_id', verifiedAuthId)
-          .select()
-          .single();
-        userData = data;
-        userError = error;
+        try {
+          const result = await withTimeout(
+            supabase
+              .from('users')
+              .update(profileData)
+              .eq('auth_id', verifiedAuthId)
+              .select()
+              .single(),
+            15000,
+            'Update user timed out'
+          );
+          userData = result.data;
+          userError = result.error;
+        } catch (e: any) {
+          console.log('[Complete] Update error:', e.message);
+          userError = { message: e.message, code: 'TIMEOUT' };
+        }
       } else {
         // Insert new user
         console.log('[Complete] Inserting new user with auth_id:', verifiedAuthId);
 
-        const { data, error } = await supabase
-          .from('users')
-          .insert(profileData)
-          .select()
-          .single();
-        userData = data;
-        userError = error;
+        try {
+          const result = await withTimeout(
+            supabase
+              .from('users')
+              .insert(profileData)
+              .select()
+              .single(),
+            15000,
+            'Insert user timed out'
+          );
+          userData = result.data;
+          userError = result.error;
+        } catch (e: any) {
+          console.log('[Complete] Insert error:', e.message);
+          userError = { message: e.message, code: 'TIMEOUT' };
+        }
 
         // If insert fails with foreign key error, retry after a delay
         // This handles potential timing issues with auth.users replication
@@ -289,18 +319,26 @@ export default function CompleteScreen() {
           // Wait longer for the auth.users entry to be committed
           await new Promise(resolve => setTimeout(resolve, 2000));
 
-          const retryResult = await supabase
-            .from('users')
-            .insert(profileData)
-            .select()
-            .single();
+          try {
+            const retryResult = await withTimeout(
+              supabase
+                .from('users')
+                .insert(profileData)
+                .select()
+                .single(),
+              15000,
+              'Retry insert timed out'
+            );
 
-          if (!retryResult.error) {
-            userData = retryResult.data;
-            userError = null;
-            console.log('[Complete] Retry successful!');
-          } else {
-            console.error('[Complete] Retry also failed:', retryResult.error.message, retryResult.error.code);
+            if (!retryResult.error) {
+              userData = retryResult.data;
+              userError = null;
+              console.log('[Complete] Retry successful!');
+            } else {
+              console.error('[Complete] Retry also failed:', retryResult.error.message, retryResult.error.code);
+            }
+          } catch (e: any) {
+            console.error('[Complete] Retry timed out:', e.message);
           }
         }
       }

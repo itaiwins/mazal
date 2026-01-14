@@ -22,10 +22,8 @@ import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius, shadows } from '@/theme/spacing';
 import { useAuthStore } from '@/stores/authStore';
-import { useUIStore } from '@/stores/uiStore';
 import { useUserProfile } from '@/api/queries';
 import { supabase } from '@/api/supabase/client';
-import { StarOfDavid } from '@/components/icons/StarOfDavid';
 import { AnimatedHeader } from '@/components/ui/AnimatedHeader';
 
 // Helper to calculate age from date of birth
@@ -81,9 +79,6 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
-  const isOrthodoxMode = useUIStore((s) => s.isOrthodoxMode);
-  const hasOrthodoxSubscription = useUIStore((s) => s.hasOrthodoxSubscription);
-  const setOrthodoxMode = useUIStore((s) => s.setOrthodoxMode);
 
   // Fetch complete profile with photos, prompts, and badges
   const { data: userProfile, isLoading: isLoadingProfile } = useUserProfile();
@@ -263,62 +258,6 @@ export default function ProfileScreen() {
           <Ionicons name="chevron-forward" size={20} color={colors.primary.gold} />
         </Pressable>
       )}
-
-      {/* Orthodox Mode Section */}
-      <Pressable
-        style={[
-          styles.orthodoxBanner,
-          hasOrthodoxSubscription && isOrthodoxMode && styles.orthodoxBannerActive,
-        ]}
-        onPress={() => {
-          if (hasOrthodoxSubscription) {
-            // Toggle between modes
-            setOrthodoxMode(!isOrthodoxMode);
-          } else {
-            // Show paywall/intro
-            router.push('/(orthodox)');
-          }
-        }}
-      >
-        <View style={styles.orthodoxContent}>
-          <View style={styles.orthodoxIconContainer}>
-            <StarOfDavid size={24} color={hasOrthodoxSubscription && isOrthodoxMode ? colors.primary.white : colors.primary.gold} />
-          </View>
-          <View style={styles.orthodoxText}>
-            <Text style={[
-              styles.orthodoxTitle,
-              hasOrthodoxSubscription && isOrthodoxMode && styles.orthodoxTitleActive
-            ]}>
-              {hasOrthodoxSubscription
-                ? (isOrthodoxMode ? 'Orthodox Mode Active' : 'Switch to Orthodox Mode')
-                : 'Orthodox / Hasidic Mode'}
-            </Text>
-            <Text style={[
-              styles.orthodoxSubtitle,
-              hasOrthodoxSubscription && isOrthodoxMode && styles.orthodoxSubtitleActive
-            ]}>
-              {hasOrthodoxSubscription
-                ? (isOrthodoxMode ? 'Tap to switch to regular mode' : 'Tap to switch to Orthodox-only pool')
-                : 'Dedicated shidduch matching for observant Jews'}
-            </Text>
-          </View>
-        </View>
-        {hasOrthodoxSubscription ? (
-          <View style={[
-            styles.orthodoxToggle,
-            isOrthodoxMode && styles.orthodoxToggleActive,
-          ]}>
-            <View style={[
-              styles.orthodoxToggleKnob,
-              isOrthodoxMode && styles.orthodoxToggleKnobActive,
-            ]} />
-          </View>
-        ) : (
-          <View style={styles.orthodoxBadge}>
-            <Text style={styles.orthodoxBadgeText}>Premium</Text>
-          </View>
-        )}
-      </Pressable>
 
       {/* Settings Sections */}
       <View style={[styles.settingsSection, { backgroundColor: theme.colors.surface }]}>
@@ -567,88 +506,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.transparent.white80,
     marginTop: spacing[0.5],
-  },
-  // Orthodox Mode styles
-  orthodoxBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginHorizontal: spacing[4],
-    marginVertical: spacing[2],
-    padding: spacing[4],
-    backgroundColor: colors.transparent.gold10,
-    borderRadius: borderRadius.xl,
-    borderWidth: 2,
-    borderColor: colors.transparent.gold30,
-  },
-  orthodoxBannerActive: {
-    backgroundColor: colors.primary.gold,
-    borderColor: colors.primary.gold,
-  },
-  orthodoxContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-    flex: 1,
-  },
-  orthodoxIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.transparent.gold20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  orthodoxText: {
-    flex: 1,
-  },
-  orthodoxTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.primary.gold,
-  },
-  orthodoxTitleActive: {
-    color: colors.primary.navy,
-  },
-  orthodoxSubtitle: {
-    fontSize: 12,
-    color: colors.transparent.gold70,
-    marginTop: spacing[0.5],
-  },
-  orthodoxSubtitleActive: {
-    color: colors.transparent.navy70,
-  },
-  orthodoxBadge: {
-    backgroundColor: colors.primary.gold,
-    paddingHorizontal: spacing[2.5],
-    paddingVertical: spacing[1],
-    borderRadius: borderRadius.sm,
-  },
-  orthodoxBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.primary.navy,
-    textTransform: 'uppercase',
-  },
-  orthodoxToggle: {
-    width: 48,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.neutral[300],
-    padding: 2,
-    justifyContent: 'center',
-  },
-  orthodoxToggleActive: {
-    backgroundColor: colors.primary.navy,
-  },
-  orthodoxToggleKnob: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.primary.white,
-  },
-  orthodoxToggleKnobActive: {
-    alignSelf: 'flex-end',
   },
   settingsSection: {
     marginTop: spacing[4],

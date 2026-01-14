@@ -509,12 +509,13 @@ async function updateUserVerificationStatus(
       .from('users')
       .update({
         is_verified: isVerified,
-        verified_at: isVerified ? new Date().toISOString() : null,
       })
       .eq('auth_id', userId);
 
     if (error) {
       console.error('[Verification] Failed to update user status:', error);
+    } else {
+      console.log('[Verification] User status updated successfully');
     }
   } catch (error) {
     console.error('[Verification] Database error:', error);

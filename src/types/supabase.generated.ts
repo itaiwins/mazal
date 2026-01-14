@@ -95,6 +95,111 @@ export type Database = {
         }
         Relationships: []
       }
+      community_settings: {
+        Row: {
+          browsing_allowed: boolean | null
+          community: string
+          direct_messaging_allowed: boolean | null
+          id: string
+          parent_approval_required: boolean | null
+          photo_moderation_required: boolean | null
+          photos_allowed: boolean | null
+          photos_required: boolean | null
+          shadchan_required: boolean | null
+          show_age_by_default: boolean | null
+          show_photos_by_default: boolean | null
+          typical_dates_before_engagement: string | null
+        }
+        Insert: {
+          browsing_allowed?: boolean | null
+          community: string
+          direct_messaging_allowed?: boolean | null
+          id?: string
+          parent_approval_required?: boolean | null
+          photo_moderation_required?: boolean | null
+          photos_allowed?: boolean | null
+          photos_required?: boolean | null
+          shadchan_required?: boolean | null
+          show_age_by_default?: boolean | null
+          show_photos_by_default?: boolean | null
+          typical_dates_before_engagement?: string | null
+        }
+        Update: {
+          browsing_allowed?: boolean | null
+          community?: string
+          direct_messaging_allowed?: boolean | null
+          id?: string
+          parent_approval_required?: boolean | null
+          photo_moderation_required?: boolean | null
+          photos_allowed?: boolean | null
+          photos_required?: boolean | null
+          shadchan_required?: boolean | null
+          show_age_by_default?: boolean | null
+          show_photos_by_default?: boolean | null
+          typical_dates_before_engagement?: string | null
+        }
+        Relationships: []
+      }
+      family_connections: {
+        Row: {
+          approved_at: string | null
+          can_respond_to_suggestions: boolean | null
+          can_suggest_matches: boolean | null
+          can_view_messages: boolean | null
+          can_view_suggestions: boolean | null
+          created_at: string
+          family_user_id: string
+          id: string
+          receives_notifications: boolean | null
+          relationship: string
+          single_profile_id: string
+          status: string | null
+        }
+        Insert: {
+          approved_at?: string | null
+          can_respond_to_suggestions?: boolean | null
+          can_suggest_matches?: boolean | null
+          can_view_messages?: boolean | null
+          can_view_suggestions?: boolean | null
+          created_at?: string
+          family_user_id: string
+          id?: string
+          receives_notifications?: boolean | null
+          relationship: string
+          single_profile_id: string
+          status?: string | null
+        }
+        Update: {
+          approved_at?: string | null
+          can_respond_to_suggestions?: boolean | null
+          can_suggest_matches?: boolean | null
+          can_view_messages?: boolean | null
+          can_view_suggestions?: boolean | null
+          created_at?: string
+          family_user_id?: string
+          id?: string
+          receives_notifications?: boolean | null
+          relationship?: string
+          single_profile_id?: string
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "family_connections_family_user_id_fkey"
+            columns: ["family_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "family_connections_single_profile_id_fkey"
+            columns: ["single_profile_id"]
+            isOneToOne: false
+            referencedRelation: "shidduch_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       matches: {
         Row: {
           created_at: string
@@ -194,6 +299,173 @@ export type Database = {
           },
         ]
       }
+      notification_preferences: {
+        Row: {
+          created_at: string | null
+          daily_picks: boolean | null
+          id: string
+          messages: boolean | null
+          new_matches: boolean | null
+          profile_views: boolean | null
+          promotions: boolean | null
+          quiet_hours_end: string | null
+          quiet_hours_start: string | null
+          safta_activity: boolean | null
+          super_likes: boolean | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          daily_picks?: boolean | null
+          id?: string
+          messages?: boolean | null
+          new_matches?: boolean | null
+          profile_views?: boolean | null
+          promotions?: boolean | null
+          quiet_hours_end?: string | null
+          quiet_hours_start?: string | null
+          safta_activity?: boolean | null
+          super_likes?: boolean | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          daily_picks?: boolean | null
+          id?: string
+          messages?: boolean | null
+          new_matches?: boolean | null
+          profile_views?: boolean | null
+          promotions?: boolean | null
+          quiet_hours_end?: string | null
+          quiet_hours_start?: string | null
+          safta_activity?: boolean | null
+          super_likes?: boolean | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_preferences_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notification_queue: {
+        Row: {
+          body: string
+          created_at: string | null
+          data: Json | null
+          id: string
+          sent_at: string | null
+          status: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string | null
+          data?: Json | null
+          id?: string
+          sent_at?: string | null
+          status?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string | null
+          data?: Json | null
+          id?: string
+          sent_at?: string | null
+          status?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_queue_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      orthodox_emails: {
+        Row: {
+          created_at: string | null
+          email: string
+          id: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          email: string
+          id?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          email?: string
+          id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orthodox_emails_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      push_tokens: {
+        Row: {
+          created_at: string | null
+          device_id: string | null
+          id: string
+          is_active: boolean | null
+          platform: string
+          token: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          device_id?: string | null
+          id?: string
+          is_active?: boolean | null
+          platform: string
+          token: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          device_id?: string | null
+          id?: string
+          is_active?: boolean | null
+          platform?: string
+          token?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_tokens_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reports: {
         Row: {
           created_at: string
@@ -248,6 +520,10 @@ export type Database = {
           id: string
           is_active: boolean | null
           relationship: string
+          subscription_expires_at: string | null
+          subscription_plan: string | null
+          subscription_status: string | null
+          user_id: string | null
         }
         Insert: {
           auth_id?: string | null
@@ -257,6 +533,10 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           relationship: string
+          subscription_expires_at?: string | null
+          subscription_plan?: string | null
+          subscription_status?: string | null
+          user_id?: string | null
         }
         Update: {
           auth_id?: string | null
@@ -266,8 +546,20 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           relationship?: string
+          subscription_expires_at?: string | null
+          subscription_plan?: string | null
+          subscription_status?: string | null
+          user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "safta_accounts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       safta_connections: {
         Row: {
@@ -304,6 +596,41 @@ export type Database = {
           },
           {
             foreignKeyName: "safta_connections_safta_account_id_fkey"
+            columns: ["safta_account_id"]
+            isOneToOne: false
+            referencedRelation: "safta_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      safta_daily_usage: {
+        Row: {
+          created_at: string | null
+          id: string
+          recommendations_count: number | null
+          safta_account_id: string
+          updated_at: string | null
+          usage_date: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          recommendations_count?: number | null
+          safta_account_id: string
+          updated_at?: string | null
+          usage_date?: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          recommendations_count?: number | null
+          safta_account_id?: string
+          updated_at?: string | null
+          usage_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "safta_daily_usage_safta_account_id_fkey"
             columns: ["safta_account_id"]
             isOneToOne: false
             referencedRelation: "safta_accounts"
@@ -366,6 +693,44 @@ export type Database = {
           },
         ]
       }
+      safta_messages: {
+        Row: {
+          connection_id: string
+          content: string
+          created_at: string
+          id: string
+          is_read: boolean | null
+          sender_id: string
+          sender_type: string
+        }
+        Insert: {
+          connection_id: string
+          content: string
+          created_at?: string
+          id?: string
+          is_read?: boolean | null
+          sender_id: string
+          sender_type: string
+        }
+        Update: {
+          connection_id?: string
+          content?: string
+          created_at?: string
+          id?: string
+          is_read?: boolean | null
+          sender_id?: string
+          sender_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "safta_messages_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "safta_connections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       saved_locations: {
         Row: {
           college_name: string | null
@@ -404,6 +769,737 @@ export type Database = {
           {
             foreignKeyName: "saved_locations_user_id_fkey"
             columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shabbat_schedules: {
+        Row: {
+          city: string | null
+          id: string
+          include_yom_tov: boolean | null
+          is_enabled: boolean | null
+          latitude: number | null
+          longitude: number | null
+          minutes_after_havdalah: number | null
+          minutes_before_candles: number | null
+          profile_id: string
+          timezone: string | null
+        }
+        Insert: {
+          city?: string | null
+          id?: string
+          include_yom_tov?: boolean | null
+          is_enabled?: boolean | null
+          latitude?: number | null
+          longitude?: number | null
+          minutes_after_havdalah?: number | null
+          minutes_before_candles?: number | null
+          profile_id: string
+          timezone?: string | null
+        }
+        Update: {
+          city?: string | null
+          id?: string
+          include_yom_tov?: boolean | null
+          is_enabled?: boolean | null
+          latitude?: number | null
+          longitude?: number | null
+          minutes_after_havdalah?: number | null
+          minutes_before_candles?: number | null
+          profile_id?: string
+          timezone?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shabbat_schedules_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "shidduch_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shadchan_connections: {
+        Row: {
+          accepted_at: string | null
+          created_at: string | null
+          id: string
+          notes: string | null
+          shadchan_id: string
+          status: string | null
+          user_id: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          shadchan_id: string
+          status?: string | null
+          user_id: string
+        }
+        Update: {
+          accepted_at?: string | null
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          shadchan_id?: string
+          status?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shadchan_connections_shadchan_id_fkey"
+            columns: ["shadchan_id"]
+            isOneToOne: false
+            referencedRelation: "shadchanim"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shadchan_connections_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shadchan_notes: {
+        Row: {
+          created_at: string
+          id: string
+          last_contacted_at: string | null
+          next_followup_at: string | null
+          notes: string
+          priority: string | null
+          profile_id: string
+          shadchan_id: string
+          status: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_contacted_at?: string | null
+          next_followup_at?: string | null
+          notes: string
+          priority?: string | null
+          profile_id: string
+          shadchan_id: string
+          status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_contacted_at?: string | null
+          next_followup_at?: string | null
+          notes?: string
+          priority?: string | null
+          profile_id?: string
+          shadchan_id?: string
+          status?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shadchan_notes_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "shidduch_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shadchan_recommendations: {
+        Row: {
+          created_at: string | null
+          for_user_id: string
+          id: string
+          is_accepted: boolean | null
+          is_viewed: boolean | null
+          note: string | null
+          recommended_user_id: string
+          responded_at: string | null
+          shadchan_id: string
+          viewed_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          for_user_id: string
+          id?: string
+          is_accepted?: boolean | null
+          is_viewed?: boolean | null
+          note?: string | null
+          recommended_user_id: string
+          responded_at?: string | null
+          shadchan_id: string
+          viewed_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          for_user_id?: string
+          id?: string
+          is_accepted?: boolean | null
+          is_viewed?: boolean | null
+          note?: string | null
+          recommended_user_id?: string
+          responded_at?: string | null
+          shadchan_id?: string
+          viewed_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shadchan_recommendations_for_user_id_fkey"
+            columns: ["for_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shadchan_recommendations_recommended_user_id_fkey"
+            columns: ["recommended_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shadchan_recommendations_shadchan_id_fkey"
+            columns: ["shadchan_id"]
+            isOneToOne: false
+            referencedRelation: "shadchanim"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shadchanim: {
+        Row: {
+          bio: string | null
+          created_at: string | null
+          display_name: string
+          id: string
+          is_active: boolean | null
+          is_verified: boolean | null
+          photo_url: string | null
+          successful_matches: number | null
+          updated_at: string | null
+          user_id: string | null
+          years_experience: number | null
+        }
+        Insert: {
+          bio?: string | null
+          created_at?: string | null
+          display_name: string
+          id?: string
+          is_active?: boolean | null
+          is_verified?: boolean | null
+          photo_url?: string | null
+          successful_matches?: number | null
+          updated_at?: string | null
+          user_id?: string | null
+          years_experience?: number | null
+        }
+        Update: {
+          bio?: string | null
+          created_at?: string | null
+          display_name?: string
+          id?: string
+          is_active?: boolean | null
+          is_verified?: boolean | null
+          photo_url?: string | null
+          successful_matches?: number | null
+          updated_at?: string | null
+          user_id?: string | null
+          years_experience?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shadchanim_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shidduch_daily_activity: {
+        Row: {
+          date: string
+          id: string
+          profile_id: string
+          profiles_researched: number | null
+          suggestions_received: number | null
+          suggestions_responded: number | null
+          suggestions_viewed: number | null
+        }
+        Insert: {
+          date?: string
+          id?: string
+          profile_id: string
+          profiles_researched?: number | null
+          suggestions_received?: number | null
+          suggestions_responded?: number | null
+          suggestions_viewed?: number | null
+        }
+        Update: {
+          date?: string
+          id?: string
+          profile_id?: string
+          profiles_researched?: number | null
+          suggestions_received?: number | null
+          suggestions_responded?: number | null
+          suggestions_viewed?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shidduch_daily_activity_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "shidduch_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shidduch_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          message_type: string | null
+          proposed_date: string | null
+          proposed_location: string | null
+          read_by_a: boolean | null
+          read_by_b: boolean | null
+          read_by_shadchan: boolean | null
+          sender_shadchan_id: string | null
+          sender_type: string
+          sender_user_id: string | null
+          suggestion_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          message_type?: string | null
+          proposed_date?: string | null
+          proposed_location?: string | null
+          read_by_a?: boolean | null
+          read_by_b?: boolean | null
+          read_by_shadchan?: boolean | null
+          sender_shadchan_id?: string | null
+          sender_type: string
+          sender_user_id?: string | null
+          suggestion_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          message_type?: string | null
+          proposed_date?: string | null
+          proposed_location?: string | null
+          read_by_a?: boolean | null
+          read_by_b?: boolean | null
+          read_by_shadchan?: boolean | null
+          sender_shadchan_id?: string | null
+          sender_type?: string
+          sender_user_id?: string | null
+          suggestion_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shidduch_messages_sender_user_id_fkey"
+            columns: ["sender_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shidduch_messages_suggestion_id_fkey"
+            columns: ["suggestion_id"]
+            isOneToOne: false
+            referencedRelation: "shidduch_suggestions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shidduch_profiles: {
+        Row: {
+          accepting_suggestions: boolean | null
+          age_range_max: number | null
+          age_range_min: number | null
+          appearance_notes: string | null
+          birth_order: number | null
+          build: string | null
+          chassidus: string | null
+          children_plans: string | null
+          college_university: string | null
+          community: string
+          created_at: string
+          dealbreakers: string[] | null
+          elementary_school: string | null
+          eye_color: string | null
+          family_minhagim: string | null
+          father_name: string | null
+          father_occupation: string | null
+          father_origin: string | null
+          favorite_sefarim: string | null
+          genetic_testing_complete: boolean | null
+          genetic_testing_id: string | null
+          genetic_testing_org: string | null
+          grandfather_maternal: string | null
+          grandfather_paternal: string | null
+          hair_color: string | null
+          hashkafa_details: string | null
+          health_notes: string | null
+          hebrew_name: string | null
+          hebrew_name_mother: string | null
+          height_display: string | null
+          high_school: string | null
+          highest_degree: string | null
+          hobbies_interests: string[] | null
+          husband_learning: string | null
+          id: string
+          is_verified: boolean | null
+          kollel_interest: string | null
+          learning_schedule: string | null
+          living_situation: string | null
+          looking_for_description: string | null
+          marriage_timeline: string | null
+          minyan_frequency: string | null
+          mother_maiden_name: string | null
+          mother_name: string | null
+          mother_occupation: string | null
+          mother_origin: string | null
+          must_haves: string[] | null
+          nice_to_haves: string[] | null
+          notable_rabbanim: string | null
+          num_siblings: number | null
+          parent_contact_first: boolean | null
+          parent_description: string | null
+          parents_status: string | null
+          personality_description: string | null
+          photos_visible_to: string | null
+          preferred_background: string | null
+          preferred_communities: string[] | null
+          preferred_locations: string[] | null
+          profile_visible: boolean | null
+          seminary_yeshiva: string | null
+          seminary_yeshiva_years: number | null
+          sibling_details: Json | null
+          updated_at: string
+          user_id: string
+          verified_at: string | null
+          verified_by: string | null
+          wife_working: string | null
+          willing_to_relocate: boolean | null
+        }
+        Insert: {
+          accepting_suggestions?: boolean | null
+          age_range_max?: number | null
+          age_range_min?: number | null
+          appearance_notes?: string | null
+          birth_order?: number | null
+          build?: string | null
+          chassidus?: string | null
+          children_plans?: string | null
+          college_university?: string | null
+          community: string
+          created_at?: string
+          dealbreakers?: string[] | null
+          elementary_school?: string | null
+          eye_color?: string | null
+          family_minhagim?: string | null
+          father_name?: string | null
+          father_occupation?: string | null
+          father_origin?: string | null
+          favorite_sefarim?: string | null
+          genetic_testing_complete?: boolean | null
+          genetic_testing_id?: string | null
+          genetic_testing_org?: string | null
+          grandfather_maternal?: string | null
+          grandfather_paternal?: string | null
+          hair_color?: string | null
+          hashkafa_details?: string | null
+          health_notes?: string | null
+          hebrew_name?: string | null
+          hebrew_name_mother?: string | null
+          height_display?: string | null
+          high_school?: string | null
+          highest_degree?: string | null
+          hobbies_interests?: string[] | null
+          husband_learning?: string | null
+          id?: string
+          is_verified?: boolean | null
+          kollel_interest?: string | null
+          learning_schedule?: string | null
+          living_situation?: string | null
+          looking_for_description?: string | null
+          marriage_timeline?: string | null
+          minyan_frequency?: string | null
+          mother_maiden_name?: string | null
+          mother_name?: string | null
+          mother_occupation?: string | null
+          mother_origin?: string | null
+          must_haves?: string[] | null
+          nice_to_haves?: string[] | null
+          notable_rabbanim?: string | null
+          num_siblings?: number | null
+          parent_contact_first?: boolean | null
+          parent_description?: string | null
+          parents_status?: string | null
+          personality_description?: string | null
+          photos_visible_to?: string | null
+          preferred_background?: string | null
+          preferred_communities?: string[] | null
+          preferred_locations?: string[] | null
+          profile_visible?: boolean | null
+          seminary_yeshiva?: string | null
+          seminary_yeshiva_years?: number | null
+          sibling_details?: Json | null
+          updated_at?: string
+          user_id: string
+          verified_at?: string | null
+          verified_by?: string | null
+          wife_working?: string | null
+          willing_to_relocate?: boolean | null
+        }
+        Update: {
+          accepting_suggestions?: boolean | null
+          age_range_max?: number | null
+          age_range_min?: number | null
+          appearance_notes?: string | null
+          birth_order?: number | null
+          build?: string | null
+          chassidus?: string | null
+          children_plans?: string | null
+          college_university?: string | null
+          community?: string
+          created_at?: string
+          dealbreakers?: string[] | null
+          elementary_school?: string | null
+          eye_color?: string | null
+          family_minhagim?: string | null
+          father_name?: string | null
+          father_occupation?: string | null
+          father_origin?: string | null
+          favorite_sefarim?: string | null
+          genetic_testing_complete?: boolean | null
+          genetic_testing_id?: string | null
+          genetic_testing_org?: string | null
+          grandfather_maternal?: string | null
+          grandfather_paternal?: string | null
+          hair_color?: string | null
+          hashkafa_details?: string | null
+          health_notes?: string | null
+          hebrew_name?: string | null
+          hebrew_name_mother?: string | null
+          height_display?: string | null
+          high_school?: string | null
+          highest_degree?: string | null
+          hobbies_interests?: string[] | null
+          husband_learning?: string | null
+          id?: string
+          is_verified?: boolean | null
+          kollel_interest?: string | null
+          learning_schedule?: string | null
+          living_situation?: string | null
+          looking_for_description?: string | null
+          marriage_timeline?: string | null
+          minyan_frequency?: string | null
+          mother_maiden_name?: string | null
+          mother_name?: string | null
+          mother_occupation?: string | null
+          mother_origin?: string | null
+          must_haves?: string[] | null
+          nice_to_haves?: string[] | null
+          notable_rabbanim?: string | null
+          num_siblings?: number | null
+          parent_contact_first?: boolean | null
+          parent_description?: string | null
+          parents_status?: string | null
+          personality_description?: string | null
+          photos_visible_to?: string | null
+          preferred_background?: string | null
+          preferred_communities?: string[] | null
+          preferred_locations?: string[] | null
+          profile_visible?: boolean | null
+          seminary_yeshiva?: string | null
+          seminary_yeshiva_years?: number | null
+          sibling_details?: Json | null
+          updated_at?: string
+          user_id?: string
+          verified_at?: string | null
+          verified_by?: string | null
+          wife_working?: string | null
+          willing_to_relocate?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shidduch_profiles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shidduch_references: {
+        Row: {
+          best_contact_method: string | null
+          created_at: string
+          email: string | null
+          id: string
+          is_verified: boolean | null
+          name: string
+          notes: string | null
+          phone: string | null
+          profile_id: string
+          reference_type: string
+          relationship: string
+          verified_at: string | null
+        }
+        Insert: {
+          best_contact_method?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_verified?: boolean | null
+          name: string
+          notes?: string | null
+          phone?: string | null
+          profile_id: string
+          reference_type: string
+          relationship: string
+          verified_at?: string | null
+        }
+        Update: {
+          best_contact_method?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_verified?: boolean | null
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          profile_id?: string
+          reference_type?: string
+          relationship?: string
+          verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shidduch_references_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "shidduch_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shidduch_suggestions: {
+        Row: {
+          compatibility_notes: string | null
+          contact_shared_at: string | null
+          created_at: string
+          current_status: string | null
+          ended_at: string | null
+          ended_reason: string | null
+          first_date_at: string | null
+          id: string
+          is_mutual_interest: boolean | null
+          profile_a_decline_reason: string | null
+          profile_a_id: string
+          profile_a_parent_approved: boolean | null
+          profile_a_response_at: string | null
+          profile_a_status: string | null
+          profile_b_decline_reason: string | null
+          profile_b_id: string
+          profile_b_parent_approved: boolean | null
+          profile_b_response_at: string | null
+          profile_b_status: string | null
+          suggested_by_shadchan_id: string | null
+          suggested_by_type: string
+          suggested_by_user_id: string | null
+          suggestion_reason: string | null
+          total_dates: number | null
+          updated_at: string
+        }
+        Insert: {
+          compatibility_notes?: string | null
+          contact_shared_at?: string | null
+          created_at?: string
+          current_status?: string | null
+          ended_at?: string | null
+          ended_reason?: string | null
+          first_date_at?: string | null
+          id?: string
+          is_mutual_interest?: boolean | null
+          profile_a_decline_reason?: string | null
+          profile_a_id: string
+          profile_a_parent_approved?: boolean | null
+          profile_a_response_at?: string | null
+          profile_a_status?: string | null
+          profile_b_decline_reason?: string | null
+          profile_b_id: string
+          profile_b_parent_approved?: boolean | null
+          profile_b_response_at?: string | null
+          profile_b_status?: string | null
+          suggested_by_shadchan_id?: string | null
+          suggested_by_type: string
+          suggested_by_user_id?: string | null
+          suggestion_reason?: string | null
+          total_dates?: number | null
+          updated_at?: string
+        }
+        Update: {
+          compatibility_notes?: string | null
+          contact_shared_at?: string | null
+          created_at?: string
+          current_status?: string | null
+          ended_at?: string | null
+          ended_reason?: string | null
+          first_date_at?: string | null
+          id?: string
+          is_mutual_interest?: boolean | null
+          profile_a_decline_reason?: string | null
+          profile_a_id?: string
+          profile_a_parent_approved?: boolean | null
+          profile_a_response_at?: string | null
+          profile_a_status?: string | null
+          profile_b_decline_reason?: string | null
+          profile_b_id?: string
+          profile_b_parent_approved?: boolean | null
+          profile_b_response_at?: string | null
+          profile_b_status?: string | null
+          suggested_by_shadchan_id?: string | null
+          suggested_by_type?: string
+          suggested_by_user_id?: string | null
+          suggestion_reason?: string | null
+          total_dates?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shidduch_suggestions_profile_a_id_fkey"
+            columns: ["profile_a_id"]
+            isOneToOne: false
+            referencedRelation: "shidduch_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shidduch_suggestions_profile_b_id_fkey"
+            columns: ["profile_b_id"]
+            isOneToOne: false
+            referencedRelation: "shidduch_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shidduch_suggestions_suggested_by_user_id_fkey"
+            columns: ["suggested_by_user_id"]
             isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
@@ -497,6 +1593,7 @@ export type Database = {
         Row: {
           badge_type: string
           created_at: string
+          display_order: number | null
           id: string
           user_id: string
           verified: boolean | null
@@ -504,6 +1601,7 @@ export type Database = {
         Insert: {
           badge_type: string
           created_at?: string
+          display_order?: number | null
           id?: string
           user_id: string
           verified?: boolean | null
@@ -511,6 +1609,7 @@ export type Database = {
         Update: {
           badge_type?: string
           created_at?: string
+          display_order?: number | null
           id?: string
           user_id?: string
           verified?: boolean | null
@@ -695,6 +1794,7 @@ export type Database = {
           instagram_user_id: string | null
           is_active: boolean | null
           is_orthodox_only: boolean | null
+          is_orthodox_user: boolean | null
           is_photo_verified: boolean | null
           is_premium: boolean | null
           is_verified: boolean | null
@@ -708,6 +1808,7 @@ export type Database = {
           observance_level: string | null
           occupation: string | null
           onboarding_complete: boolean | null
+          orthodox_subscription_status: string | null
           partner_must_be_jewish: boolean | null
           phone: string | null
           raise_children_jewish: boolean | null
@@ -716,6 +1817,8 @@ export type Database = {
           shabbat_mode_enabled: boolean | null
           shabbat_mode_end: string | null
           shabbat_mode_start: string | null
+          shabbat_timezone: string | null
+          shadchan_id: string | null
           show_instagram_friends: boolean | null
           synagogue_attendance: string | null
           updated_at: string
@@ -747,6 +1850,7 @@ export type Database = {
           instagram_user_id?: string | null
           is_active?: boolean | null
           is_orthodox_only?: boolean | null
+          is_orthodox_user?: boolean | null
           is_photo_verified?: boolean | null
           is_premium?: boolean | null
           is_verified?: boolean | null
@@ -760,6 +1864,7 @@ export type Database = {
           observance_level?: string | null
           occupation?: string | null
           onboarding_complete?: boolean | null
+          orthodox_subscription_status?: string | null
           partner_must_be_jewish?: boolean | null
           phone?: string | null
           raise_children_jewish?: boolean | null
@@ -768,6 +1873,8 @@ export type Database = {
           shabbat_mode_enabled?: boolean | null
           shabbat_mode_end?: string | null
           shabbat_mode_start?: string | null
+          shabbat_timezone?: string | null
+          shadchan_id?: string | null
           show_instagram_friends?: boolean | null
           synagogue_attendance?: string | null
           updated_at?: string
@@ -799,6 +1906,7 @@ export type Database = {
           instagram_user_id?: string | null
           is_active?: boolean | null
           is_orthodox_only?: boolean | null
+          is_orthodox_user?: boolean | null
           is_photo_verified?: boolean | null
           is_premium?: boolean | null
           is_verified?: boolean | null
@@ -812,6 +1920,7 @@ export type Database = {
           observance_level?: string | null
           occupation?: string | null
           onboarding_complete?: boolean | null
+          orthodox_subscription_status?: string | null
           partner_must_be_jewish?: boolean | null
           phone?: string | null
           raise_children_jewish?: boolean | null
@@ -820,13 +1929,23 @@ export type Database = {
           shabbat_mode_enabled?: boolean | null
           shabbat_mode_end?: string | null
           shabbat_mode_start?: string | null
+          shabbat_timezone?: string | null
+          shadchan_id?: string | null
           show_instagram_friends?: boolean | null
           synagogue_attendance?: string | null
           updated_at?: string
           wants_children?: string | null
           willing_to_relocate?: boolean | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "users_shadchan_id_fkey"
+            columns: ["shadchan_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
@@ -836,6 +1955,126 @@ export type Database = {
       calculate_distance: {
         Args: { lat1: number; lat2: number; lon1: number; lon2: number }
         Returns: number
+      }
+      can_safta_add_connection: { Args: { safta_id: string }; Returns: boolean }
+      can_safta_recommend: { Args: { safta_id: string }; Returns: boolean }
+      get_orthodox_discovery_profiles: {
+        Args: {
+          max_age?: number
+          max_distance_km?: number
+          min_age?: number
+          preferred_genders?: string[]
+          requesting_user_id: string
+        }
+        Returns: {
+          auth_id: string | null
+          avg_response_time_hours: number | null
+          bio: string | null
+          company: string | null
+          created_at: string
+          current_city: string | null
+          current_country: string | null
+          current_latitude: number | null
+          current_longitude: number | null
+          current_state: string | null
+          date_of_birth: string
+          display_name: string
+          education: string | null
+          elo_score: number | null
+          email: string
+          first_name: string
+          gender: string
+          gender_preference: string[]
+          height_cm: number | null
+          id: string
+          instagram_access_token: string | null
+          instagram_user_id: string | null
+          is_active: boolean | null
+          is_orthodox_only: boolean | null
+          is_orthodox_user: boolean | null
+          is_photo_verified: boolean | null
+          is_premium: boolean | null
+          is_verified: boolean | null
+          jewish_background: string
+          jewish_education: string | null
+          keeps_kosher: string | null
+          keeps_shabbat: string | null
+          last_name: string | null
+          location_updated_at: string | null
+          looking_for: string
+          observance_level: string | null
+          occupation: string | null
+          onboarding_complete: boolean | null
+          orthodox_subscription_status: string | null
+          partner_must_be_jewish: boolean | null
+          phone: string | null
+          raise_children_jewish: boolean | null
+          response_rate: number | null
+          school: string | null
+          shabbat_mode_enabled: boolean | null
+          shabbat_mode_end: string | null
+          shabbat_mode_start: string | null
+          shabbat_timezone: string | null
+          shadchan_id: string | null
+          show_instagram_friends: boolean | null
+          synagogue_attendance: string | null
+          updated_at: string
+          wants_children: string | null
+          willing_to_relocate: boolean | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "users"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      get_safta_connection_count: {
+        Args: { safta_id: string }
+        Returns: number
+      }
+      get_safta_daily_recommendations: {
+        Args: { safta_id: string }
+        Returns: number
+      }
+      get_shidduch_suggestions: {
+        Args: { p_user_id: string }
+        Returns: {
+          out_created_at: string
+          out_my_status: string
+          out_other_profile: Json
+          out_suggested_by: string
+          out_suggestion_id: string
+          out_suggestion_reason: string
+          out_their_status: string
+        }[]
+      }
+      increment_safta_recommendation: {
+        Args: { safta_id: string }
+        Returns: number
+      }
+      is_orthodox_email: { Args: { check_email: string }; Returns: boolean }
+      register_orthodox_email: {
+        Args: { user_email: string; user_uuid: string }
+        Returns: undefined
+      }
+      respond_to_suggestion: {
+        Args: {
+          p_decline_reason?: string
+          p_response: string
+          p_suggestion_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      send_push_notification: {
+        Args: {
+          p_body: string
+          p_data?: Json
+          p_title: string
+          p_user_id: string
+        }
+        Returns: undefined
       }
     }
     Enums: {

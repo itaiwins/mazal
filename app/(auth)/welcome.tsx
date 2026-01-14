@@ -609,7 +609,7 @@ export default function WelcomeScreen() {
           </View>
           <View style={styles.memLogoGlow}>
             <Image
-              source={require('@/assets/logo-mem.png')}
+              source={require('../../assets/logo-mem.png')}
               style={styles.memLogoImage}
               contentFit="contain"
             />
@@ -673,6 +673,22 @@ export default function WelcomeScreen() {
             <View style={styles.saftaButtonContent}>
               <Text style={styles.saftaButtonTitle}>I'm a Parent or Grandparent</Text>
               <Text style={styles.saftaButtonSubtitle}>Help your family find love</Text>
+            </View>
+          </Pressable>
+        </Link>
+
+        {/* Orthodox Mode Entry */}
+        <Link href="/(orthodox-auth)/welcome" asChild>
+          <Pressable style={styles.orthodoxButton}>
+            <View style={styles.orthodoxIconContainer}>
+              <Text style={styles.orthodoxIcon}>✡</Text>
+            </View>
+            <View style={styles.orthodoxButtonContent}>
+              <Text style={styles.orthodoxButtonTitle}>Orthodox Shidduch</Text>
+              <Text style={styles.orthodoxButtonSubtitle}>Dedicated matching for observant Jews</Text>
+            </View>
+            <View style={styles.orthodoxPremiumBadge}>
+              <Text style={styles.orthodoxPremiumText}>Premium</Text>
             </View>
           </Pressable>
         </Link>
@@ -827,6 +843,59 @@ const styles = StyleSheet.create({
     color: colors.transparent.white60,
     fontSize: 13,
     marginTop: 2,
+  },
+  orthodoxButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(212, 175, 55, 0.15)',
+    paddingVertical: spacing[3],
+    paddingHorizontal: spacing[4],
+    borderRadius: borderRadius.xl,
+    borderWidth: 1.5,
+    borderColor: colors.primary.gold,
+    gap: spacing[3],
+  },
+  orthodoxIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primary.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.primary.gold,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+  },
+  orthodoxIcon: {
+    fontSize: 22,
+    color: colors.primary.navy,
+  },
+  orthodoxButtonContent: {
+    flex: 1,
+  },
+  orthodoxButtonTitle: {
+    color: colors.primary.gold,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  orthodoxButtonSubtitle: {
+    color: colors.transparent.gold70,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  orthodoxPremiumBadge: {
+    backgroundColor: colors.primary.gold,
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[1],
+    borderRadius: borderRadius.sm,
+  },
+  orthodoxPremiumText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.primary.navy,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   termsText: {
     color: colors.transparent.white50,

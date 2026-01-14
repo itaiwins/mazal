@@ -13,6 +13,7 @@ export const colors = {
     navy: '#0D1B3E',
     gold: '#C9A227',
     white: '#FFFFFF',
+    coral: '#FF7F50',
   },
 
   // Secondary Colors
@@ -31,6 +32,16 @@ export const colors = {
     dark: '#1A1530',          // Dark purple-navy for dark mode
     card: '#1E1A2E',          // Elevated card in dark mode
     accent: '#A78BFA',        // Lighter purple for highlights
+    coral: '#FF7F50',         // Coral for Safta Pro accents
+    blush: '#F5E1DC',         // Blush for Safta backgrounds
+  },
+
+  // Status Colors (for limit indicators)
+  status: {
+    success: '#4CAF50',
+    warning: '#FF9800',
+    error: '#E53935',
+    info: '#2196F3',
   },
 
   // Semantic Colors
@@ -101,6 +112,11 @@ export const colors = {
     purple30: 'rgba(123, 104, 238, 0.3)',
     purple50: 'rgba(123, 104, 238, 0.5)',
     purple70: 'rgba(123, 104, 238, 0.7)',
+    // Coral transparents (for limit banners)
+    coral10: 'rgba(255, 127, 80, 0.1)',
+    coral20: 'rgba(255, 127, 80, 0.2)',
+    coral40: 'rgba(255, 127, 80, 0.4)',
+    coral50: 'rgba(255, 127, 80, 0.5)',
   },
 } as const;
 

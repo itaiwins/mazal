@@ -37,6 +37,7 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [isOver18, setIsOver18] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +62,11 @@ export default function RegisterScreen() {
 
     if (password !== confirmPassword) {
       setError('Passwords do not match');
+      return false;
+    }
+
+    if (!isOver18) {
+      setError('You must be 18 or older to use Mazal');
       return false;
     }
 
@@ -355,6 +361,21 @@ export default function RegisterScreen() {
             </View>
           </View>
 
+          {/* Age Verification */}
+          <Pressable
+            style={styles.ageCheckbox}
+            onPress={() => setIsOver18(!isOver18)}
+          >
+            <View style={[styles.checkbox, isOver18 && styles.checkboxChecked]}>
+              {isOver18 && (
+                <Ionicons name="checkmark" size={16} color={colors.primary.navy} />
+              )}
+            </View>
+            <Text style={styles.ageCheckboxText}>
+              I confirm that I am 18 years or older
+            </Text>
+          </Pressable>
+
           {/* Error message */}
           {error && (
             <View style={styles.errorContainer}>
@@ -500,6 +521,30 @@ const styles = StyleSheet.create({
   errorText: {
     color: colors.semantic.error,
     fontSize: 14,
+  },
+  ageCheckbox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[3],
+    paddingVertical: spacing[2],
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: borderRadius.sm,
+    borderWidth: 2,
+    borderColor: colors.transparent.white50,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: colors.primary.gold,
+    borderColor: colors.primary.gold,
+  },
+  ageCheckboxText: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.transparent.white70,
   },
   createButton: {
     backgroundColor: colors.primary.gold,

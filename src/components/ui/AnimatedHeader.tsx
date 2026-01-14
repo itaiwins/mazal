@@ -89,7 +89,7 @@ export function AnimatedHeader({ title, showLogo = true, size = 'medium' }: Anim
           shadowRadius: currentSize.logo / 2,
         }]}>
           <Image
-            source={require('@/assets/logo-mem.png')}
+            source={require('../../../assets/logo-mem.png')}
             style={[styles.logo, { width: currentSize.logo, height: currentSize.logo }]}
             contentFit="contain"
           />

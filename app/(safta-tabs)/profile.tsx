@@ -30,6 +30,7 @@ import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius, shadows } from '@/theme/spacing';
 import { useAuthStore } from '@/stores/authStore';
+import { useSaftaPremiumStore } from '@/stores/saftaPremiumStore';
 import { supabase } from '@/api/supabase/client';
 import { useDeactivateAccount } from '@/api/mutations/useProfile';
 
@@ -93,6 +94,9 @@ export default function SaftaProfileScreen() {
   const setCurrentMode = useAuthStore((s) => s.setCurrentMode);
   const logout = useAuthStore((s) => s.logout);
   const hasUserProfile = useAuthStore((s) => s.isOnboardingComplete);
+
+  // Premium store
+  const { isProSubscriber, dailyRecommendationsRemaining } = useSaftaPremiumStore();
 
   // Account deletion mutation
   const deleteAccountMutation = useDeactivateAccount();
@@ -414,11 +418,7 @@ export default function SaftaProfileScreen() {
 
   const handlePremiumPress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Alert.alert(
-      'Safta Premium',
-      'Unlock unlimited recommendations, advanced filters, and priority support!\n\nComing soon - stay tuned!',
-      [{ text: 'OK' }]
-    );
+    router.push('/(safta-auth)/paywall');
   };
 
   const handleHelpPress = () => {
@@ -531,19 +531,36 @@ export default function SaftaProfileScreen() {
       </View>
 
       {/* Premium Banner */}
-      <Pressable
-        style={styles.premiumBanner}
-        onPress={handlePremiumPress}
-      >
-        <View style={styles.premiumContent}>
-          <Ionicons name="star" size={24} color={SAFTA_ACCENT} />
-          <View style={styles.premiumText}>
-            <Text style={styles.premiumTitle}>Upgrade to Safta Premium</Text>
-            <Text style={styles.premiumSubtitle}>Help more people & advanced filters</Text>
+      {isProSubscriber ? (
+        <View style={styles.proBanner}>
+          <View style={styles.premiumContent}>
+            <View style={styles.proBadge}>
+              <Text style={styles.proBadgeText}>PRO</Text>
+            </View>
+            <View style={styles.premiumText}>
+              <Text style={styles.proTitle}>Safta Pro</Text>
+              <Text style={styles.proSubtitle}>Unlimited recommendations & connections</Text>
+            </View>
           </View>
+          <Ionicons name="checkmark-circle" size={24} color={colors.semantic.success} />
         </View>
-        <Ionicons name="chevron-forward" size={20} color={SAFTA_ACCENT} />
-      </Pressable>
+      ) : (
+        <Pressable
+          style={styles.premiumBanner}
+          onPress={handlePremiumPress}
+        >
+          <View style={styles.premiumContent}>
+            <Ionicons name="star" size={24} color={SAFTA_ACCENT} />
+            <View style={styles.premiumText}>
+              <Text style={styles.premiumTitle}>Upgrade to Safta Pro</Text>
+              <Text style={styles.premiumSubtitle}>
+                {dailyRecommendationsRemaining} recommendations left today
+              </Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={SAFTA_ACCENT} />
+        </Pressable>
+      )}
 
       {/* Settings Sections */}
       <View style={[styles.settingsSection, { backgroundColor: theme.colors.surface }]}>
@@ -989,6 +1006,41 @@ const styles = StyleSheet.create({
   premiumSubtitle: {
     fontSize: 13,
     color: colors.transparent.white80,
+    marginTop: spacing[0.5],
+  },
+  // Pro Banner (for subscribed users)
+  proBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: spacing[4],
+    marginVertical: spacing[2],
+    padding: spacing[4],
+    backgroundColor: colors.transparent.gold20,
+    borderRadius: borderRadius.xl,
+    borderWidth: 2,
+    borderColor: colors.primary.gold,
+  },
+  proBadge: {
+    backgroundColor: colors.primary.gold,
+    paddingHorizontal: spacing[2.5],
+    paddingVertical: spacing[1],
+    borderRadius: borderRadius.sm,
+  },
+  proBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.primary.navy,
+    letterSpacing: 0.5,
+  },
+  proTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.primary.gold,
+  },
+  proSubtitle: {
+    fontSize: 13,
+    color: colors.transparent.white70,
     marginTop: spacing[0.5],
   },
   // Settings

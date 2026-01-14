@@ -114,6 +114,17 @@ export type Subscription = Tables<'subscriptions'>;
 export type UserCollege = Tables<'user_colleges'>;
 export type UserSaftaStats = Tables<'user_safta_stats'>;
 
+// Shidduch System Types
+export type ShidduchProfile = Tables<'shidduch_profiles'>;
+export type ShidduchReference = Tables<'shidduch_references'>;
+export type ShidduchSuggestion = Tables<'shidduch_suggestions'>;
+export type ShidduchMessage = Tables<'shidduch_messages'>;
+export type FamilyConnection = Tables<'family_connections'>;
+export type ShabbatSchedule = Tables<'shabbat_schedules'>;
+export type CommunitySettings = Tables<'community_settings'>;
+export type ShadchanNotes = Tables<'shadchan_notes'>;
+export type ShidduchDailyActivity = Tables<'shidduch_daily_activity'>;
+
 // Insert types
 export type UserInsert = InsertTables<'users'>;
 export type UserPhotoInsert = InsertTables<'user_photos'>;

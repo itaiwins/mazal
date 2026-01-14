@@ -42,9 +42,26 @@ export default function BasicsScreen() {
   const [gender, setGender] = useState(data?.gender || '');
   const [showDatePicker, setShowDatePicker] = useState(false);
 
-  const isValid = firstName.trim().length >= 2 && gender;
+  const calculateAge = (date: Date) => {
+    const today = new Date();
+    let age = today.getFullYear() - date.getFullYear();
+    const monthDiff = today.getMonth() - date.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < date.getDate())) {
+      age--;
+    }
+    return age;
+  };
+
+  const age = calculateAge(birthDate);
+  const isOver18 = age >= 18;
+  const isValid = firstName.trim().length >= 2 && gender && isOver18;
 
   const handleContinue = () => {
+    // Double-check age requirement
+    if (!isOver18) {
+      return;
+    }
+
     updateBasics({
       first_name: firstName.trim(),
       date_of_birth: birthDate,
@@ -59,16 +76,6 @@ export default function BasicsScreen() {
       day: 'numeric',
       year: 'numeric',
     });
-  };
-
-  const calculateAge = (date: Date) => {
-    const today = new Date();
-    let age = today.getFullYear() - date.getFullYear();
-    const monthDiff = today.getMonth() - date.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < date.getDate())) {
-      age--;
-    }
-    return age;
   };
 
   return (
@@ -138,8 +145,10 @@ export default function BasicsScreen() {
             </Text>
             <Ionicons name="calendar-outline" size={20} color={theme.colors.icon} />
           </Pressable>
-          <Text style={[styles.hint, { color: theme.colors.textTertiary }]}>
-            You'll be {calculateAge(birthDate)} years old
+          <Text style={[styles.hint, { color: !isOver18 ? colors.semantic.error : theme.colors.textTertiary }]}>
+            {!isOver18
+              ? 'You must be 18 or older to use Mazal'
+              : `You'll be ${age} years old`}
           </Text>
         </View>
 

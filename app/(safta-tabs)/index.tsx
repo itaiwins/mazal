@@ -38,6 +38,7 @@ import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius, shadows } from '@/theme/spacing';
 import { useAuthStore } from '@/stores/authStore';
+import { useSaftaPremiumStore } from '@/stores/saftaPremiumStore';
 import { SendToChatsModal } from '@/components/chat/SendToChatsModal';
 import { supabase } from '@/api/supabase/client';
 
@@ -148,6 +149,21 @@ const formatKosher = (level?: string) => {
 export default function SaftaDiscoverScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+
+  // Premium store for daily limits
+  const {
+    isProSubscriber,
+    dailyRecommendationsRemaining,
+    canRecommend,
+    useRecommendation,
+    showPaywallModal,
+    checkAndResetLimits,
+  } = useSaftaPremiumStore();
+
+  // Check and reset daily limits on mount
+  useEffect(() => {
+    checkAndResetLimits();
+  }, []);
 
   // Filter state - default to custom filters (not using grandchild's preferences)
   const [useGrandchildFilters, setUseGrandchildFilters] = useState(false);
@@ -309,6 +325,22 @@ export default function SaftaDiscoverScreen() {
   };
 
   const handleRecommend = () => {
+    // Check if user can recommend (daily limit check)
+    if (!canRecommend()) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      // Navigate to paywall
+      router.push('/(safta-auth)/paywall');
+      return;
+    }
+
+    // Use a recommendation from the daily limit
+    const success = useRecommendation();
+    if (!success) {
+      // This shouldn't happen if canRecommend passed, but just in case
+      router.push('/(safta-auth)/paywall');
+      return;
+    }
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     // In production, this would send the recommendation to Supabase
     console.log('Recommending profile:', currentProfile.id);
@@ -394,6 +426,36 @@ export default function SaftaDiscoverScreen() {
           <Ionicons name="options-outline" size={24} color={colors.transparent.white70} />
         </Pressable>
       </View>
+
+      {/* Daily Recommendations Limit Banner (for free users) */}
+      {!isProSubscriber && (
+        <Pressable
+          style={styles.limitBanner}
+          onPress={() => router.push('/(safta-auth)/paywall')}
+        >
+          <View style={styles.limitBannerLeft}>
+            <Ionicons name="heart" size={18} color={dailyRecommendationsRemaining > 3 ? colors.primary.coral : colors.status.error} />
+            <Text style={styles.limitBannerText}>
+              {dailyRecommendationsRemaining} recommendation{dailyRecommendationsRemaining !== 1 ? 's' : ''} left today
+            </Text>
+          </View>
+          <View style={styles.limitBannerUpgrade}>
+            <Text style={styles.limitBannerUpgradeText}>Upgrade</Text>
+            <Ionicons name="chevron-forward" size={14} color={colors.primary.gold} />
+          </View>
+        </Pressable>
+      )}
+
+      {/* Pro Badge (for pro users) */}
+      {isProSubscriber && (
+        <View style={styles.proBadgeBanner}>
+          <Ionicons name="infinite" size={18} color={colors.primary.gold} />
+          <Text style={styles.proBadgeText}>Unlimited Recommendations</Text>
+          <View style={styles.proBadgeIcon}>
+            <Text style={styles.proBadgeIconText}>PRO</Text>
+          </View>
+        </View>
+      )}
 
       {/* Filter Mode Indicator */}
       <View style={styles.filterIndicator}>
@@ -1352,5 +1414,69 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: colors.primary.navy,
+  },
+  // Limit Banner Styles
+  limitBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: spacing[5],
+    marginBottom: spacing[2],
+    paddingVertical: spacing[2.5],
+    paddingHorizontal: spacing[4],
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.transparent.coral20,
+    borderWidth: 1,
+    borderColor: colors.transparent.coral40,
+  },
+  limitBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+  },
+  limitBannerText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary.white,
+  },
+  limitBannerUpgrade: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
+  },
+  limitBannerUpgradeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.primary.gold,
+  },
+  // Pro Badge Banner Styles
+  proBadgeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: spacing[5],
+    marginBottom: spacing[2],
+    paddingVertical: spacing[2.5],
+    paddingHorizontal: spacing[4],
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.transparent.gold20,
+    gap: spacing[2],
+  },
+  proBadgeText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary.gold,
+  },
+  proBadgeIcon: {
+    backgroundColor: colors.primary.gold,
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[0.5],
+    borderRadius: borderRadius.sm,
+  },
+  proBadgeIconText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.primary.navy,
+    letterSpacing: 0.5,
   },
 });

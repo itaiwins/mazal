@@ -32,6 +32,7 @@ import { useNotificationHandler, useNotificationNavigation } from '@/lib/notific
 
 // Premium
 import { PaywallPromptModal } from '@/components/premium/PaywallPromptModal';
+import { initializeRevenueCat } from '@/lib/config/revenuecat';
 
 // Keep splash screen visible while loading
 SplashScreen.preventAutoHideAsync();
@@ -75,6 +76,10 @@ export default function RootLayout() {
         if (Object.keys(fontsToLoad).length > 0) {
           await Font.loadAsync(fontsToLoad);
         }
+
+        // Initialize RevenueCat for in-app purchases
+        console.log('[Layout] Initializing RevenueCat...');
+        await initializeRevenueCat();
 
         console.log('[Layout] Initializing auth...');
 

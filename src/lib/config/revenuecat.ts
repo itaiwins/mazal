@@ -20,6 +20,7 @@ export const ENTITLEMENTS = {
   GOLD: 'mazal_gold',
   PLATINUM: 'mazal_platinum',
   ORTHODOX: 'mazal_orthodox',
+  SAFTA_PRO: 'safta_pro',
 } as const;
 
 // Product identifiers
@@ -30,6 +31,8 @@ export const PRODUCTS = {
   PLATINUM_YEARLY: 'mazal_platinum_yearly',
   ORTHODOX_MONTHLY: 'mazal_orthodox_monthly',
   ORTHODOX_YEARLY: 'mazal_orthodox_yearly',
+  SAFTA_PRO_MONTHLY: 'safta_pro_monthly',
+  SAFTA_PRO_YEARLY: 'safta_pro_yearly',
 } as const;
 
 export type EntitlementId = (typeof ENTITLEMENTS)[keyof typeof ENTITLEMENTS];
@@ -191,6 +194,20 @@ export const PRICING = {
       savings: '33%',
     },
   },
+  safta_pro: {
+    monthly: {
+      price: 14.99,
+      displayPrice: '$14.99',
+      period: 'month',
+    },
+    yearly: {
+      price: 119.99,
+      displayPrice: '$119.99',
+      monthlyEquivalent: '$10',
+      period: 'year',
+      savings: '33%',
+    },
+  },
 } as const;
 
 /**
@@ -239,6 +256,30 @@ export const FEATURE_LIMITS = {
 } as const;
 
 /**
+ * Safta feature limits by tier
+ */
+export const SAFTA_FEATURE_LIMITS = {
+  free: {
+    dailyRecommendations: 10,
+    maxConnections: 1,
+    canAddNotes: false,
+    hasAdvancedSearch: false,
+    hasAnalytics: false,
+    hasVerifiedBadge: false,
+    hasPriorityRecommendations: false,
+  },
+  safta_pro: {
+    dailyRecommendations: Infinity,
+    maxConnections: Infinity,
+    canAddNotes: true,
+    hasAdvancedSearch: true,
+    hasAnalytics: true,
+    hasVerifiedBadge: true,
+    hasPriorityRecommendations: true,
+  },
+} as const;
+
+/**
  * Premium features by tier
  */
 export const PREMIUM_FEATURES = {
@@ -278,14 +319,35 @@ export const PREMIUM_FEATURES = {
   },
   [ENTITLEMENTS.ORTHODOX]: {
     name: 'Orthodox Mode',
-    tagline: 'Coming soon',
-    monthlyPrice: 'TBD',
-    yearlyPrice: 'TBD',
+    tagline: 'Dedicated matching for observant Jews',
+    monthlyPrice: '$49.99',
+    yearlyPrice: '$399.99',
+    yearlyMonthly: '$33',
+    yearlySavings: '33%',
     features: [
       { id: 'orthodox_pool', label: 'Orthodox-only dating pool', icon: 'people', included: true },
       { id: 'shadchan_directory', label: 'Shadchan directory access', icon: 'book', included: true },
-      { id: 'hashkafa_matching', label: 'Hashkafa-based matching', icon: 'star', included: true },
-      { id: 'reference_verification', label: 'Reference verification', icon: 'shield-checkmark', included: true },
+      { id: 'shabbat_mode', label: 'Automatic Shabbat mode', icon: 'moon', included: true },
+      { id: 'no_ads', label: 'No advertisements', icon: 'ban', included: true },
+      { id: 'unlimited_matches', label: 'Unlimited matches', icon: 'infinite', included: true },
+      { id: 'privacy', label: 'Enhanced privacy', icon: 'shield-checkmark', included: true },
+    ],
+  },
+  [ENTITLEMENTS.SAFTA_PRO]: {
+    name: 'Safta Pro',
+    tagline: 'For dedicated matchmakers',
+    monthlyPrice: PRICING.safta_pro.monthly.displayPrice,
+    yearlyPrice: PRICING.safta_pro.yearly.displayPrice,
+    yearlyMonthly: PRICING.safta_pro.yearly.monthlyEquivalent,
+    yearlySavings: PRICING.safta_pro.yearly.savings,
+    features: [
+      { id: 'unlimited_recommendations', label: 'Unlimited daily recommendations', icon: 'infinite', included: true },
+      { id: 'unlimited_connections', label: 'Connect with unlimited family members', icon: 'people', included: true },
+      { id: 'notes_crm', label: 'Add notes & track each person', icon: 'document-text', included: true },
+      { id: 'advanced_search', label: 'Advanced search filters', icon: 'search', included: true },
+      { id: 'analytics', label: 'Success rate analytics', icon: 'analytics', included: true },
+      { id: 'verified_badge', label: 'Verified Matchmaker badge', icon: 'checkmark-circle', included: true },
+      { id: 'priority_recommendations', label: 'Priority visibility on recommendations', icon: 'flash', included: true },
     ],
   },
 };
@@ -305,4 +367,17 @@ export const PLAN_COMPARISON = [
   { feature: 'Message before match', free: false, gold: false, platinum: true },
   { feature: 'Incognito mode', free: false, gold: false, platinum: true },
   { feature: 'See active users', free: false, gold: false, platinum: true },
+];
+
+/**
+ * Safta plan comparison table for paywall
+ */
+export const SAFTA_PLAN_COMPARISON = [
+  { feature: 'Daily recommendations', free: '10', pro: 'Unlimited' },
+  { feature: 'Family connections', free: '1', pro: 'Unlimited' },
+  { feature: 'Add notes to profiles', free: false, pro: true },
+  { feature: 'Advanced search filters', free: false, pro: true },
+  { feature: 'Success analytics', free: false, pro: true },
+  { feature: 'Verified Matchmaker badge', free: false, pro: true },
+  { feature: 'Priority recommendations', free: false, pro: true },
 ];
