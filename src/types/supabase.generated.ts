@@ -1126,6 +1126,58 @@ export type Database = {
           },
         ]
       }
+      shidduch_profile_views: {
+        Row: {
+          id: string
+          profile_id: string
+          view_duration_seconds: number | null
+          view_source: string | null
+          viewed_at: string
+          viewer_profile_id: string | null
+          viewer_user_id: string | null
+        }
+        Insert: {
+          id?: string
+          profile_id: string
+          view_duration_seconds?: number | null
+          view_source?: string | null
+          viewed_at?: string
+          viewer_profile_id?: string | null
+          viewer_user_id?: string | null
+        }
+        Update: {
+          id?: string
+          profile_id?: string
+          view_duration_seconds?: number | null
+          view_source?: string | null
+          viewed_at?: string
+          viewer_profile_id?: string | null
+          viewer_user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shidduch_profile_views_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "shidduch_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shidduch_profile_views_viewer_profile_id_fkey"
+            columns: ["viewer_profile_id"]
+            isOneToOne: false
+            referencedRelation: "shidduch_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shidduch_profile_views_viewer_user_id_fkey"
+            columns: ["viewer_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shidduch_profiles: {
         Row: {
           accepting_suggestions: boolean | null
@@ -1139,6 +1191,8 @@ export type Database = {
           college_university: string | null
           community: string
           created_at: string
+          created_by_type: string | null
+          created_by_user_id: string | null
           dealbreakers: string[] | null
           elementary_school: string | null
           eye_color: string | null
@@ -1190,6 +1244,10 @@ export type Database = {
           seminary_yeshiva: string | null
           seminary_yeshiva_years: number | null
           sibling_details: Json | null
+          single_email: string | null
+          single_first_name: string | null
+          single_last_name: string | null
+          single_phone: string | null
           updated_at: string
           user_id: string
           verified_at: string | null
@@ -1209,6 +1267,8 @@ export type Database = {
           college_university?: string | null
           community: string
           created_at?: string
+          created_by_type?: string | null
+          created_by_user_id?: string | null
           dealbreakers?: string[] | null
           elementary_school?: string | null
           eye_color?: string | null
@@ -1260,6 +1320,10 @@ export type Database = {
           seminary_yeshiva?: string | null
           seminary_yeshiva_years?: number | null
           sibling_details?: Json | null
+          single_email?: string | null
+          single_first_name?: string | null
+          single_last_name?: string | null
+          single_phone?: string | null
           updated_at?: string
           user_id: string
           verified_at?: string | null
@@ -1279,6 +1343,8 @@ export type Database = {
           college_university?: string | null
           community?: string
           created_at?: string
+          created_by_type?: string | null
+          created_by_user_id?: string | null
           dealbreakers?: string[] | null
           elementary_school?: string | null
           eye_color?: string | null
@@ -1330,6 +1396,10 @@ export type Database = {
           seminary_yeshiva?: string | null
           seminary_yeshiva_years?: number | null
           sibling_details?: Json | null
+          single_email?: string | null
+          single_first_name?: string | null
+          single_last_name?: string | null
+          single_phone?: string | null
           updated_at?: string
           user_id?: string
           verified_at?: string | null
@@ -1338,6 +1408,13 @@ export type Database = {
           willing_to_relocate?: boolean | null
         }
         Relationships: [
+          {
+            foreignKeyName: "shidduch_profiles_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "shidduch_profiles_user_id_fkey"
             columns: ["user_id"]
@@ -1403,6 +1480,7 @@ export type Database = {
       shidduch_suggestions: {
         Row: {
           compatibility_notes: string | null
+          compatibility_score: number | null
           contact_shared_at: string | null
           created_at: string
           current_status: string | null
@@ -1421,6 +1499,7 @@ export type Database = {
           profile_b_parent_approved: boolean | null
           profile_b_response_at: string | null
           profile_b_status: string | null
+          score_breakdown: Json | null
           suggested_by_shadchan_id: string | null
           suggested_by_type: string
           suggested_by_user_id: string | null
@@ -1430,6 +1509,7 @@ export type Database = {
         }
         Insert: {
           compatibility_notes?: string | null
+          compatibility_score?: number | null
           contact_shared_at?: string | null
           created_at?: string
           current_status?: string | null
@@ -1448,6 +1528,7 @@ export type Database = {
           profile_b_parent_approved?: boolean | null
           profile_b_response_at?: string | null
           profile_b_status?: string | null
+          score_breakdown?: Json | null
           suggested_by_shadchan_id?: string | null
           suggested_by_type: string
           suggested_by_user_id?: string | null
@@ -1457,6 +1538,7 @@ export type Database = {
         }
         Update: {
           compatibility_notes?: string | null
+          compatibility_score?: number | null
           contact_shared_at?: string | null
           created_at?: string
           current_status?: string | null
@@ -1475,6 +1557,7 @@ export type Database = {
           profile_b_parent_approved?: boolean | null
           profile_b_response_at?: string | null
           profile_b_status?: string | null
+          score_breakdown?: Json | null
           suggested_by_shadchan_id?: string | null
           suggested_by_type?: string
           suggested_by_user_id?: string | null
@@ -1952,12 +2035,44 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      browse_shidduch_profiles: {
+        Args: {
+          p_age_max?: number
+          p_age_min?: number
+          p_city?: string
+          p_community?: string
+          p_gender?: string
+          p_limit?: number
+          p_offset?: number
+          p_state?: string
+          p_viewer_id: string
+        }
+        Returns: {
+          age: number
+          city: string
+          community: string
+          created_at: string
+          created_by_type: string
+          hashkafa_details: string
+          hebrew_name: string
+          id: string
+          looking_for_description: string
+          photos_visible_to: string
+          profile_visible: boolean
+          single_first_name: string
+          state: string
+        }[]
+      }
       calculate_distance: {
         Args: { lat1: number; lat2: number; lon1: number; lon2: number }
         Returns: number
       }
       can_safta_add_connection: { Args: { safta_id: string }; Returns: boolean }
       can_safta_recommend: { Args: { safta_id: string }; Returns: boolean }
+      get_creator_profile_count: {
+        Args: { p_creator_id: string }
+        Returns: number
+      }
       get_orthodox_discovery_profiles: {
         Args: {
           max_age?: number
@@ -2028,6 +2143,33 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      get_profile_stats: {
+        Args: { p_profile_id: string }
+        Returns: {
+          interested_responses: number
+          last_view_at: string
+          mutual_matches: number
+          profile_views: number
+          suggestions_received: number
+          unique_viewers: number
+        }[]
+      }
+      get_profiles_by_creator: {
+        Args: { p_creator_id: string }
+        Returns: {
+          accepting_suggestions: boolean
+          community: string
+          created_at: string
+          created_by_type: string
+          hebrew_name: string
+          id: string
+          profile_visible: boolean
+          single_first_name: string
+          single_last_name: string
+          updated_at: string
+          user_id: string
+        }[]
       }
       get_safta_connection_count: {
         Args: { safta_id: string }

@@ -77,6 +77,7 @@ export const BADGES = [
   { id: 'hebrew_speaker', label: 'Speaks Hebrew', emoji: '🗣️', description: 'Conversational or fluent' },
   { id: 'yiddish_speaker', label: 'Speaks Yiddish', emoji: '🗣️', description: 'Conversational or fluent' },
   { id: 'israeli', label: 'Israeli', emoji: '🇮🇱', description: 'From Israel' },
+  { id: 'greek_life', label: 'Greek Life', emoji: '🏛️', description: 'Fraternity or sorority member' },
   { id: 'verified_jewish', label: 'Verified Jewish', emoji: '🔯', description: 'Jewish identity verified' },
   { id: 'photo_verified', label: 'Photo Verified', emoji: '✓', description: 'Photos verified as real' },
 ] as const;

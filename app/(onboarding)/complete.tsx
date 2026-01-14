@@ -105,10 +105,10 @@ export default function CompleteScreen() {
     ],
   }));
 
-  // Helper function to add timeout to promises
-  const withTimeout = <T,>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> => {
+  // Helper function to add timeout to promises (accepts PromiseLike for Supabase queries)
+  const withTimeout = <T,>(promise: PromiseLike<T>, ms: number, errorMsg: string): Promise<T> => {
     return Promise.race([
-      promise,
+      Promise.resolve(promise),
       new Promise<T>((_, reject) =>
         setTimeout(() => reject(new Error(errorMsg)), ms)
       ),

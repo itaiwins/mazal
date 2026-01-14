@@ -176,10 +176,12 @@ export default function ShidduchProfileScreen() {
     setProfile((prev) => prev ? { ...prev, acceptingSuggestions: newValue } : null);
 
     // Update in database
+    if (!session?.user?.id) return;
+
     const { data: userData } = await supabase
       .from('users')
       .select('id')
-      .eq('auth_id', session?.user?.id)
+      .eq('auth_id', session.user.id)
       .single();
 
     if (userData) {
