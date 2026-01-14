@@ -11,6 +11,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Font from 'expo-font';
+import * as SecureStore from 'expo-secure-store';
 import { StyleSheet, View, Text } from 'react-native';
 
 // Providers
@@ -62,10 +63,21 @@ export default function RootLayout() {
   const setUser = useAuthStore((s) => s.setUser);
   const setInitialized = useAuthStore((s) => s.setInitialized);
   const setLoading = useAuthStore((s) => s.setLoading);
+  const setHasShidduchProfile = useAuthStore((s) => s.setHasShidduchProfile);
 
   useEffect(() => {
     async function prepare() {
       try {
+        // Clear old SecureStore session data (migrating to AsyncStorage)
+        // This fixes the 2048 byte limit issue that prevented sessions from persisting
+        try {
+          await SecureStore.deleteItemAsync('supabase-auth-token');
+          await SecureStore.deleteItemAsync('supabase.auth.token');
+          console.log('[Layout] Cleared old SecureStore session data');
+        } catch (e) {
+          // Ignore errors - keys may not exist
+        }
+
         // Validate environment configuration
         const envValidation = validateEnv();
         if (!envValidation.isValid && env.isProduction) {
@@ -102,7 +114,8 @@ export default function RootLayout() {
 
             if (verifyError || !verifyUser?.user) {
               // Auth user was deleted - sign out and clear the stale session
-              console.log('[Layout] Auth user no longer exists, signing out...');
+              console.log('[Layout] Auth user no longer exists, signing out... Error:', verifyError);
+              console.log('[Layout] SIGN_OUT_REASON: verification_failed');
               await supabase.auth.signOut();
               setSession(null);
               setUser(null);
@@ -119,10 +132,26 @@ export default function RootLayout() {
                 .single();
 
               setUser(profile);
+
+              // Also check if user has a shidduch profile in database
+              // (in case metadata wasn't saved correctly)
+              if (profile) {
+                const { data: shidduchProfile } = await supabase
+                  .from('shidduch_profiles')
+                  .select('id')
+                  .eq('user_id', profile.id)
+                  .single();
+
+                if (shidduchProfile) {
+                  console.log('[Layout] Found shidduch profile in database');
+                  setHasShidduchProfile(true);
+                }
+              }
             }
           } catch (verifyErr) {
             // Timeout or error - clear session to be safe
             console.log('[Layout] Verify failed, clearing session:', verifyErr);
+            console.log('[Layout] SIGN_OUT_REASON: verification_exception');
             await supabase.auth.signOut();
             setSession(null);
             setUser(null);
@@ -146,7 +175,19 @@ export default function RootLayout() {
 
     // Subscribe to auth changes
     const { data: { subscription } } = onAuthStateChange(async (event, session) => {
-      console.log('Auth event:', event);
+      console.log('Auth event:', event, '| Has session:', !!session);
+
+      // Debug: Log when sign out happens to help diagnose issues
+      if (event === 'SIGNED_OUT') {
+        console.log('[Layout] SIGNED_OUT event received - session was cleared');
+        console.log('[Layout] This may indicate a session storage or refresh issue');
+      }
+
+      // Debug: Log token refresh events
+      if (event === 'TOKEN_REFRESHED') {
+        console.log('[Layout] Token was refreshed successfully');
+      }
+
       setSession(session);
 
       if (session?.user) {
@@ -157,6 +198,20 @@ export default function RootLayout() {
           .single();
 
         setUser(profile);
+
+        // Also check if user has a shidduch profile in database
+        if (profile) {
+          const { data: shidduchProfile } = await supabase
+            .from('shidduch_profiles')
+            .select('id')
+            .eq('user_id', profile.id)
+            .single();
+
+          if (shidduchProfile) {
+            console.log('[Layout] Auth change: Found shidduch profile');
+            setHasShidduchProfile(true);
+          }
+        }
       } else {
         setUser(null);
       }

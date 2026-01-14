@@ -7,7 +7,7 @@
 
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
-import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Database } from '@/types/database.types';
 
 // Environment variables
@@ -22,30 +22,36 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 /**
- * Custom storage adapter using expo-secure-store
- * This persists auth tokens securely on the device
+ * Custom storage adapter using AsyncStorage
+ * AsyncStorage can handle larger values (unlike SecureStore's 2048 byte limit)
+ * This is needed because Supabase session tokens can exceed SecureStore's limit
  */
-const ExpoSecureStoreAdapter = {
+const AsyncStorageAdapter = {
   getItem: async (key: string): Promise<string | null> => {
     try {
-      return await SecureStore.getItemAsync(key);
+      const value = await AsyncStorage.getItem(key);
+      console.log('[Supabase Storage] getItem:', key, value ? `(${value.length} chars)` : 'null');
+      return value;
     } catch (error) {
-      console.error('SecureStore getItem error:', error);
+      console.error('[Supabase Storage] getItem error:', key, error);
       return null;
     }
   },
   setItem: async (key: string, value: string): Promise<void> => {
     try {
-      await SecureStore.setItemAsync(key, value);
+      console.log('[Supabase Storage] setItem:', key, `(${value.length} chars)`);
+      await AsyncStorage.setItem(key, value);
+      console.log('[Supabase Storage] setItem SUCCESS:', key);
     } catch (error) {
-      console.error('SecureStore setItem error:', error);
+      console.error('[Supabase Storage] setItem error:', key, error);
     }
   },
   removeItem: async (key: string): Promise<void> => {
     try {
-      await SecureStore.deleteItemAsync(key);
+      console.log('[Supabase Storage] removeItem:', key);
+      await AsyncStorage.removeItem(key);
     } catch (error) {
-      console.error('SecureStore removeItem error:', error);
+      console.error('[Supabase Storage] removeItem error:', key, error);
     }
   },
 };
@@ -60,7 +66,7 @@ export const supabase = createClient<Database>(
   supabaseAnonKey || 'placeholder-key',
   {
     auth: {
-      storage: ExpoSecureStoreAdapter,
+      storage: AsyncStorageAdapter,
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false, // Not needed for mobile
@@ -72,6 +78,14 @@ export const supabase = createClient<Database>(
     },
   }
 );
+
+// Debug: Track signOut calls
+const originalSignOut = supabase.auth.signOut.bind(supabase.auth);
+(supabase.auth as any).signOut = async (options?: any) => {
+  console.log('[Supabase Auth] signOut called!');
+  console.trace('[Supabase Auth] signOut stack trace');
+  return originalSignOut(options);
+};
 
 /**
  * Helper to get current user session

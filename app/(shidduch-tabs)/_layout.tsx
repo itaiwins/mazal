@@ -94,30 +94,43 @@ export default function ShidduchTabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="shadchanim"
+        name="browse"
         options={{
-          title: 'Shadchanim',
+          title: 'Browse',
+          tabBarIcon: ({ color, focused }) => (
+            <TabBarIcon name="search-outline" color={color} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="my-profiles"
+        options={{
+          title: 'My Profiles',
           tabBarIcon: ({ color, focused }) => (
             <TabBarIcon name="people-outline" color={color} focused={focused} />
           ),
         }}
       />
       <Tabs.Screen
-        name="connections"
-        options={{
-          title: 'Connections',
-          tabBarIcon: ({ color, focused }) => (
-            <TabBarIcon name="chatbubbles-outline" color={color} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
+          title: 'Account',
           tabBarIcon: ({ color, focused }) => (
             <TabBarIcon name="person-outline" color={color} focused={focused} />
           ),
+        }}
+      />
+      {/* Hidden tabs - still accessible via navigation */}
+      <Tabs.Screen
+        name="shadchanim"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="connections"
+        options={{
+          href: null, // Hide from tab bar
         }}
       />
     </Tabs>

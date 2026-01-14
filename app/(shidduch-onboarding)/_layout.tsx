@@ -21,6 +21,7 @@ export default function ShidduchOnboardingLayout() {
       }}
     >
       <Stack.Screen name="welcome" />
+      <Stack.Screen name="creator-type" />
       <Stack.Screen name="basics" />
       <Stack.Screen name="family" />
       <Stack.Screen name="education" />

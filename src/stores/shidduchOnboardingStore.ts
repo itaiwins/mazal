@@ -26,8 +26,19 @@ export interface Sibling {
   children?: number;
 }
 
+// Creator type for who is creating the profile
+export type CreatorType = 'self' | 'parent' | 'grandparent' | 'uncle' | 'aunt' | 'shadchan';
+
 export interface ShidduchOnboardingData {
-  // Step 1: Basics
+  // Step 1: Creator Type (NEW)
+  creatorType?: CreatorType;
+  // If not 'self', store the single's contact info separately
+  singleFirstName?: string;
+  singleLastName?: string;
+  singleEmail?: string;
+  singlePhone?: string;
+
+  // Step 2: Basics (formerly Step 1)
   firstName?: string;
   lastName?: string;
   hebrewName?: string;
@@ -137,7 +148,7 @@ export const useShidduchOnboardingStore = create<ShidduchOnboardingState>()(
     (set, get) => ({
       data: initialData,
       currentStep: 1,
-      totalSteps: 8,
+      totalSteps: 9, // Increased to 9 (added creator-type step)
 
       updateData: (updates) => {
         set((state) => ({
@@ -173,21 +184,23 @@ export const useShidduchOnboardingStore = create<ShidduchOnboardingState>()(
       isStepComplete: (step) => {
         const { data } = get();
         switch (step) {
-          case 1: // Basics
+          case 1: // Creator Type (NEW)
+            return !!data.creatorType;
+          case 2: // Basics
             return !!(data.firstName && data.lastName && data.gender && data.birthDate);
-          case 2: // Family
+          case 3: // Family
             return !!(data.fatherName || data.motherName);
-          case 3: // Education
+          case 4: // Education
             return !!(data.highSchool || data.seminaryYeshiva);
-          case 4: // Hashkafa
+          case 5: // Hashkafa
             return !!(data.community);
-          case 5: // Looking For
+          case 6: // Looking For
             return !!(data.lookingForDescription || data.marriageTimeline);
-          case 6: // References
+          case 7: // References
             return !!(data.references && data.references.length >= 2);
-          case 7: // Photos
+          case 8: // Photos
             return true; // Photos are optional
-          case 8: // Complete
+          case 9: // Complete
             return true;
           default:
             return false;

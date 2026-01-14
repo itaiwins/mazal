@@ -97,9 +97,9 @@ export default function ShidduchFamilyScreen() {
           <Ionicons name="arrow-back" size={24} color="#d4af37" />
         </Pressable>
         <View style={styles.progressContainer}>
-          <View style={[styles.progressBar, { width: '25%' }]} />
+          <View style={[styles.progressBar, { width: '33%' }]} />
         </View>
-        <Text style={styles.stepText}>2 of 8</Text>
+        <Text style={styles.stepText}>3 of 9</Text>
       </Animated.View>
 
       <ScrollView

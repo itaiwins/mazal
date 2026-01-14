@@ -26,6 +26,7 @@ import * as Crypto from 'expo-crypto';
 import { supabase } from '@/api/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
+import { DEV_BYPASS_PREMIUM } from '@/lib/config/revenuecat';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 
@@ -78,11 +79,11 @@ export default function OrthodoxLoginScreen() {
 
       if (data.session) {
         // Verify user is Orthodox
-        // Note: is_orthodox_user column added via migration
+        // Note: session.user.id is the Supabase Auth ID, must match users.auth_id
         const { data: userData } = await (supabase as any)
           .from('users')
-          .select('is_orthodox_user, orthodox_subscription_status')
-          .eq('id', data.session.user.id)
+          .select('id, is_orthodox_user, orthodox_subscription_status')
+          .eq('auth_id', data.session.user.id)
           .single();
 
         if (!userData?.is_orthodox_user) {
@@ -93,11 +94,27 @@ export default function OrthodoxLoginScreen() {
 
         setSession(data.session);
 
-        // Check subscription status
-        if (userData.orthodox_subscription_status === 'active') {
+        // DEV: Bypass paywall and subscription checks
+        if (DEV_BYPASS_PREMIUM) {
           setOrthodoxSubscription(true);
           setOrthodoxMode(true);
-          router.replace('/(orthodox-tabs)');
+          // Check if they have a shidduch profile, otherwise go to onboarding
+          // userData.id is the users table id (not auth_id)
+          const { data: shidduchProfile } = await supabase
+            .from('shidduch_profiles')
+            .select('id')
+            .eq('user_id', userData.id)
+            .single();
+
+          if (shidduchProfile) {
+            router.replace('/(shidduch-tabs)');
+          } else {
+            router.replace('/(shidduch-onboarding)/welcome');
+          }
+        } else if (userData.orthodox_subscription_status === 'active') {
+          setOrthodoxSubscription(true);
+          setOrthodoxMode(true);
+          router.replace('/(shidduch-tabs)');
         } else {
           // Send to paywall
           router.replace('/(orthodox-auth)/paywall');
@@ -152,27 +169,60 @@ export default function OrthodoxLoginScreen() {
 
         if (data.session) {
           // Check if user is Orthodox
-          const { data: userData } = await (supabase as any)
+          // Note: session.user.id is the Supabase Auth ID, must match users.auth_id
+          console.log('[Orthodox Login] Checking user with auth_id:', data.session.user.id);
+          const { data: userData, error: userError } = await (supabase as any)
             .from('users')
-            .select('is_orthodox_user, orthodox_subscription_status')
-            .eq('id', data.session.user.id)
+            .select('id, is_orthodox_user, orthodox_subscription_status')
+            .eq('auth_id', data.session.user.id)
             .single();
 
-          if (!userData?.is_orthodox_user) {
+          console.log('[Orthodox Login] User data:', userData, 'Error:', userError);
+
+          if (!userData) {
+            console.log('[Orthodox Login] No user record found - user needs to complete onboarding first');
             Alert.alert(
-              'Not Registered',
-              'This Apple ID is not registered for Orthodox Shidduch. Please create an account first.'
+              'Profile Not Found',
+              'Please complete your profile setup first. You will be redirected to onboarding.'
             );
-            await supabase.auth.signOut();
+            // Don't sign out - let them complete onboarding
+            setSession(data.session);
+            router.replace('/(shidduch-onboarding)/welcome');
             return;
+          }
+
+          if (!userData.is_orthodox_user) {
+            console.log('[Orthodox Login] User exists but is_orthodox_user is false - setting it to true');
+            // Auto-enable Orthodox mode for users who have a profile but not the flag
+            await (supabase as any)
+              .from('users')
+              .update({ is_orthodox_user: true })
+              .eq('auth_id', data.session.user.id);
           }
 
           setSession(data.session);
 
-          if (userData.orthodox_subscription_status === 'active') {
+          // DEV: Bypass paywall and subscription checks
+          if (DEV_BYPASS_PREMIUM) {
             setOrthodoxSubscription(true);
             setOrthodoxMode(true);
-            router.replace('/(orthodox-tabs)');
+            // Check if they have a shidduch profile, otherwise go to onboarding
+            // userData.id is the users table id (not auth_id)
+            const { data: shidduchProfile } = await supabase
+              .from('shidduch_profiles')
+              .select('id')
+              .eq('user_id', userData.id)
+              .single();
+
+            if (shidduchProfile) {
+              router.replace('/(shidduch-tabs)');
+            } else {
+              router.replace('/(shidduch-onboarding)/welcome');
+            }
+          } else if (userData.orthodox_subscription_status === 'active') {
+            setOrthodoxSubscription(true);
+            setOrthodoxMode(true);
+            router.replace('/(shidduch-tabs)');
           } else {
             router.replace('/(orthodox-auth)/paywall');
           }

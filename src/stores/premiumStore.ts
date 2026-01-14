@@ -8,7 +8,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { PremiumEntitlements, PremiumFeature, PremiumPlan } from '@/types';
-import { FEATURE_LIMITS } from '@/lib/config/revenuecat';
+import { FEATURE_LIMITS, DEV_BYPASS_PREMIUM } from '@/lib/config/revenuecat';
 
 interface PremiumState {
   // Entitlements
@@ -64,7 +64,16 @@ const getDayStart = (): string => {
   return now.toISOString();
 };
 
-const freeEntitlements: PremiumEntitlements = {
+// In DEV mode, grant all premium features
+const devEntitlements: PremiumEntitlements = {
+  isPremium: true,
+  plan: 'mazal_platinum',
+  features: ['unlimited_swipes', 'see_likes', 'super_likes', 'rewind', 'advanced_filters', 'read_receipts', 'boost', 'priority_likes', 'message_before_match', 'incognito', 'active_users'] as PremiumFeature[],
+  superLikesRemaining: 999,
+  boostsRemaining: 999,
+};
+
+const freeEntitlements: PremiumEntitlements = DEV_BYPASS_PREMIUM ? devEntitlements : {
   isPremium: false,
   plan: 'free',
   features: [],
@@ -75,9 +84,9 @@ const freeEntitlements: PremiumEntitlements = {
 const initialState = {
   entitlements: freeEntitlements,
   offerings: null,
-  superLikesRemaining: FEATURE_LIMITS.free.superLikesPerWeek,
-  boostsRemaining: FEATURE_LIMITS.free.boostsPerWeek,
-  dailySwipesRemaining: FEATURE_LIMITS.free.dailySwipes,
+  superLikesRemaining: DEV_BYPASS_PREMIUM ? 999 : FEATURE_LIMITS.free.superLikesPerWeek,
+  boostsRemaining: DEV_BYPASS_PREMIUM ? 999 : FEATURE_LIMITS.free.boostsPerWeek,
+  dailySwipesRemaining: DEV_BYPASS_PREMIUM ? Infinity : FEATURE_LIMITS.free.dailySwipes,
   weekStartDate: getWeekStart(),
   lastBoostTime: null,
   isLoading: false,

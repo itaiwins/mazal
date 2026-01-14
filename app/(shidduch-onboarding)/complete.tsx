@@ -37,7 +37,7 @@ const COMMUNITIES_MAP: Record<string, string> = {
 export default function ShidduchCompleteScreen() {
   const insets = useSafeAreaInsets();
   const { data, reset } = useShidduchOnboardingStore();
-  const { session } = useAuthStore();
+  const { session, setHasShidduchProfile } = useAuthStore();
 
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -51,77 +51,147 @@ export default function ShidduchCompleteScreen() {
     setSubmitting(true);
 
     try {
-      // First, update the users table with basic info
-      const { error: userError } = await supabase
-        .from('users')
-        .update({
-          first_name: data.firstName,
-          last_name: data.lastName,
-          date_of_birth: data.birthDate,
-          gender: data.gender,
-          current_city: data.city,
-          current_state: data.state,
-          current_country: data.country,
-        })
-        .eq('auth_id', session.user.id);
-
-      if (userError) {
-        console.error('User update error:', userError);
-      }
-
-      // Get the user's internal ID
-      const { data: userData } = await supabase
+      // First, check if user exists in users table
+      let { data: userData } = await supabase
         .from('users')
         .select('id')
         .eq('auth_id', session.user.id)
         .single();
 
+      // If user doesn't exist, create them
       if (!userData) {
-        throw new Error('User not found');
+        console.log('User not found, creating new user record...');
+        const displayName = [data.firstName, data.lastName].filter(Boolean).join(' ') || 'User';
+
+        // Map community to jewish_background
+        const jewishBackgroundMap: Record<string, string> = {
+          modern_orthodox: 'modern_orthodox',
+          modern_orthodox_machmir: 'orthodox',
+          yeshivish: 'orthodox',
+          chassidish: 'hasidic',
+          sephardi: 'sephardic',
+          chabad: 'chabad',
+          carlebachian: 'orthodox',
+          other: 'orthodox',
+        };
+        const jewishBackground = jewishBackgroundMap[data.community || ''] || 'orthodox';
+
+        const { data: newUser, error: createError } = await supabase
+          .from('users')
+          .insert({
+            auth_id: session.user.id,
+            email: session.user.email || `${session.user.id}@placeholder.com`,
+            first_name: data.firstName || 'User',
+            last_name: data.lastName,
+            display_name: displayName,
+            date_of_birth: data.birthDate || '1990-01-01',
+            gender: data.gender || 'male',
+            gender_preference: data.gender === 'male' ? ['female'] : ['male'],
+            current_city: data.city,
+            current_state: data.state,
+            current_country: data.country || 'USA',
+            jewish_background: jewishBackground,
+            looking_for: 'marriage_minded',
+            is_orthodox_only: true,
+            onboarding_complete: true,
+          })
+          .select('id')
+          .single();
+
+        if (createError) {
+          console.error('Error creating user:', createError);
+          throw new Error('Failed to create user profile');
+        }
+
+        userData = newUser;
+      } else {
+        // User exists, update their info
+        const { error: userError } = await supabase
+          .from('users')
+          .update({
+            first_name: data.firstName,
+            last_name: data.lastName,
+            date_of_birth: data.birthDate,
+            gender: data.gender,
+            current_city: data.city,
+            current_state: data.state,
+            current_country: data.country,
+          })
+          .eq('auth_id', session.user.id);
+
+        if (userError) {
+          console.error('User update error:', userError);
+        }
       }
 
+      if (!userData) {
+        throw new Error('Failed to get or create user');
+      }
+
+      // Valid enum values from database schema
+      const VALID_COMMUNITIES = ['modern_orthodox', 'modern_orthodox_machmir', 'yeshivish', 'chassidish', 'sephardi', 'chabad', 'carlebachian', 'other'];
+      const VALID_PARENTS_STATUS = ['married', 'divorced', 'widowed', 'separated'];
+      const VALID_HIGHEST_DEGREE = ['high_school', 'some_college', 'bachelors', 'masters', 'doctorate', 'rabbinical_ordination', 'other'];
+      const VALID_MINYAN_FREQUENCY = ['three_times_daily', 'daily', 'shabbos_only', 'occasionally'];
+      const VALID_KOLLEL_INTEREST = ['currently_in_kollel', 'planning_kollel', 'open_to_kollel', 'working', 'not_applicable'];
+      const VALID_MARRIAGE_TIMELINE = ['asap', 'within_year', 'one_to_two_years', 'flexible'];
+      const VALID_WIFE_WORKING = ['full_time', 'part_time', 'stay_home', 'flexible', 'not_applicable'];
+      const VALID_HUSBAND_LEARNING = ['full_time_kollel', 'morning_seder', 'night_seder', 'working_and_learning', 'flexible', 'not_applicable'];
+      const VALID_PHOTOS_VISIBLE = ['everyone', 'matches_only', 'shadchan_only', 'hidden'];
+      const VALID_LIVING_SITUATION = ['with_parents', 'own_apartment', 'roommates', 'dorm', 'other'];
+      const VALID_BUILD = ['slim', 'average', 'athletic', 'heavy', 'prefer_not_to_say'];
+      const VALID_CHILDREN_PLANS = ['want_many', 'want_some', 'open', 'not_sure'];
+
+      // Helper to validate enum values
+      const validateEnum = (value: any, validValues: string[]) =>
+        value && validValues.includes(value) ? value : null;
+
       // Prepare the shidduch profile data
+      // Note: created_by_* and single_* columns require migration to be applied
       const profileData = {
         user_id: userData.id,
-        hebrew_name: data.hebrewName,
-        community: data.community || 'modern_orthodox',
-        chassidus: data.chassidus,
-        hashkafa_details: data.hashkafaDetails,
-        father_name: data.fatherName,
-        father_occupation: data.fatherOccupation,
-        father_origin: data.fatherOrigin,
-        mother_name: data.motherName,
-        mother_maiden_name: data.motherMaidenName,
-        mother_occupation: data.motherOccupation,
-        mother_origin: data.motherOrigin,
-        parents_status: data.parentsStatus,
-        num_siblings: data.numSiblings,
-        sibling_details: data.siblings,
-        birth_order: data.birthOrder,
-        grandfather_paternal: data.grandfatherPaternal,
-        grandfather_maternal: data.grandfatherMaternal,
-        notable_rabbanim: data.notableRabbanim,
-        family_minhagim: data.familyMinhagim,
-        elementary_school: data.elementarySchool,
-        high_school: data.highSchool,
-        seminary_yeshiva: data.seminaryYeshiva,
-        seminary_yeshiva_years: data.seminaryYeshivaYears,
-        college_university: data.collegeUniversity,
-        highest_degree: data.highestDegree,
-        minyan_frequency: data.minyanFrequency,
-        learning_schedule: data.learningSchedule,
-        kollel_interest: data.kollelInterest,
-        looking_for_description: data.lookingForDescription,
-        age_range_min: data.ageRangeMin,
-        age_range_max: data.ageRangeMax,
-        preferred_communities: data.preferredCommunities,
-        marriage_timeline: data.marriageTimeline,
-        wife_working: data.wifeWorking,
-        husband_learning: data.husbandLearning,
-        photos_visible_to: data.photosVisibleTo || 'shadchan_only',
+        // Profile data
+        hebrew_name: data.hebrewName || null,
+        community: validateEnum(data.community, VALID_COMMUNITIES) || 'modern_orthodox',
+        chassidus: data.chassidus || null,
+        hashkafa_details: data.hashkafaDetails || null,
+        father_name: data.fatherName || null,
+        father_occupation: data.fatherOccupation || null,
+        father_origin: data.fatherOrigin || null,
+        mother_name: data.motherName || null,
+        mother_maiden_name: data.motherMaidenName || null,
+        mother_occupation: data.motherOccupation || null,
+        mother_origin: data.motherOrigin || null,
+        parents_status: validateEnum(data.parentsStatus, VALID_PARENTS_STATUS),
+        num_siblings: data.numSiblings || null,
+        sibling_details: data.siblings || null,
+        birth_order: data.birthOrder || null,
+        grandfather_paternal: data.grandfatherPaternal || null,
+        grandfather_maternal: data.grandfatherMaternal || null,
+        notable_rabbanim: data.notableRabbanim || null,
+        family_minhagim: data.familyMinhagim || null,
+        elementary_school: data.elementarySchool || null,
+        high_school: data.highSchool || null,
+        seminary_yeshiva: data.seminaryYeshiva || null,
+        seminary_yeshiva_years: data.seminaryYeshivaYears || null,
+        college_university: data.collegeUniversity || null,
+        highest_degree: validateEnum(data.highestDegree, VALID_HIGHEST_DEGREE),
+        minyan_frequency: validateEnum(data.minyanFrequency, VALID_MINYAN_FREQUENCY),
+        learning_schedule: data.learningSchedule || null,
+        kollel_interest: validateEnum(data.kollelInterest, VALID_KOLLEL_INTEREST),
+        looking_for_description: data.lookingForDescription || null,
+        age_range_min: data.ageRangeMin || null,
+        age_range_max: data.ageRangeMax || null,
+        preferred_communities: data.preferredCommunities || null,
+        marriage_timeline: validateEnum(data.marriageTimeline, VALID_MARRIAGE_TIMELINE),
+        wife_working: validateEnum(data.wifeWorking, VALID_WIFE_WORKING),
+        husband_learning: validateEnum(data.husbandLearning, VALID_HUSBAND_LEARNING),
+        photos_visible_to: validateEnum(data.photosVisibleTo, VALID_PHOTOS_VISIBLE) || 'shadchan_only',
         profile_visible: true,
         accepting_suggestions: true,
       };
+
+      console.log('Saving shidduch profile for user:', userData.id);
 
       // Insert shidduch profile
       const { data: profileResult, error: profileError } = await supabase
@@ -134,39 +204,67 @@ export default function ShidduchCompleteScreen() {
 
       if (profileError) {
         console.error('Profile error:', profileError);
-        throw new Error('Failed to save profile');
+        console.error('Profile error details:', JSON.stringify(profileError, null, 2));
+        throw new Error(`Failed to save profile: ${profileError.message}`);
       }
+
+      console.log('Profile saved successfully:', profileResult?.id);
 
       // Insert references using the shidduch profile ID
       if (data.references && data.references.length > 0 && profileResult) {
-        const referencesData = data.references.map((ref: any) => ({
-          profile_id: profileResult.id,
-          reference_type: ref.type || 'other',
-          name: ref.name,
-          relationship: ref.relationship,
-          phone: ref.phone,
-          email: ref.email,
-          best_contact_method: ref.contactMethod,
-        }));
+        const VALID_REF_TYPES = ['rabbi', 'teacher', 'family_friend', 'personal_friend', 'employer', 'roommate', 'other'];
+        const VALID_CONTACT_METHODS = ['phone', 'email', 'whatsapp', 'text'];
 
-        const { error: refError } = await supabase
-          .from('shidduch_references')
-          .insert(referencesData);
+        const referencesData = data.references
+          .filter((ref: any) => ref.name) // Only include refs with a name
+          .map((ref: any) => ({
+            profile_id: profileResult.id,
+            reference_type: VALID_REF_TYPES.includes(ref.type) ? ref.type : 'other',
+            name: ref.name,
+            relationship: ref.relationship || 'Reference',
+            phone: ref.phone || null,
+            email: ref.email || null,
+            best_contact_method: VALID_CONTACT_METHODS.includes(ref.contactMethod) ? ref.contactMethod : null,
+          }));
 
-        if (refError) {
-          console.error('References error:', refError);
-          // Don't throw, continue with submission
+        if (referencesData.length > 0) {
+          const { error: refError } = await supabase
+            .from('shidduch_references')
+            .insert(referencesData);
+
+          if (refError) {
+            console.error('References error:', refError);
+            // Don't throw, continue with submission
+          }
         }
       }
 
+      // Mark shidduch onboarding as complete in Supabase user metadata
+      const { error: metadataError } = await supabase.auth.updateUser({
+        data: { shidduch_onboarding_complete: true },
+      });
+
+      if (metadataError) {
+        console.error('Metadata update error:', metadataError);
+        // Don't throw - profile is saved, this is just for routing
+      }
+
+      console.log('Updating local auth store...');
+      // Update local auth store to track shidduch profile completion
+      setHasShidduchProfile(true);
+
+      console.log('Profile submission complete, showing success screen');
       setSubmitted(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Submit error:', error);
+      console.error('Error message:', error?.message);
+      console.error('Error stack:', error?.stack);
       Alert.alert(
         'Submission Error',
-        'There was a problem saving your profile. Please try again.'
+        error?.message || 'There was a problem saving your profile. Please try again.'
       );
     } finally {
+      console.log('Finally block - setting submitting to false');
       setSubmitting(false);
     }
   };
@@ -174,7 +272,7 @@ export default function ShidduchCompleteScreen() {
   const handleFinish = () => {
     reset();
     // Navigate to the main shidduch tabs
-    router.replace('/(tabs)/');
+    router.replace('/(shidduch-tabs)/');
   };
 
   if (submitted) {
@@ -263,7 +361,7 @@ export default function ShidduchCompleteScreen() {
         <View style={styles.progressContainer}>
           <View style={[styles.progressBar, { width: '100%' }]} />
         </View>
-        <Text style={styles.stepText}>8 of 8</Text>
+        <Text style={styles.stepText}>9 of 9</Text>
       </Animated.View>
 
       <ScrollView

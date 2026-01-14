@@ -25,6 +25,7 @@ interface AuthState {
   // Dual-mode support
   currentMode: AppMode; // Which mode they're currently viewing
   hasSaftaProfile: boolean; // Have they completed Safta onboarding?
+  hasShidduchProfile: boolean; // Have they completed Shidduch onboarding?
 
   // Computed
   isAuthenticated: boolean;
@@ -40,6 +41,7 @@ interface AuthState {
   setCurrentMode: (mode: AppMode) => void;
   toggleMode: () => void;
   setHasSaftaProfile: (has: boolean) => void;
+  setHasShidduchProfile: (has: boolean) => void;
   updateUser: (updates: Partial<User>) => void;
   signOut: () => void;
   logout: () => void; // Alias for signOut
@@ -54,6 +56,7 @@ const initialState = {
   isInitialized: false,
   currentMode: 'user' as AppMode,
   hasSaftaProfile: false,
+  hasShidduchProfile: false,
   isAuthenticated: false,
   isOnboardingComplete: false, // Default to false - user must complete onboarding
   isSaftaMode: false,
@@ -65,22 +68,26 @@ export const useAuthStore = create<AuthState>()(
       ...initialState,
 
       setSession: (session) => {
-        // Check if user has completed Safta onboarding from metadata
+        // Check if user has completed onboarding from metadata
         const hasSaftaProfile = session?.user?.user_metadata?.safta_onboarding_complete === true;
+        const hasShidduchProfile = session?.user?.user_metadata?.shidduch_onboarding_complete === true;
         set({
           session,
           authUser: session?.user ?? null,
           isAuthenticated: !!session,
           hasSaftaProfile,
+          hasShidduchProfile,
         });
       },
 
       setAuthUser: (authUser) => {
         const hasSaftaProfile = authUser?.user_metadata?.safta_onboarding_complete === true;
+        const hasShidduchProfile = authUser?.user_metadata?.shidduch_onboarding_complete === true;
         set({
           authUser,
           isAuthenticated: !!authUser,
           hasSaftaProfile,
+          hasShidduchProfile,
         });
       },
 
@@ -101,6 +108,8 @@ export const useAuthStore = create<AuthState>()(
 
       setHasSaftaProfile: (hasSaftaProfile) => set({ hasSaftaProfile }),
 
+      setHasShidduchProfile: (hasShidduchProfile) => set({ hasShidduchProfile }),
+
       setUser: (user) =>
         set({
           user,
@@ -117,20 +126,26 @@ export const useAuthStore = create<AuthState>()(
           isOnboardingComplete: updates.onboarding_complete ?? state.isOnboardingComplete,
         })),
 
-      signOut: () =>
+      signOut: () => {
+        console.log('[AuthStore] signOut called - clearing state');
+        console.trace('[AuthStore] signOut stack trace');
         set({
           ...initialState,
           isLoading: false,
           isInitialized: true,
-        }),
+        });
+      },
 
       // Alias for signOut
-      logout: () =>
+      logout: () => {
+        console.log('[AuthStore] logout called - clearing state');
+        console.trace('[AuthStore] logout stack trace');
         set({
           ...initialState,
           isLoading: false,
           isInitialized: true,
-        }),
+        });
+      },
 
       reset: () => set(initialState),
     }),
@@ -144,6 +159,7 @@ export const useAuthStore = create<AuthState>()(
         user: state.user,
         isOnboardingComplete: state.isOnboardingComplete,
         hasSaftaProfile: state.hasSaftaProfile,
+        hasShidduchProfile: state.hasShidduchProfile,
       }),
     }
   )
@@ -157,3 +173,4 @@ export const selectIsLoading = (state: AuthState) => state.isLoading;
 export const selectCurrentMode = (state: AuthState) => state.currentMode;
 export const selectIsSaftaMode = (state: AuthState) => state.isSaftaMode;
 export const selectHasSaftaProfile = (state: AuthState) => state.hasSaftaProfile;
+export const selectHasShidduchProfile = (state: AuthState) => state.hasShidduchProfile;

@@ -88,7 +88,7 @@ export default function ShidduchWelcomeScreen() {
   }));
 
   const handleContinue = () => {
-    router.push('/(shidduch-onboarding)/basics');
+    router.push('/(shidduch-onboarding)/creator-type');
   };
 
   return (

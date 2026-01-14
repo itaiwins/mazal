@@ -131,6 +131,18 @@ async function fetchDiscoveryProfiles(
 
   const likedByIds = new Set((incomingLikes || []).map((s) => s.swiper_id));
 
+  // Get safta approved counts for all users (users who have been liked by a safta for current user)
+  const { data: saftaLikes } = await supabase
+    .from('safta_likes')
+    .select('liked_user_id')
+    .eq('for_user_id', userId);
+
+  // Count how many saftas have approved each user
+  const saftaApprovedCounts: Record<string, number> = {};
+  (saftaLikes || []).forEach((like) => {
+    saftaApprovedCounts[like.liked_user_id] = (saftaApprovedCounts[like.liked_user_id] || 0) + 1;
+  });
+
   // Filter out already swiped users
   const availableUsers = users.filter((u) => !swipedIds.has(u.id));
 
@@ -197,6 +209,35 @@ async function fetchDiscoveryProfiles(
         return null;
       }
 
+      // Calculate simple compatibility score based on matching criteria
+      let compatibilityScore = 50; // Base score
+
+      // Boost for same Jewish background
+      if (user.jewish_background && filters.jewish_backgrounds?.includes(user.jewish_background)) {
+        compatibilityScore += 15;
+      }
+
+      // Boost for being within ideal age range (middle of range)
+      const idealAge = (filters.age_min + filters.age_max) / 2;
+      const ageDiff = Math.abs(age - idealAge);
+      if (ageDiff <= 2) compatibilityScore += 15;
+      else if (ageDiff <= 5) compatibilityScore += 10;
+      else if (ageDiff <= 8) compatibilityScore += 5;
+
+      // Boost for proximity
+      if (distance !== undefined) {
+        if (distance <= 10) compatibilityScore += 15;
+        else if (distance <= 25) compatibilityScore += 10;
+        else if (distance <= 50) compatibilityScore += 5;
+      }
+
+      // Boost if safta approved
+      const saftaCount = saftaApprovedCounts[user.id] || 0;
+      if (saftaCount > 0) compatibilityScore += Math.min(saftaCount * 5, 15);
+
+      // Cap at 100
+      compatibilityScore = Math.min(compatibilityScore, 100);
+
       return {
         ...user,
         photos: photosByUser[user.id] || [],
@@ -204,9 +245,9 @@ async function fetchDiscoveryProfiles(
         badges: badgesByUser[user.id] || [],
         age,
         distance,
-        compatibility_score: 0, // TODO: Implement compatibility algorithm
+        compatibility_score: compatibilityScore,
         has_liked_me: likedByIds.has(user.id),
-        safta_approved_count: 0, // TODO: Fetch safta likes
+        safta_approved_count: saftaCount,
       };
     })
     .filter((p) => p !== null) as DiscoveryUser[];

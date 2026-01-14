@@ -234,10 +234,10 @@ export default function SaftaDiscoverScreen() {
           return;
         }
 
-        // Fetch photos and prompts for users
+        // Fetch photos, prompts, and safta likes for users
         const userIds = users.map((u) => u.id);
 
-        const [photosResult, promptsResult] = await Promise.all([
+        const [photosResult, promptsResult, saftaLikesResult] = await Promise.all([
           supabase
             .from('user_photos')
             .select('*')
@@ -248,11 +248,21 @@ export default function SaftaDiscoverScreen() {
             .select('*')
             .in('user_id', userIds)
             .order('display_order', { ascending: true }),
+          supabase
+            .from('safta_likes')
+            .select('liked_user_id')
+            .in('liked_user_id', userIds),
         ]);
 
         // Group photos and prompts by user
         const photosByUser: Record<string, { id: string; photo_url: string; photo_order: number }[]> = {};
         const promptsByUser: Record<string, { prompt_id: string; answer: string }[]> = {};
+
+        // Count safta likes per user
+        const saftaApprovedCounts: Record<string, number> = {};
+        (saftaLikesResult.data || []).forEach((like) => {
+          saftaApprovedCounts[like.liked_user_id] = (saftaApprovedCounts[like.liked_user_id] || 0) + 1;
+        });
 
         (photosResult.data || []).forEach((p) => {
           if (!photosByUser[p.user_id]) photosByUser[p.user_id] = [];
@@ -292,7 +302,7 @@ export default function SaftaDiscoverScreen() {
           is_verified: user.is_verified ?? undefined,
           photos: photosByUser[user.id] || [],
           prompts: promptsByUser[user.id] || [],
-          safta_approved_count: 0, // TODO: Implement safta likes count
+          safta_approved_count: saftaApprovedCounts[user.id] || 0,
         }));
 
         setProfiles(fetchedProfiles);

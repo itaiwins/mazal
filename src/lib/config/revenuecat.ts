@@ -4,6 +4,9 @@
  * Setup and configuration for in-app purchases
  */
 
+// DEV MODE: Set to true to bypass all premium restrictions for testing
+export const DEV_BYPASS_PREMIUM = true;
+
 import Purchases, {
   PurchasesPackage,
   CustomerInfo,

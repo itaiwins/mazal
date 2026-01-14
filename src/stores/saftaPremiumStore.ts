@@ -7,7 +7,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { SAFTA_FEATURE_LIMITS } from '@/lib/config/revenuecat';
+import { SAFTA_FEATURE_LIMITS, DEV_BYPASS_PREMIUM } from '@/lib/config/revenuecat';
 
 export type SaftaPlan = 'free' | 'safta_pro';
 
@@ -50,9 +50,9 @@ const getDayStart = (): string => {
 };
 
 const initialState = {
-  plan: 'free' as SaftaPlan,
-  isProSubscriber: false,
-  dailyRecommendationsRemaining: SAFTA_FEATURE_LIMITS.free.dailyRecommendations,
+  plan: (DEV_BYPASS_PREMIUM ? 'safta_pro' : 'free') as SaftaPlan,
+  isProSubscriber: DEV_BYPASS_PREMIUM,
+  dailyRecommendationsRemaining: DEV_BYPASS_PREMIUM ? Infinity : SAFTA_FEATURE_LIMITS.free.dailyRecommendations,
   lastResetDate: getDayStart(),
   connectionCount: 0,
   showPaywall: false,

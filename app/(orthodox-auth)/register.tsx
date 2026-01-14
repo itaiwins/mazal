@@ -27,6 +27,8 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
 import { supabase } from '@/api/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
+import { useUIStore } from '@/stores/uiStore';
+import { DEV_BYPASS_PREMIUM } from '@/lib/config/revenuecat';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 
@@ -42,6 +44,8 @@ export default function OrthodoxRegisterScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const setSession = useAuthStore((s) => s.setSession);
+  const setOrthodoxMode = useUIStore((s) => s.setOrthodoxMode);
+  const setOrthodoxSubscription = useUIStore((s) => s.setOrthodoxSubscription);
 
   const validateForm = (): boolean => {
     if (!email || !password || !confirmPassword) {
@@ -141,14 +145,23 @@ export default function OrthodoxRegisterScreen() {
         });
 
         // Update user record
+        // Note: session.user.id is the Supabase Auth ID, must match users.auth_id
         await (supabase as any)
           .from('users')
           .update({ is_orthodox_user: true })
-          .eq('id', data.session.user.id);
+          .eq('auth_id', data.session.user.id);
 
         setSession(data.session);
-        // Navigate to paywall
-        router.replace('/(orthodox-auth)/paywall');
+
+        // DEV: Skip paywall and go directly to onboarding
+        if (DEV_BYPASS_PREMIUM) {
+          setOrthodoxMode(true);
+          setOrthodoxSubscription(true);
+          router.replace('/(shidduch-onboarding)/welcome');
+        } else {
+          // Navigate to paywall
+          router.replace('/(orthodox-auth)/paywall');
+        }
       } else if (data.user) {
         // Email confirmation required
         Alert.alert(
@@ -206,11 +219,11 @@ export default function OrthodoxRegisterScreen() {
 
         if (data.session) {
           // Mark as Orthodox user
-          // Note: is_orthodox_user column added via migration
+          // Note: session.user.id is the Supabase Auth ID, must match users.auth_id
           await (supabase as any)
             .from('users')
             .update({ is_orthodox_user: true })
-            .eq('id', data.session.user.id);
+            .eq('auth_id', data.session.user.id);
 
           // Register email as Orthodox-only
           // Note: register_orthodox_email function created via migration
@@ -223,7 +236,15 @@ export default function OrthodoxRegisterScreen() {
           }
 
           setSession(data.session);
-          router.replace('/(orthodox-auth)/paywall');
+
+          // DEV: Skip paywall and go directly to onboarding
+          if (DEV_BYPASS_PREMIUM) {
+            setOrthodoxMode(true);
+            setOrthodoxSubscription(true);
+            router.replace('/(shidduch-onboarding)/welcome');
+          } else {
+            router.replace('/(orthodox-auth)/paywall');
+          }
         }
       }
     } catch (e: any) {

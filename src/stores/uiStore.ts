@@ -5,6 +5,9 @@
  */
 
 import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DEV_BYPASS_PREMIUM } from '@/lib/config/revenuecat';
 
 // Modal types
 export type ModalType =
@@ -114,8 +117,8 @@ const initialState = {
   keyboardVisible: false,
   keyboardHeight: 0,
   isDarkMode: true, // Default to dark theme (navy/gold)
-  isOrthodoxMode: false,
-  hasOrthodoxSubscription: false,
+  isOrthodoxMode: DEV_BYPASS_PREMIUM, // DEV: Auto-enable Orthodox mode
+  hasOrthodoxSubscription: DEV_BYPASS_PREMIUM, // DEV: Auto-grant subscription
   isShabbatModeEnabled: false,
   isShabbatModeActive: false,
   shabbatStartTime: null,
@@ -125,84 +128,98 @@ const initialState = {
 
 let toastId = 0;
 
-export const useUIStore = create<UIState>()((set, get) => ({
-  ...initialState,
+export const useUIStore = create<UIState>()(
+  persist(
+    (set, get) => ({
+      ...initialState,
 
-  showModal: (type, data = {}) =>
-    set({
-      activeModal: type,
-      modalData: data,
+      showModal: (type, data = {}) =>
+        set({
+          activeModal: type,
+          modalData: data,
+        }),
+
+      hideModal: () =>
+        set({
+          activeModal: null,
+          modalData: {},
+        }),
+
+      showSheet: (type, data = {}) =>
+        set({
+          activeSheet: type,
+          sheetData: data,
+        }),
+
+      hideSheet: () =>
+        set({
+          activeSheet: null,
+          sheetData: {},
+        }),
+
+      showToast: (toast) => {
+        const id = `toast-${++toastId}`;
+        const newToast: Toast = {
+          ...toast,
+          id,
+          duration: toast.duration ?? 4000,
+        };
+
+        set((state) => ({
+          toasts: [...state.toasts, newToast],
+        }));
+
+        // Auto-dismiss
+        if (newToast.duration && newToast.duration > 0) {
+          setTimeout(() => {
+            get().hideToast(id);
+          }, newToast.duration);
+        }
+      },
+
+      hideToast: (id) =>
+        set((state) => ({
+          toasts: state.toasts.filter((t) => t.id !== id),
+        })),
+
+      clearToasts: () => set({ toasts: [] }),
+
+      setGlobalLoading: (globalLoading, loadingMessage) =>
+        set({ globalLoading, loadingMessage: loadingMessage ?? null }),
+
+      setOnline: (isOnline) => set({ isOnline }),
+
+      setKeyboard: (keyboardVisible, keyboardHeight) =>
+        set({ keyboardVisible, keyboardHeight }),
+
+      setDarkMode: (isDarkMode) => set({ isDarkMode }),
+
+      setOrthodoxMode: (isOrthodoxMode) => set({ isOrthodoxMode }),
+
+      setOrthodoxSubscription: (hasOrthodoxSubscription) => set({ hasOrthodoxSubscription }),
+
+      setShabbatModeEnabled: (isShabbatModeEnabled) => set({ isShabbatModeEnabled }),
+
+      setShabbatModeActive: (isShabbatModeActive) => set({ isShabbatModeActive }),
+
+      setShabbatTimes: (shabbatStartTime, shabbatEndTime) => set({ shabbatStartTime, shabbatEndTime }),
+
+      setDemoMode: (isDemoMode) => set({ isDemoMode }),
+
+      reset: () => set(initialState),
     }),
-
-  hideModal: () =>
-    set({
-      activeModal: null,
-      modalData: {},
-    }),
-
-  showSheet: (type, data = {}) =>
-    set({
-      activeSheet: type,
-      sheetData: data,
-    }),
-
-  hideSheet: () =>
-    set({
-      activeSheet: null,
-      sheetData: {},
-    }),
-
-  showToast: (toast) => {
-    const id = `toast-${++toastId}`;
-    const newToast: Toast = {
-      ...toast,
-      id,
-      duration: toast.duration ?? 4000,
-    };
-
-    set((state) => ({
-      toasts: [...state.toasts, newToast],
-    }));
-
-    // Auto-dismiss
-    if (newToast.duration && newToast.duration > 0) {
-      setTimeout(() => {
-        get().hideToast(id);
-      }, newToast.duration);
+    {
+      name: 'mazal-ui-storage',
+      storage: createJSONStorage(() => AsyncStorage),
+      // Only persist Orthodox mode flags - transient UI state should not be persisted
+      partialize: (state) => ({
+        isOrthodoxMode: state.isOrthodoxMode,
+        hasOrthodoxSubscription: state.hasOrthodoxSubscription,
+        isShabbatModeEnabled: state.isShabbatModeEnabled,
+      }),
     }
-  },
-
-  hideToast: (id) =>
-    set((state) => ({
-      toasts: state.toasts.filter((t) => t.id !== id),
-    })),
-
-  clearToasts: () => set({ toasts: [] }),
-
-  setGlobalLoading: (globalLoading, loadingMessage) =>
-    set({ globalLoading, loadingMessage: loadingMessage ?? null }),
-
-  setOnline: (isOnline) => set({ isOnline }),
-
-  setKeyboard: (keyboardVisible, keyboardHeight) =>
-    set({ keyboardVisible, keyboardHeight }),
-
-  setDarkMode: (isDarkMode) => set({ isDarkMode }),
-
-  setOrthodoxMode: (isOrthodoxMode) => set({ isOrthodoxMode }),
-
-  setOrthodoxSubscription: (hasOrthodoxSubscription) => set({ hasOrthodoxSubscription }),
-
-  setShabbatModeEnabled: (isShabbatModeEnabled) => set({ isShabbatModeEnabled }),
-
-  setShabbatModeActive: (isShabbatModeActive) => set({ isShabbatModeActive }),
-
-  setShabbatTimes: (shabbatStartTime, shabbatEndTime) => set({ shabbatStartTime, shabbatEndTime }),
-
-  setDemoMode: (isDemoMode) => set({ isDemoMode }),
-
-  reset: () => set(initialState),
-}));
+  )
+);
 
 // Helper hooks
 export const useModal = () => {

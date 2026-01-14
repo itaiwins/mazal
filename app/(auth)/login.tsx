@@ -126,10 +126,32 @@ export default function LoginScreen() {
         }
 
         if (data.session) {
-          console.log('[Login] Apple Sign In successful');
+          console.log('[Login] Apple Sign In successful, session user id:', data.session.user.id);
+
+          // Check if user has a profile and what mode they should be in
+          const { data: userProfile, error: profileError } = await supabase
+            .from('users')
+            .select('id, onboarding_complete')
+            .eq('auth_id', data.session.user.id)
+            .single();
+
+          console.log('[Login] User profile:', userProfile, 'Error:', profileError);
+
+          // Check if they have a shidduch profile
+          if (userProfile) {
+            const { data: shidduchProfile } = await supabase
+              .from('shidduch_profiles')
+              .select('id')
+              .eq('user_id', userProfile.id)
+              .single();
+
+            console.log('[Login] Shidduch profile:', shidduchProfile ? 'EXISTS' : 'NOT FOUND');
+          }
+
           setSession(data.session);
           setCurrentMode('user'); // Explicitly set to user mode
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          console.log('[Login] About to navigate to /');
           router.replace('/');
         }
       }

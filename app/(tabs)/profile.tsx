@@ -4,7 +4,7 @@
  * View and edit your profile
  */
 
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -79,9 +79,23 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const [saftasLikedCount, setSaftasLikedCount] = useState(0);
 
   // Fetch complete profile with photos, prompts, and badges
   const { data: userProfile, isLoading: isLoadingProfile } = useUserProfile();
+
+  // Fetch count of saftas who have liked/approved this user
+  useEffect(() => {
+    if (user?.id) {
+      supabase
+        .from('safta_likes')
+        .select('id', { count: 'exact', head: true })
+        .eq('liked_user_id', user.id)
+        .then(({ count }) => {
+          setSaftasLikedCount(count || 0);
+        });
+    }
+  }, [user?.id]);
 
   // Get primary photo from photos array
   const primaryPhoto = userProfile?.photos?.find((p) => p.photo_order === 0)?.photo_url ||
@@ -104,7 +118,7 @@ export default function ProfileScreen() {
     is_verified: userProfile?.is_verified || user?.is_verified || false,
     is_premium: userProfile?.is_premium || user?.is_premium || false,
     primary_photo: primaryPhoto,
-    saftas_liked: 0, // Number of Saftas who have liked/recommended this user - will be populated from database
+    saftas_liked: saftasLikedCount, // Number of Saftas who have liked/recommended this user
   };
 
   const handleLogout = async () => {

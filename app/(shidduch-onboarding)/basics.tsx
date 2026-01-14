@@ -85,9 +85,9 @@ export default function ShidduchBasicsScreen() {
           <Ionicons name="arrow-back" size={24} color="#d4af37" />
         </Pressable>
         <View style={styles.progressContainer}>
-          <View style={[styles.progressBar, { width: '12.5%' }]} />
+          <View style={[styles.progressBar, { width: '22%' }]} />
         </View>
-        <Text style={styles.stepText}>1 of 8</Text>
+        <Text style={styles.stepText}>2 of 9</Text>
       </Animated.View>
 
       <ScrollView
