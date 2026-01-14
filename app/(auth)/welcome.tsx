@@ -1,7 +1,7 @@
 /**
  * Welcome Screen
  *
- * The first screen users see - introduces Mazal and prompts sign up/in
+ * The first screen users see - introduces Mazal with animated gold stars
  */
 
 import { View, Text, StyleSheet, Pressable, Dimensions } from 'react-native';
@@ -14,23 +14,92 @@ import Animated, {
   withSequence,
   withTiming,
   withDelay,
+  withSpring,
   Easing,
+  interpolate,
+  runOnJS,
 } from 'react-native-reanimated';
-import { useEffect } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 
 const { width, height } = Dimensions.get('window');
 
-// Star component for background animation
-function Star({ delay, x, y, size }: { delay: number; x: number; y: number; size: number }) {
-  const opacity = useSharedValue(0.3);
-  const scale = useSharedValue(1);
+// Floating star that drifts around the screen
+function FloatingStar({
+  initialX,
+  initialY,
+  size,
+  delay,
+  duration,
+}: {
+  initialX: number;
+  initialY: number;
+  size: number;
+  delay: number;
+  duration: number;
+}) {
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const opacity = useSharedValue(0);
+  const scale = useSharedValue(0.5);
+  const rotation = useSharedValue(0);
 
   useEffect(() => {
+    // Fade in
     opacity.value = withDelay(
       delay,
+      withTiming(0.8, { duration: 1000 })
+    );
+
+    // Scale up
+    scale.value = withDelay(
+      delay,
+      withSpring(1, { damping: 10, stiffness: 80 })
+    );
+
+    // Floating X movement - gentle drift
+    translateX.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(30 + Math.random() * 20, {
+            duration: duration,
+            easing: Easing.inOut(Easing.sin)
+          }),
+          withTiming(-30 - Math.random() * 20, {
+            duration: duration,
+            easing: Easing.inOut(Easing.sin)
+          })
+        ),
+        -1,
+        true
+      )
+    );
+
+    // Floating Y movement - gentle drift
+    translateY.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(-25 - Math.random() * 15, {
+            duration: duration * 0.8,
+            easing: Easing.inOut(Easing.sin)
+          }),
+          withTiming(25 + Math.random() * 15, {
+            duration: duration * 0.8,
+            easing: Easing.inOut(Easing.sin)
+          })
+        ),
+        -1,
+        true
+      )
+    );
+
+    // Twinkle effect
+    opacity.value = withDelay(
+      delay + 1000,
       withRepeat(
         withSequence(
           withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
@@ -40,12 +109,81 @@ function Star({ delay, x, y, size }: { delay: number; x: number; y: number; size
         true
       )
     );
+
+    // Gentle rotation
+    rotation.value = withDelay(
+      delay,
+      withRepeat(
+        withTiming(360, { duration: duration * 2, easing: Easing.linear }),
+        -1,
+        false
+      )
+    );
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value },
+      { rotate: `${rotation.value}deg` },
+    ],
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        {
+          position: 'absolute',
+          left: initialX,
+          top: initialY,
+        },
+        animatedStyle,
+      ]}
+    >
+      <View style={[styles.starShape, { width: size, height: size }]}>
+        <View style={[styles.starPoint, styles.starPointTop, { borderBottomColor: colors.primary.gold }]} />
+        <View style={[styles.starPoint, styles.starPointBottom, { borderTopColor: colors.primary.gold }]} />
+      </View>
+    </Animated.View>
+  );
+}
+
+// Simple glowing dot star
+function GlowingStar({
+  x,
+  y,
+  size,
+  delay
+}: {
+  x: number;
+  y: number;
+  size: number;
+  delay: number;
+}) {
+  const opacity = useSharedValue(0.2);
+  const scale = useSharedValue(1);
+
+  useEffect(() => {
+    opacity.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: 1200 + Math.random() * 800, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.2, { duration: 1200 + Math.random() * 800, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        true
+      )
+    );
+
     scale.value = withDelay(
       delay,
       withRepeat(
         withSequence(
-          withTiming(1.2, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
-          withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.ease) })
+          withTiming(1.5, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.8, { duration: 1500, easing: Easing.inOut(Easing.ease) })
         ),
         -1,
         true
@@ -69,6 +207,10 @@ function Star({ delay, x, y, size }: { delay: number; x: number; y: number; size
           height: size,
           borderRadius: size / 2,
           backgroundColor: colors.primary.gold,
+          shadowColor: colors.primary.gold,
+          shadowOffset: { width: 0, height: 0 },
+          shadowOpacity: 1,
+          shadowRadius: size,
         },
         animatedStyle,
       ]}
@@ -76,75 +218,52 @@ function Star({ delay, x, y, size }: { delay: number; x: number; y: number; size
   );
 }
 
-// Animated logo star that floats and twinkles
-function LogoStar({ index, baseLeft, baseTop, size }: { index: number; baseLeft: number; baseTop: number; size: number }) {
-  const opacity = useSharedValue(0.6);
+// Shooting star that flies across the screen
+function ShootingStar({ delay, startY }: { delay: number; startY: number }) {
+  const translateX = useSharedValue(-50);
   const translateY = useSharedValue(0);
-  const translateX = useSharedValue(0);
+  const opacity = useSharedValue(0);
   const scale = useSharedValue(1);
 
   useEffect(() => {
-    const delay = index * 150;
+    const animate = () => {
+      translateX.value = -50;
+      translateY.value = 0;
+      opacity.value = 0;
 
-    // Twinkling opacity
-    opacity.value = withDelay(
-      delay,
-      withRepeat(
+      // Fade in quickly
+      opacity.value = withDelay(
+        delay,
         withSequence(
-          withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0.5, { duration: 1200, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1,
-        true
-      )
-    );
+          withTiming(1, { duration: 200 }),
+          withDelay(600, withTiming(0, { duration: 300 }))
+        )
+      );
 
-    // Gentle floating up and down
-    translateY.value = withDelay(
-      delay,
-      withRepeat(
-        withSequence(
-          withTiming(-4, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
-          withTiming(4, { duration: 2000, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1,
-        true
-      )
-    );
+      // Shoot across
+      translateX.value = withDelay(
+        delay,
+        withTiming(width + 100, { duration: 1100, easing: Easing.out(Easing.quad) })
+      );
 
-    // Subtle side-to-side movement
-    translateX.value = withDelay(
-      delay + 500,
-      withRepeat(
-        withSequence(
-          withTiming(2, { duration: 2500, easing: Easing.inOut(Easing.ease) }),
-          withTiming(-2, { duration: 2500, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1,
-        true
-      )
-    );
+      // Slight downward arc
+      translateY.value = withDelay(
+        delay,
+        withTiming(80, { duration: 1100, easing: Easing.in(Easing.quad) })
+      );
+    };
 
-    // Gentle pulsing
-    scale.value = withDelay(
-      delay,
-      withRepeat(
-        withSequence(
-          withTiming(1.3, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0.9, { duration: 1500, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1,
-        true
-      )
-    );
-  }, []);
+    animate();
+    const interval = setInterval(animate, 8000 + Math.random() * 4000);
+    return () => clearInterval(interval);
+  }, [delay]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
     transform: [
-      { translateY: translateY.value },
       { translateX: translateX.value },
-      { scale: scale.value },
+      { translateY: translateY.value },
+      { rotate: '25deg' },
     ],
   }));
 
@@ -153,8 +272,89 @@ function LogoStar({ index, baseLeft, baseTop, size }: { index: number; baseLeft:
       style={[
         {
           position: 'absolute',
-          left: baseLeft,
-          top: baseTop,
+          left: 0,
+          top: startY,
+          width: 60,
+          height: 2,
+          borderRadius: 1,
+        },
+        animatedStyle,
+      ]}
+    >
+      <LinearGradient
+        colors={['transparent', colors.primary.gold, colors.primary.white]}
+        start={{ x: 0, y: 0.5 }}
+        end={{ x: 1, y: 0.5 }}
+        style={{ flex: 1, borderRadius: 1 }}
+      />
+    </Animated.View>
+  );
+}
+
+// Orbiting star around the logo
+function OrbitingStar({
+  index,
+  totalStars,
+  orbitRadius,
+  size,
+  speed,
+}: {
+  index: number;
+  totalStars: number;
+  orbitRadius: number;
+  size: number;
+  speed: number;
+}) {
+  const rotation = useSharedValue(index * (360 / totalStars));
+  const opacity = useSharedValue(0);
+  const starScale = useSharedValue(0);
+
+  useEffect(() => {
+    // Staggered fade in
+    opacity.value = withDelay(
+      index * 100 + 500,
+      withTiming(1, { duration: 800 })
+    );
+
+    starScale.value = withDelay(
+      index * 100 + 500,
+      withSpring(1, { damping: 8, stiffness: 100 })
+    );
+
+    // Continuous orbit
+    rotation.value = withDelay(
+      index * 100,
+      withRepeat(
+        withTiming(rotation.value + 360, {
+          duration: speed,
+          easing: Easing.linear
+        }),
+        -1,
+        false
+      )
+    );
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    const angle = (rotation.value * Math.PI) / 180;
+    const x = Math.cos(angle) * orbitRadius;
+    const y = Math.sin(angle) * orbitRadius * 0.3; // Elliptical orbit
+
+    return {
+      opacity: opacity.value,
+      transform: [
+        { translateX: x },
+        { translateY: y },
+        { scale: starScale.value * (0.8 + Math.sin(angle) * 0.2) }, // Size varies with position
+      ],
+    };
+  });
+
+  return (
+    <Animated.View
+      style={[
+        {
+          position: 'absolute',
           width: size,
           height: size,
           borderRadius: size / 2,
@@ -170,13 +370,99 @@ function LogoStar({ index, baseLeft, baseTop, size }: { index: number; baseLeft:
   );
 }
 
-// Generate random stars
-const stars = Array.from({ length: 20 }, (_, i) => ({
-  id: i,
-  x: Math.random() * width,
-  y: Math.random() * height * 0.6,
-  size: Math.random() * 4 + 2,
+// Sparkle burst effect
+function Sparkle({ x, y, delay }: { x: number; y: number; delay: number }) {
+  const scale = useSharedValue(0);
+  const opacity = useSharedValue(0);
+  const rotation = useSharedValue(0);
+
+  useEffect(() => {
+    const animate = () => {
+      scale.value = 0;
+      opacity.value = 0;
+      rotation.value = 0;
+
+      scale.value = withDelay(
+        delay,
+        withSequence(
+          withSpring(1.2, { damping: 8, stiffness: 150 }),
+          withTiming(0, { duration: 400 })
+        )
+      );
+
+      opacity.value = withDelay(
+        delay,
+        withSequence(
+          withTiming(1, { duration: 150 }),
+          withDelay(300, withTiming(0, { duration: 300 }))
+        )
+      );
+
+      rotation.value = withDelay(
+        delay,
+        withTiming(90, { duration: 800, easing: Easing.out(Easing.ease) })
+      );
+    };
+
+    animate();
+    const interval = setInterval(animate, 5000 + Math.random() * 3000);
+    return () => clearInterval(interval);
+  }, [delay]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [
+      { scale: scale.value },
+      { rotate: `${rotation.value}deg` },
+    ],
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        {
+          position: 'absolute',
+          left: x - 10,
+          top: y - 10,
+          width: 20,
+          height: 20,
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+        animatedStyle,
+      ]}
+    >
+      <View style={styles.sparkleH} />
+      <View style={styles.sparkleV} />
+    </Animated.View>
+  );
+}
+
+// Generate random floating stars
+const floatingStars = Array.from({ length: 12 }, (_, i) => ({
+  id: `float-${i}`,
+  x: Math.random() * (width - 40) + 20,
+  y: Math.random() * (height * 0.5) + 50,
+  size: Math.random() * 12 + 8,
   delay: Math.random() * 2000,
+  duration: 4000 + Math.random() * 3000,
+}));
+
+// Generate glowing background stars
+const glowingStars = Array.from({ length: 25 }, (_, i) => ({
+  id: `glow-${i}`,
+  x: Math.random() * width,
+  y: Math.random() * (height * 0.65),
+  size: Math.random() * 4 + 2,
+  delay: Math.random() * 3000,
+}));
+
+// Generate sparkle positions
+const sparkles = Array.from({ length: 8 }, (_, i) => ({
+  id: `sparkle-${i}`,
+  x: Math.random() * (width - 40) + 20,
+  y: Math.random() * (height * 0.5) + 80,
+  delay: Math.random() * 4000,
 }));
 
 export default function WelcomeScreen() {
@@ -185,15 +471,29 @@ export default function WelcomeScreen() {
   // Logo animation
   const logoScale = useSharedValue(0);
   const logoOpacity = useSharedValue(0);
+  const logoGlow = useSharedValue(0);
 
   useEffect(() => {
     logoScale.value = withDelay(
       300,
-      withTiming(1, { duration: 800, easing: Easing.out(Easing.back(1.5)) })
+      withSpring(1, { damping: 12, stiffness: 100 })
     );
     logoOpacity.value = withDelay(
       300,
       withTiming(1, { duration: 600 })
+    );
+
+    // Pulsing glow effect
+    logoGlow.value = withDelay(
+      1000,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.5, { duration: 2000, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        true
+      )
     );
   }, []);
 
@@ -202,43 +502,79 @@ export default function WelcomeScreen() {
     transform: [{ scale: logoScale.value }],
   }));
 
+  const logoGlowStyle = useAnimatedStyle(() => ({
+    shadowOpacity: logoGlow.value,
+  }));
+
   return (
     <View style={styles.container}>
       {/* Background gradient */}
       <LinearGradient
-        colors={[colors.primary.navy, '#1a2d52', colors.primary.navy]}
+        colors={[colors.primary.navy, '#1a2d52', '#0f1d36', colors.primary.navy]}
         style={StyleSheet.absoluteFill}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
       />
 
-      {/* Animated stars */}
-      {stars.map((star) => (
-        <Star
+      {/* Background glowing stars */}
+      {glowingStars.map((star) => (
+        <GlowingStar
           key={star.id}
-          delay={star.delay}
           x={star.x}
           y={star.y}
           size={star.size}
+          delay={star.delay}
+        />
+      ))}
+
+      {/* Floating animated stars */}
+      {floatingStars.map((star) => (
+        <FloatingStar
+          key={star.id}
+          initialX={star.x}
+          initialY={star.y}
+          size={star.size}
+          delay={star.delay}
+          duration={star.duration}
+        />
+      ))}
+
+      {/* Shooting stars */}
+      <ShootingStar delay={2000} startY={height * 0.15} />
+      <ShootingStar delay={6000} startY={height * 0.25} />
+      <ShootingStar delay={10000} startY={height * 0.1} />
+
+      {/* Sparkle effects */}
+      {sparkles.map((sparkle) => (
+        <Sparkle
+          key={sparkle.id}
+          x={sparkle.x}
+          y={sparkle.y}
+          delay={sparkle.delay}
         />
       ))}
 
       {/* Content */}
       <View style={[styles.content, { paddingTop: insets.top + 60 }]}>
-        {/* Logo */}
+        {/* Logo with orbiting stars */}
         <Animated.View style={[styles.logoContainer, logoAnimatedStyle]}>
-          <Text style={styles.logoText}>Mazal</Text>
-          <View style={styles.starsContainer}>
-            {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-              <LogoStar
+          {/* Orbiting stars around the logo */}
+          <View style={styles.orbitContainer}>
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <OrbitingStar
                 key={i}
                 index={i}
-                baseLeft={20 + i * 15 + (i > 3 ? 5 : 0)}
-                baseTop={Math.sin(i * 0.8) * 8 + 10}
-                size={i === 3 ? 8 : 5}
+                totalStars={6}
+                orbitRadius={90}
+                size={i % 2 === 0 ? 8 : 6}
+                speed={12000}
               />
             ))}
           </View>
+
+          <Animated.Text style={[styles.logoText, logoGlowStyle]}>
+            Mazal
+          </Animated.Text>
         </Animated.View>
 
         {/* Tagline */}
@@ -307,17 +643,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing[4],
   },
-  starsContainer: {
+  orbitContainer: {
     position: 'absolute',
-    top: -25,
-    width: 140,
-    height: 30,
+    width: 180,
+    height: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    top: -10,
   },
   logoText: {
     fontSize: 64,
     fontWeight: '700',
     color: colors.primary.white,
     letterSpacing: 2,
+    shadowColor: colors.primary.gold,
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 20,
   },
   tagline: {
     fontSize: 18,
@@ -406,5 +747,41 @@ const styles = StyleSheet.create({
   },
   termsLink: {
     color: colors.primary.gold,
+  },
+  // Star shape styles
+  starShape: {
+    position: 'relative',
+  },
+  starPoint: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+  },
+  starPointTop: {
+    top: 0,
+    borderBottomWidth: 10,
+  },
+  starPointBottom: {
+    bottom: 0,
+    borderTopWidth: 10,
+  },
+  // Sparkle styles
+  sparkleH: {
+    position: 'absolute',
+    width: 20,
+    height: 2,
+    backgroundColor: colors.primary.gold,
+    borderRadius: 1,
+  },
+  sparkleV: {
+    position: 'absolute',
+    width: 2,
+    height: 20,
+    backgroundColor: colors.primary.gold,
+    borderRadius: 1,
   },
 });
