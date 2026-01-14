@@ -7,6 +7,7 @@
 import { View, Text, StyleSheet, Pressable, Dimensions } from 'react-native';
 import { Link } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Image } from 'expo-image';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -472,6 +473,8 @@ export default function WelcomeScreen() {
   const logoScale = useSharedValue(0);
   const logoOpacity = useSharedValue(0);
   const logoGlow = useSharedValue(0);
+  const logoFloat = useSharedValue(0);
+  const logoRotate = useSharedValue(0);
 
   useEffect(() => {
     logoScale.value = withDelay(
@@ -495,6 +498,32 @@ export default function WelcomeScreen() {
         true
       )
     );
+
+    // Floating animation for the Mem logo
+    logoFloat.value = withDelay(
+      500,
+      withRepeat(
+        withSequence(
+          withTiming(-8, { duration: 2500, easing: Easing.inOut(Easing.ease) }),
+          withTiming(8, { duration: 2500, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        true
+      )
+    );
+
+    // Subtle rotation
+    logoRotate.value = withDelay(
+      500,
+      withRepeat(
+        withSequence(
+          withTiming(-3, { duration: 3000, easing: Easing.inOut(Easing.ease) }),
+          withTiming(3, { duration: 3000, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        true
+      )
+    );
   }, []);
 
   const logoAnimatedStyle = useAnimatedStyle(() => ({
@@ -504,6 +533,13 @@ export default function WelcomeScreen() {
 
   const logoGlowStyle = useAnimatedStyle(() => ({
     shadowOpacity: logoGlow.value,
+  }));
+
+  const memLogoStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: logoFloat.value },
+      { rotate: `${logoRotate.value}deg` },
+    ],
   }));
 
   return (
@@ -555,10 +591,34 @@ export default function WelcomeScreen() {
       ))}
 
       {/* Content */}
-      <View style={[styles.content, { paddingTop: insets.top + 60 }]}>
-        {/* Logo with orbiting stars */}
+      <View style={[styles.content, { paddingTop: insets.top + 40 }]}>
+        {/* Mem Logo Icon */}
+        <Animated.View style={[styles.memLogoContainer, logoAnimatedStyle, memLogoStyle]}>
+          {/* Orbiting stars around the Mem */}
+          <View style={styles.memOrbitContainer}>
+            {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+              <OrbitingStar
+                key={i}
+                index={i}
+                totalStars={8}
+                orbitRadius={70}
+                size={i % 2 === 0 ? 6 : 4}
+                speed={10000}
+              />
+            ))}
+          </View>
+          <View style={styles.memLogoGlow}>
+            <Image
+              source={require('@/assets/logo-mem.png')}
+              style={styles.memLogoImage}
+              contentFit="contain"
+            />
+          </View>
+        </Animated.View>
+
+        {/* Logo text with orbiting stars */}
         <Animated.View style={[styles.logoContainer, logoAnimatedStyle]}>
-          {/* Orbiting stars around the logo */}
+          {/* Orbiting stars around the text */}
           <View style={styles.orbitContainer}>
             {[0, 1, 2, 3, 4, 5].map((i) => (
               <OrbitingStar
@@ -638,6 +698,36 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  memLogoContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing[2],
+  },
+  memOrbitContainer: {
+    position: 'absolute',
+    width: 140,
+    height: 140,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  memLogoGlow: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'transparent',
+    shadowColor: colors.primary.gold,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 25,
+    elevation: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  memLogoImage: {
+    width: 90,
+    height: 90,
+    borderRadius: 12,
   },
   logoContainer: {
     alignItems: 'center',
