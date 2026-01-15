@@ -82,6 +82,19 @@ export default function RelationshipGoalsScreen() {
     return mapping[uiGoal] || 'open';
   };
 
+  // Map UI wants_children values to database enum values
+  const wantsKidsToDbValue = (uiValue: string): string | null => {
+    if (!uiValue) return null;
+    const mapping: Record<string, string> = {
+      'yes': 'yes',
+      'have_want_more': 'have_and_want_more',
+      'have_done': 'have_and_done',
+      'no': 'no',
+      'not_sure': 'open',
+    };
+    return mapping[uiValue] || null;
+  };
+
   // Only require goal for now
   const isValid = goal;
 
@@ -89,7 +102,7 @@ export default function RelationshipGoalsScreen() {
     updateRelationshipGoals({
       looking_for: goalToDbValue(goal) as any,
       gender_preference: genderPreference as ('male' | 'female')[],
-      wants_children: wantsKids as any || null,
+      wants_children: wantsKidsToDbValue(wantsKids) as any,
     });
     router.push('/(onboarding)/dealbreakers');
   };

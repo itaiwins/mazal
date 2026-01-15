@@ -248,6 +248,24 @@ export default function CompleteScreen() {
       const jewishBackground = data?.jewish_background || 'just_jewish';
       const lookingFor = data?.looking_for || 'open';
 
+      // Map wants_children to valid DB enum values
+      // Valid values: 'yes', 'no', 'have_and_want_more', 'have_and_done', 'open'
+      const mapWantsChildren = (val: string | null | undefined): string | null => {
+        if (!val) return null;
+        const mapping: Record<string, string> = {
+          'yes': 'yes',
+          'no': 'no',
+          'have_want_more': 'have_and_want_more',
+          'have_done': 'have_and_done',
+          'not_sure': 'open',
+          'open': 'open',
+          'have_and_want_more': 'have_and_want_more',
+          'have_and_done': 'have_and_done',
+        };
+        return mapping[val] || null;
+      };
+      const wantsChildren = mapWantsChildren(data?.wants_children);
+
       // Create or update user profile in Supabase
       const profileData = {
         auth_id: verifiedAuthId,
@@ -274,7 +292,7 @@ export default function CompleteScreen() {
         company: data?.company,
         height_cm: data?.height_cm,
         looking_for: lookingFor,
-        wants_children: data?.wants_children,
+        wants_children: wantsChildren,
         partner_must_be_jewish: data?.partner_must_be_jewish ?? true,
         raise_children_jewish: data?.raise_children_jewish ?? true,
         willing_to_relocate: data?.willing_to_relocate ?? false,
