@@ -372,8 +372,16 @@ export default function CompleteScreen() {
       console.log('[Complete] Processing photos...');
       // Upload and save photos if any
       if (data?.photos && data.photos.length > 0) {
-        // Delete existing photos first
-        await supabase.from('user_photos').delete().eq('user_id', userId);
+        // Delete existing photos first (with timeout)
+        try {
+          await withTimeout(
+            supabase.from('user_photos').delete().eq('user_id', userId),
+            10000,
+            'Delete photos timed out'
+          );
+        } catch (e) {
+          console.log('[Complete] Delete photos error (continuing):', e);
+        }
 
         // Upload photos to Supabase storage and collect URLs
         const uploadedPhotos: Array<{ url: string; order: number }> = [];
@@ -400,13 +408,17 @@ export default function CompleteScreen() {
             const fileExt = photoUri.split('.').pop()?.toLowerCase() || 'jpg';
             const fileName = `${verifiedAuthId}/${Date.now()}_${i}.${fileExt}`;
 
-            // Upload to Supabase storage
-            const { data: uploadData, error: uploadError } = await supabase.storage
-              .from('profile-photos')
-              .upload(fileName, decode(base64), {
-                contentType: `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`,
-                upsert: true,
-              });
+            // Upload to Supabase storage (with 30s timeout for large files)
+            const { data: uploadData, error: uploadError } = await withTimeout(
+              supabase.storage
+                .from('profile-photos')
+                .upload(fileName, decode(base64), {
+                  contentType: `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`,
+                  upsert: true,
+                }),
+              30000,
+              'Photo upload timed out'
+            );
 
             if (uploadError) {
               console.error('Error uploading photo:', uploadError);
@@ -436,13 +448,19 @@ export default function CompleteScreen() {
             is_primary: index === 0,
           }));
 
-          const { error: photosError } = await supabase
-            .from('user_photos')
-            .insert(photosToInsert);
+          const { error: photosError } = await withTimeout(
+            supabase
+              .from('user_photos')
+              .insert(photosToInsert),
+            10000,
+            'Insert photos timed out'
+          );
 
           if (photosError) {
-            console.error('Error saving photo records:', photosError);
+            console.error('[Complete] Error saving photo records:', photosError);
             // Continue anyway - photos are not critical for the profile
+          } else {
+            console.log('[Complete] Photos saved successfully');
           }
         }
       }
@@ -450,8 +468,16 @@ export default function CompleteScreen() {
       console.log('[Complete] Processing prompts...');
       // Save prompts if any
       if (data?.prompts && data.prompts.length > 0) {
-        // Delete existing prompts first
-        await supabase.from('user_prompts').delete().eq('user_id', userId);
+        // Delete existing prompts first (with timeout)
+        try {
+          await withTimeout(
+            supabase.from('user_prompts').delete().eq('user_id', userId),
+            10000,
+            'Delete prompts timed out'
+          );
+        } catch (e) {
+          console.log('[Complete] Delete prompts error (continuing):', e);
+        }
 
         // Insert new prompts
         const promptsToInsert = data.prompts.map((prompt, index) => ({
@@ -461,13 +487,19 @@ export default function CompleteScreen() {
           display_order: index,
         }));
 
-        const { error: promptsError } = await supabase
-          .from('user_prompts')
-          .insert(promptsToInsert);
+        const { error: promptsError } = await withTimeout(
+          supabase
+            .from('user_prompts')
+            .insert(promptsToInsert),
+          10000,
+          'Insert prompts timed out'
+        );
 
         if (promptsError) {
-          console.error('Error saving prompts:', promptsError);
+          console.error('[Complete] Error saving prompts:', promptsError);
           // Continue anyway - prompts are not critical
+        } else {
+          console.log('[Complete] Prompts saved successfully');
         }
       }
 

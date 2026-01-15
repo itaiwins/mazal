@@ -39,6 +39,20 @@ const RELATIONSHIPS = [
   { id: 'other', label: 'Other', emoji: '👤' },
 ];
 
+// Timeout helper to prevent infinite hanging
+const withTimeout = <T,>(
+  promise: PromiseLike<T>,
+  ms: number,
+  errorMsg: string
+): Promise<T> => {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(errorMsg)), ms)
+    ),
+  ]);
+};
+
 export default function SaftaProfileSetupScreen() {
   const insets = useSafeAreaInsets();
   const setHasSaftaProfile = useAuthStore((s) => s.setHasSaftaProfile);
@@ -91,14 +105,18 @@ export default function SaftaProfileSetupScreen() {
         try {
           console.log('[Safta Setup] Attempting update... (' + retries + ' retries left)');
 
-          const { data, error } = await supabase.auth.updateUser({
-            data: {
-              safta_name: name.trim(),
-              safta_relationship: relationship,
-              safta_photo: photo || null, // Avoid storing large base64 in metadata
-              safta_onboarding_complete: true,
-            },
-          });
+          const { data, error } = await withTimeout(
+            supabase.auth.updateUser({
+              data: {
+                safta_name: name.trim(),
+                safta_relationship: relationship,
+                safta_photo: photo || null, // Avoid storing large base64 in metadata
+                safta_onboarding_complete: true,
+              },
+            }),
+            15000,
+            'Profile update timed out'
+          );
 
           console.log('[Safta Setup] updateUser returned, error:', error?.message, 'hasData:', !!data);
 
