@@ -39,6 +39,7 @@ const ALL_BADGES = [
   { id: 'kosher', label: 'Keeps Kosher', emoji: '🍽️', description: 'Observes kosher dietary laws' },
   { id: 'volunteer', label: 'Jewish Volunteer', emoji: '🤝', description: 'Volunteers with Jewish organizations' },
   { id: 'musician', label: 'Jewish Music', emoji: '🎵', description: 'Plays Jewish/Israeli music' },
+  { id: 'greek_life', label: 'Greek Life', emoji: '🏛️', description: 'Fraternity or sorority member' },
 ];
 
 export default function BadgesScreen() {

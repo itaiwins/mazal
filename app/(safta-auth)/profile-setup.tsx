@@ -95,57 +95,72 @@ export default function SaftaProfileSetupScreen() {
     try {
       console.log('[Safta Setup] Saving profile...');
 
-      // Update user metadata with safta profile info and mark onboarding complete
-      // Use retry logic since Supabase auth can be slow sometimes
-      let updateSucceeded = false;
-      let lastError: any = null;
-      let retries = 3;
+      // Fire the update request - don't wait for Promise to resolve
+      // because Supabase auth.updateUser has timing issues where the
+      // auth state updates but Promise resolution is delayed
+      console.log('[Safta Setup] Initiating updateUser...');
 
-      while (retries > 0 && !updateSucceeded) {
-        try {
-          console.log('[Safta Setup] Attempting update... (' + retries + ' retries left)');
+      const updatePromise = supabase.auth.updateUser({
+        data: {
+          safta_name: name.trim(),
+          safta_relationship: relationship,
+          safta_photo: photo || null,
+          safta_onboarding_complete: true,
+        },
+      });
 
-          const { data, error } = await withTimeout(
-            supabase.auth.updateUser({
-              data: {
-                safta_name: name.trim(),
-                safta_relationship: relationship,
-                safta_photo: photo || null, // Avoid storing large base64 in metadata
-                safta_onboarding_complete: true,
-              },
-            }),
-            15000,
-            'Profile update timed out'
-          );
+      // Race between the Promise resolving and a timeout
+      // But even if timeout wins, the update might have succeeded
+      let promiseResolved = false;
+      let updateError: any = null;
 
-          console.log('[Safta Setup] updateUser returned, error:', error?.message, 'hasData:', !!data);
+      try {
+        const result = await Promise.race([
+          updatePromise.then(r => { promiseResolved = true; return r; }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), 20000)
+          ),
+        ]);
 
-          if (error) {
-            console.log('[Safta Setup] Update error:', error.message);
-            lastError = error;
-            retries--;
-            if (retries > 0) {
-              await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-            continue;
-          }
-
-          // Consider success if we got here without error
-          console.log('[Safta Setup] Update succeeded, user:', data?.user?.id);
-          updateSucceeded = true;
-        } catch (e: any) {
-          console.log('[Safta Setup] Exception during update:', e.message);
-          lastError = e;
-          retries--;
-          if (retries > 0) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
+        if (result.error) {
+          updateError = result.error;
+          console.log('[Safta Setup] Update returned error:', result.error.message);
+        } else {
+          console.log('[Safta Setup] Update Promise resolved successfully');
+        }
+      } catch (e: any) {
+        if (e.message === 'timeout') {
+          console.log('[Safta Setup] Promise timed out, checking if update succeeded anyway...');
+        } else {
+          updateError = e;
+          console.log('[Safta Setup] Update exception:', e.message);
         }
       }
 
-      if (!updateSucceeded) {
-        console.error('[Safta Setup] Failed after retries:', lastError);
-        Alert.alert('Error', lastError?.message || 'Failed to save profile. Please try again.');
+      // If Promise timed out, check if the update actually went through
+      // by verifying the user metadata
+      if (!promiseResolved && !updateError) {
+        console.log('[Safta Setup] Verifying update via getUser...');
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Small delay
+
+        try {
+          const { data: userData } = await supabase.auth.getUser();
+          if (userData?.user?.user_metadata?.safta_onboarding_complete === true) {
+            console.log('[Safta Setup] Verification confirmed - update succeeded!');
+            promiseResolved = true; // Treat as success
+          } else {
+            console.log('[Safta Setup] Verification failed - metadata not set');
+            updateError = new Error('Profile update did not complete. Please try again.');
+          }
+        } catch (verifyErr: any) {
+          console.log('[Safta Setup] Verification error:', verifyErr.message);
+          updateError = new Error('Could not verify profile update. Please try again.');
+        }
+      }
+
+      if (updateError) {
+        console.error('[Safta Setup] Final error:', updateError.message);
+        Alert.alert('Error', updateError.message || 'Failed to save profile. Please try again.');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setIsLoading(false);
         return;
