@@ -124,29 +124,74 @@ export default function CompleteScreen() {
     try {
       console.log('[Complete] Starting profile save...');
 
-      // Get auth user - FIRST try from authStore (already set during signup), then fallback to API
+      // Get auth user - try multiple methods to ensure we have valid auth
       console.log('[Complete] Getting authenticated user...');
-      let verifiedUser = authUser; // From authStore - set during signup
+      let verifiedUser = null;
 
       console.log('[Complete] AuthStore authUser:', authUser?.id || 'none');
       console.log('[Complete] AuthStore session:', session?.user?.id || 'none');
 
-      // If not in store, try session from store
-      if (!verifiedUser && session?.user) {
-        verifiedUser = session.user;
-        console.log('[Complete] Got user from session store:', verifiedUser.id);
+      // Method 1: Try authUser from store
+      if (authUser?.id) {
+        verifiedUser = authUser;
+        console.log('[Complete] Got user from authStore.authUser:', verifiedUser.id);
       }
 
-      // If still not found, try API calls as last resort
-      if (!verifiedUser) {
-        console.log('[Complete] No user in store, trying API calls...');
+      // Method 2: Try session.user from store
+      if (!verifiedUser && session?.user?.id) {
+        verifiedUser = session.user;
+        console.log('[Complete] Got user from authStore.session:', verifiedUser.id);
+      }
 
-        // Try getUser first with timeout (10 seconds - increased from 5)
+      // Method 3: Try getSession API (most reliable for persisted sessions)
+      if (!verifiedUser) {
+        console.log('[Complete] Trying getSession API...');
         try {
-          console.log('[Complete] Trying getUser API...');
+          const { data: sessionData, error: sessionError } = await withTimeout(
+            supabase.auth.getSession(),
+            15000,
+            'getSession timed out'
+          );
+
+          if (!sessionError && sessionData?.session?.user) {
+            verifiedUser = sessionData.session.user;
+            console.log('[Complete] Got user from getSession API:', verifiedUser.id);
+          } else {
+            console.log('[Complete] getSession API failed:', sessionError?.message);
+          }
+        } catch (e: any) {
+          console.log('[Complete] getSession API error:', e.message);
+        }
+      }
+
+      // Method 4: Try refreshing the session (in case token expired during onboarding)
+      if (!verifiedUser) {
+        console.log('[Complete] Trying to refresh session...');
+        try {
+          const { data: refreshData, error: refreshError } = await withTimeout(
+            supabase.auth.refreshSession(),
+            15000,
+            'refreshSession timed out'
+          );
+
+          if (!refreshError && refreshData?.session?.user) {
+            verifiedUser = refreshData.session.user;
+            console.log('[Complete] Got user from refreshSession:', verifiedUser.id);
+          } else {
+            console.log('[Complete] refreshSession failed:', refreshError?.message);
+          }
+        } catch (e: any) {
+          console.log('[Complete] refreshSession error:', e.message);
+        }
+      }
+
+      // Method 5: Last resort - try getUser API
+      if (!verifiedUser) {
+        console.log('[Complete] Trying getUser API as last resort...');
+        try {
           const { data: userData, error: userError } = await withTimeout(
             supabase.auth.getUser(),
-            10000,
+            15000,
             'getUser timed out'
           );
 
@@ -159,33 +204,12 @@ export default function CompleteScreen() {
         } catch (e: any) {
           console.log('[Complete] getUser API error:', e.message);
         }
-
-        // If getUser failed, try getSession with timeout
-        if (!verifiedUser) {
-          try {
-            console.log('[Complete] Trying getSession API...');
-            const { data: sessionData, error: sessionError } = await withTimeout(
-              supabase.auth.getSession(),
-              10000,
-              'getSession timed out'
-            );
-
-            if (!sessionError && sessionData?.session?.user) {
-              verifiedUser = sessionData.session.user;
-              console.log('[Complete] Got user from session API:', verifiedUser.id);
-            } else {
-              console.log('[Complete] getSession API failed:', sessionError?.message);
-            }
-          } catch (e: any) {
-            console.log('[Complete] getSession API error:', e.message);
-          }
-        }
       }
 
-      console.log('[Complete] Final auth result:', !!verifiedUser);
+      console.log('[Complete] Final auth result:', !!verifiedUser, verifiedUser?.id || 'none');
 
       if (!verifiedUser) {
-        console.error('[Complete] No auth user found in store or API');
+        console.error('[Complete] No auth user found after all methods');
         Alert.alert(
           'Authentication Error',
           'Could not verify your account. Please close the app completely and sign in again.',

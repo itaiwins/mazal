@@ -53,31 +53,85 @@ export default function ShidduchCompleteScreen() {
   };
 
   const handleSubmit = async () => {
-    // Try multiple sources for auth ID: session, authUser from store, or API
-    let verifiedAuthId = session?.user?.id || authUser?.id;
-    let verifiedEmail = session?.user?.email || authUser?.email;
+    // Try multiple methods to get auth ID
+    let verifiedAuthId: string | undefined;
+    let verifiedEmail: string | undefined;
 
     console.log('[Shidduch] Session user:', session?.user?.id || 'none');
     console.log('[Shidduch] AuthUser from store:', authUser?.id || 'none');
 
-    // If not found in store, try API as fallback
+    // Method 1: Try authUser from store
+    if (authUser?.id) {
+      verifiedAuthId = authUser.id;
+      verifiedEmail = authUser.email;
+      console.log('[Shidduch] Got user from authStore.authUser:', verifiedAuthId);
+    }
+
+    // Method 2: Try session.user from store
+    if (!verifiedAuthId && session?.user?.id) {
+      verifiedAuthId = session.user.id;
+      verifiedEmail = session.user.email;
+      console.log('[Shidduch] Got user from authStore.session:', verifiedAuthId);
+    }
+
+    // Method 3: Try getSession API
     if (!verifiedAuthId) {
-      console.log('[Shidduch] No auth in store, trying API...');
+      console.log('[Shidduch] Trying getSession API...');
+      try {
+        const { data: sessionData } = await withTimeout(
+          supabase.auth.getSession(),
+          15000,
+          'getSession timed out'
+        );
+        if (sessionData?.session?.user) {
+          verifiedAuthId = sessionData.session.user.id;
+          verifiedEmail = sessionData.session.user.email;
+          console.log('[Shidduch] Got user from getSession API:', verifiedAuthId);
+        }
+      } catch (e: any) {
+        console.log('[Shidduch] getSession API error:', e.message);
+      }
+    }
+
+    // Method 4: Try refreshing the session
+    if (!verifiedAuthId) {
+      console.log('[Shidduch] Trying to refresh session...');
+      try {
+        const { data: refreshData } = await withTimeout(
+          supabase.auth.refreshSession(),
+          15000,
+          'refreshSession timed out'
+        );
+        if (refreshData?.session?.user) {
+          verifiedAuthId = refreshData.session.user.id;
+          verifiedEmail = refreshData.session.user.email;
+          console.log('[Shidduch] Got user from refreshSession:', verifiedAuthId);
+        }
+      } catch (e: any) {
+        console.log('[Shidduch] refreshSession error:', e.message);
+      }
+    }
+
+    // Method 5: Try getUser API as last resort
+    if (!verifiedAuthId) {
+      console.log('[Shidduch] Trying getUser API as last resort...');
       try {
         const { data: userData } = await withTimeout(
           supabase.auth.getUser(),
-          10000,
+          15000,
           'getUser timed out'
         );
         if (userData?.user) {
           verifiedAuthId = userData.user.id;
           verifiedEmail = userData.user.email;
-          console.log('[Shidduch] Got user from API:', verifiedAuthId);
+          console.log('[Shidduch] Got user from getUser API:', verifiedAuthId);
         }
       } catch (e: any) {
-        console.log('[Shidduch] API auth error:', e.message);
+        console.log('[Shidduch] getUser API error:', e.message);
       }
     }
+
+    console.log('[Shidduch] Final auth result:', !!verifiedAuthId, verifiedAuthId || 'none');
 
     if (!verifiedAuthId) {
       Alert.alert('Error', 'Could not verify your account. Please close the app and sign in again.');
