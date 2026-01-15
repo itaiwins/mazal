@@ -37,7 +37,7 @@ const COMMUNITIES_MAP: Record<string, string> = {
 export default function ShidduchCompleteScreen() {
   const insets = useSafeAreaInsets();
   const { data, reset } = useShidduchOnboardingStore();
-  const { session, setHasShidduchProfile } = useAuthStore();
+  const { session, authUser, setHasShidduchProfile } = useAuthStore();
 
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -53,10 +53,38 @@ export default function ShidduchCompleteScreen() {
   };
 
   const handleSubmit = async () => {
-    if (!session?.user?.id) {
-      Alert.alert('Error', 'Please sign in to submit your profile.');
+    // Try multiple sources for auth ID: session, authUser from store, or API
+    let verifiedAuthId = session?.user?.id || authUser?.id;
+    let verifiedEmail = session?.user?.email || authUser?.email;
+
+    console.log('[Shidduch] Session user:', session?.user?.id || 'none');
+    console.log('[Shidduch] AuthUser from store:', authUser?.id || 'none');
+
+    // If not found in store, try API as fallback
+    if (!verifiedAuthId) {
+      console.log('[Shidduch] No auth in store, trying API...');
+      try {
+        const { data: userData } = await withTimeout(
+          supabase.auth.getUser(),
+          10000,
+          'getUser timed out'
+        );
+        if (userData?.user) {
+          verifiedAuthId = userData.user.id;
+          verifiedEmail = userData.user.email;
+          console.log('[Shidduch] Got user from API:', verifiedAuthId);
+        }
+      } catch (e: any) {
+        console.log('[Shidduch] API auth error:', e.message);
+      }
+    }
+
+    if (!verifiedAuthId) {
+      Alert.alert('Error', 'Could not verify your account. Please close the app and sign in again.');
       return;
     }
+
+    console.log('[Shidduch] Using auth ID:', verifiedAuthId);
 
     setSubmitting(true);
 
@@ -67,7 +95,7 @@ export default function ShidduchCompleteScreen() {
         supabase
           .from('users')
           .select('id')
-          .eq('auth_id', session.user.id)
+          .eq('auth_id', verifiedAuthId)
           .maybeSingle(),
         10000,
         'Check existing user timed out'
@@ -96,8 +124,8 @@ export default function ShidduchCompleteScreen() {
           supabase
             .from('users')
             .insert({
-              auth_id: session.user.id,
-              email: session.user.email || `${session.user.id}@placeholder.com`,
+              auth_id: verifiedAuthId,
+              email: verifiedEmail || `${verifiedAuthId}@placeholder.com`,
               first_name: data.firstName || 'User',
               last_name: data.lastName,
               display_name: displayName,
@@ -140,7 +168,7 @@ export default function ShidduchCompleteScreen() {
               current_state: data.state,
               current_country: data.country,
             })
-            .eq('auth_id', session.user.id),
+            .eq('auth_id', verifiedAuthId),
           10000,
           'Update user timed out'
         );

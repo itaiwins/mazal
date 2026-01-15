@@ -84,6 +84,8 @@ export default function CompleteScreen() {
   const data = useOnboardingStore((s) => s.data);
   const reset = useOnboardingStore((s) => s.reset);
   const setUser = useAuthStore((s) => s.setUser);
+  const authUser = useAuthStore((s) => s.authUser);
+  const session = useAuthStore((s) => s.session);
   const [isSaving, setIsSaving] = useState(false);
 
   const scale = useSharedValue(0);
@@ -122,54 +124,68 @@ export default function CompleteScreen() {
     try {
       console.log('[Complete] Starting profile save...');
 
-      // Get auth user with timeout - try getUser first (more reliable), then fallback to getSession
+      // Get auth user - FIRST try from authStore (already set during signup), then fallback to API
       console.log('[Complete] Getting authenticated user...');
-      let authUser = null;
+      let verifiedUser = authUser; // From authStore - set during signup
 
-      // Try getUser first with timeout (5 seconds)
-      try {
-        console.log('[Complete] Trying getUser...');
-        const { data: userData, error: userError } = await withTimeout(
-          supabase.auth.getUser(),
-          5000,
-          'getUser timed out'
-        );
+      console.log('[Complete] AuthStore authUser:', authUser?.id || 'none');
+      console.log('[Complete] AuthStore session:', session?.user?.id || 'none');
 
-        if (!userError && userData?.user) {
-          authUser = userData.user;
-          console.log('[Complete] Got user from getUser:', authUser.id);
-        } else {
-          console.log('[Complete] getUser failed:', userError?.message);
-        }
-      } catch (e: any) {
-        console.log('[Complete] getUser error:', e.message);
+      // If not in store, try session from store
+      if (!verifiedUser && session?.user) {
+        verifiedUser = session.user;
+        console.log('[Complete] Got user from session store:', verifiedUser.id);
       }
 
-      // If getUser failed, try getSession with timeout
-      if (!authUser) {
+      // If still not found, try API calls as last resort
+      if (!verifiedUser) {
+        console.log('[Complete] No user in store, trying API calls...');
+
+        // Try getUser first with timeout (10 seconds - increased from 5)
         try {
-          console.log('[Complete] Trying getSession...');
-          const { data: sessionData, error: sessionError } = await withTimeout(
-            supabase.auth.getSession(),
-            5000,
-            'getSession timed out'
+          console.log('[Complete] Trying getUser API...');
+          const { data: userData, error: userError } = await withTimeout(
+            supabase.auth.getUser(),
+            10000,
+            'getUser timed out'
           );
 
-          if (!sessionError && sessionData?.session?.user) {
-            authUser = sessionData.session.user;
-            console.log('[Complete] Got user from session:', authUser.id);
+          if (!userError && userData?.user) {
+            verifiedUser = userData.user;
+            console.log('[Complete] Got user from getUser API:', verifiedUser.id);
           } else {
-            console.log('[Complete] getSession failed:', sessionError?.message);
+            console.log('[Complete] getUser API failed:', userError?.message);
           }
         } catch (e: any) {
-          console.log('[Complete] getSession error:', e.message);
+          console.log('[Complete] getUser API error:', e.message);
+        }
+
+        // If getUser failed, try getSession with timeout
+        if (!verifiedUser) {
+          try {
+            console.log('[Complete] Trying getSession API...');
+            const { data: sessionData, error: sessionError } = await withTimeout(
+              supabase.auth.getSession(),
+              10000,
+              'getSession timed out'
+            );
+
+            if (!sessionError && sessionData?.session?.user) {
+              verifiedUser = sessionData.session.user;
+              console.log('[Complete] Got user from session API:', verifiedUser.id);
+            } else {
+              console.log('[Complete] getSession API failed:', sessionError?.message);
+            }
+          } catch (e: any) {
+            console.log('[Complete] getSession API error:', e.message);
+          }
         }
       }
 
-      console.log('[Complete] Auth result:', !!authUser);
+      console.log('[Complete] Final auth result:', !!verifiedUser);
 
-      if (!authUser) {
-        console.error('[Complete] No auth user found');
+      if (!verifiedUser) {
+        console.error('[Complete] No auth user found in store or API');
         Alert.alert(
           'Authentication Error',
           'Could not verify your account. Please close the app completely and sign in again.',
@@ -179,9 +195,9 @@ export default function CompleteScreen() {
         return;
       }
 
-      const verifiedAuthId = authUser.id;
+      const verifiedAuthId = verifiedUser.id;
       console.log('[Complete] Using auth ID:', verifiedAuthId);
-      console.log('[Complete] Auth user email:', authUser.email);
+      console.log('[Complete] Auth user email:', verifiedUser.email);
 
       // Small delay to ensure auth.users entry is fully committed
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -211,7 +227,7 @@ export default function CompleteScreen() {
       // Create or update user profile in Supabase
       const profileData = {
         auth_id: verifiedAuthId,
-        email: authUser.email || `${verifiedAuthId}@mazal.app`,
+        email: verifiedUser.email || `${verifiedAuthId}@mazal.app`,
         first_name: firstName,
         display_name: firstName, // Required NOT NULL field
         date_of_birth: dateOfBirth,
