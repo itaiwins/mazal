@@ -23,7 +23,7 @@ Family members can join as "Saftas" (matchmakers) to:
 
 ### Jewish Identity
 - Multiple observance levels supported
-- Orthodox mode with dedicated features
+- Orthodox mode (Coming Soon) - dedicated shidduch matchmaking
 - Jewish background preferences
 - Hebrew language support
 
@@ -46,9 +46,9 @@ Family members can join as "Saftas" (matchmakers) to:
 
 ### Frontend
 - **React Native** 0.81.5
-- **Expo** 54 with Expo Router
+- **Expo** SDK 54 with Expo Router v6
 - **TypeScript** (strict mode)
-- **React** 19.1
+- **React** 19.1.0
 
 ### State Management
 - **Zustand** - Global state

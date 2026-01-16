@@ -1,7 +1,7 @@
 /**
  * Notification Settings Screen
  *
- * Configure push notification preferences
+ * Premium notification settings with dark theme
  */
 
 import { useState } from 'react';
@@ -9,12 +9,60 @@ import { View, Text, StyleSheet, Pressable, ScrollView, Switch } from 'react-nat
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '@/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInUp, FadeInRight } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 
+interface NotificationItemProps {
+  icon: string;
+  iconColor?: string;
+  label: string;
+  description: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+  index?: number;
+}
+
+function NotificationItem({
+  icon,
+  iconColor = colors.primary.gold,
+  label,
+  description,
+  value,
+  onValueChange,
+  index = 0,
+}: NotificationItemProps) {
+  const handleChange = (newValue: boolean) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onValueChange(newValue);
+  };
+
+  return (
+    <Animated.View entering={FadeInRight.delay(index * 50).springify()}>
+      <View style={styles.item}>
+        <View style={styles.itemLeft}>
+          <View style={[styles.iconContainer, { backgroundColor: colors.transparent.gold10 }]}>
+            <Ionicons name={icon as any} size={20} color={iconColor} />
+          </View>
+          <View style={styles.itemContent}>
+            <Text style={styles.itemLabel}>{label}</Text>
+            <Text style={styles.itemDesc}>{description}</Text>
+          </View>
+        </View>
+        <Switch
+          value={value}
+          onValueChange={handleChange}
+          trackColor={{ false: colors.neutral[600], true: colors.primary.gold }}
+          thumbColor={colors.primary.white}
+        />
+      </View>
+    </Animated.View>
+  );
+}
+
 export default function NotificationsScreen() {
-  const theme = useTheme();
   const insets = useSafeAreaInsets();
 
   const [newMatches, setNewMatches] = useState(true);
@@ -26,25 +74,20 @@ export default function NotificationsScreen() {
   const [emailNews, setEmailNews] = useState(false);
 
   return (
-    <View
-      style={[
-        styles.container,
-        {
-          backgroundColor: theme.colors.background,
-          paddingTop: insets.top + spacing[2],
-        },
-      ]}
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-          Notifications
-        </Text>
-        <View style={styles.headerRight} />
-      </View>
+    <View style={styles.container}>
+      {/* Premium Header with Gradient */}
+      <LinearGradient
+        colors={[colors.primary.navy, colors.dark.background]}
+        style={[styles.headerGradient, { paddingTop: insets.top }]}
+      >
+        <View style={styles.header}>
+          <Pressable style={styles.backButton} onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={28} color={colors.primary.white} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Notifications</Text>
+          <View style={styles.headerRight} />
+        </View>
+      </LinearGradient>
 
       <ScrollView
         style={styles.content}
@@ -52,160 +95,92 @@ export default function NotificationsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Push Notifications */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>
-            Push Notifications
-          </Text>
-          <View style={[styles.card, { backgroundColor: theme.colors.surface }]}>
-            <View style={styles.item}>
-              <View style={styles.itemLeft}>
-                <Ionicons name="heart" size={22} color={colors.semantic.error} />
-                <View style={styles.itemContent}>
-                  <Text style={[styles.itemLabel, { color: theme.colors.text }]}>
-                    New matches
-                  </Text>
-                  <Text style={[styles.itemDesc, { color: theme.colors.textTertiary }]}>
-                    When you match with someone
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={newMatches}
-                onValueChange={setNewMatches}
-                trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
-                thumbColor={colors.primary.white}
-              />
-            </View>
-
-            <View style={styles.item}>
-              <View style={styles.itemLeft}>
-                <Ionicons name="chatbubble" size={22} color={colors.primary.gold} />
-                <View style={styles.itemContent}>
-                  <Text style={[styles.itemLabel, { color: theme.colors.text }]}>
-                    New messages
-                  </Text>
-                  <Text style={[styles.itemDesc, { color: theme.colors.textTertiary }]}>
-                    When you receive a message
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={newMessages}
-                onValueChange={setNewMessages}
-                trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
-                thumbColor={colors.primary.white}
-              />
-            </View>
-
-            <View style={styles.item}>
-              <View style={styles.itemLeft}>
-                <Ionicons name="thumbs-up" size={22} color={colors.primary.gold} />
-                <View style={styles.itemContent}>
-                  <Text style={[styles.itemLabel, { color: theme.colors.text }]}>
-                    New likes
-                  </Text>
-                  <Text style={[styles.itemDesc, { color: theme.colors.textTertiary }]}>
-                    When someone likes your profile
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={newLikes}
-                onValueChange={setNewLikes}
-                trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
-                thumbColor={colors.primary.white}
-              />
-            </View>
-
-            <View style={styles.item}>
-              <View style={styles.itemLeft}>
-                <Ionicons name="star" size={22} color={colors.primary.gold} />
-                <View style={styles.itemContent}>
-                  <Text style={[styles.itemLabel, { color: theme.colors.text }]}>
-                    Super Likes
-                  </Text>
-                  <Text style={[styles.itemDesc, { color: theme.colors.textTertiary }]}>
-                    When someone Super Likes you
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={superLikes}
-                onValueChange={setSuperLikes}
-                trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
-                thumbColor={colors.primary.white}
-              />
-            </View>
-
-            <View style={styles.item}>
-              <View style={styles.itemLeft}>
-                <Ionicons name="people" size={22} color={colors.primary.gold} />
-                <View style={styles.itemContent}>
-                  <Text style={[styles.itemLabel, { color: theme.colors.text }]}>
-                    Safta approvals
-                  </Text>
-                  <Text style={[styles.itemDesc, { color: theme.colors.textTertiary }]}>
-                    When your Safta sends you a match
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={saftaLikes}
-                onValueChange={setSaftaLikes}
-                trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
-                thumbColor={colors.primary.white}
-              />
-            </View>
+        <Animated.View entering={FadeInUp.delay(100).springify()} style={styles.section}>
+          <Text style={styles.sectionLabel}>Push Notifications</Text>
+          <View style={styles.card}>
+            <NotificationItem
+              icon="heart"
+              iconColor={colors.semantic.error}
+              label="New matches"
+              description="When you match with someone"
+              value={newMatches}
+              onValueChange={setNewMatches}
+              index={0}
+            />
+            <View style={styles.divider} />
+            <NotificationItem
+              icon="chatbubble"
+              label="New messages"
+              description="When you receive a message"
+              value={newMessages}
+              onValueChange={setNewMessages}
+              index={1}
+            />
+            <View style={styles.divider} />
+            <NotificationItem
+              icon="thumbs-up"
+              label="New likes"
+              description="When someone likes your profile"
+              value={newLikes}
+              onValueChange={setNewLikes}
+              index={2}
+            />
+            <View style={styles.divider} />
+            <NotificationItem
+              icon="star"
+              label="Super Likes"
+              description="When someone Super Likes you"
+              value={superLikes}
+              onValueChange={setSuperLikes}
+              index={3}
+            />
+            <View style={styles.divider} />
+            <NotificationItem
+              icon="people"
+              label="Safta approvals"
+              description="When your Safta sends you a match"
+              value={saftaLikes}
+              onValueChange={setSaftaLikes}
+              index={4}
+            />
           </View>
-        </View>
+        </Animated.View>
 
         {/* Email Notifications */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>
-            Email Notifications
-          </Text>
-          <View style={[styles.card, { backgroundColor: theme.colors.surface }]}>
-            <View style={styles.item}>
-              <View style={styles.itemLeft}>
-                <Ionicons name="mail-outline" size={22} color={theme.colors.icon} />
-                <View style={styles.itemContent}>
-                  <Text style={[styles.itemLabel, { color: theme.colors.text }]}>
-                    Match updates
-                  </Text>
-                  <Text style={[styles.itemDesc, { color: theme.colors.textTertiary }]}>
-                    Weekly summary of your matches
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={emailMatches}
-                onValueChange={setEmailMatches}
-                trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
-                thumbColor={colors.primary.white}
-              />
-            </View>
-
-            <View style={styles.item}>
-              <View style={styles.itemLeft}>
-                <Ionicons name="newspaper-outline" size={22} color={theme.colors.icon} />
-                <View style={styles.itemContent}>
-                  <Text style={[styles.itemLabel, { color: theme.colors.text }]}>
-                    News & updates
-                  </Text>
-                  <Text style={[styles.itemDesc, { color: theme.colors.textTertiary }]}>
-                    Tips, features, and community news
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={emailNews}
-                onValueChange={setEmailNews}
-                trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
-                thumbColor={colors.primary.white}
-              />
-            </View>
+        <Animated.View entering={FadeInUp.delay(200).springify()} style={styles.section}>
+          <Text style={styles.sectionLabel}>Email Notifications</Text>
+          <View style={styles.card}>
+            <NotificationItem
+              icon="mail-outline"
+              iconColor={colors.transparent.white60}
+              label="Match updates"
+              description="Weekly summary of your matches"
+              value={emailMatches}
+              onValueChange={setEmailMatches}
+              index={5}
+            />
+            <View style={styles.divider} />
+            <NotificationItem
+              icon="newspaper-outline"
+              iconColor={colors.transparent.white60}
+              label="News & updates"
+              description="Tips, features, and community news"
+              value={emailNews}
+              onValueChange={setEmailNews}
+              index={6}
+            />
           </View>
-        </View>
+        </Animated.View>
+
+        {/* Info Card */}
+        <Animated.View entering={FadeInUp.delay(300).springify()} style={styles.infoCard}>
+          <View style={styles.infoIconContainer}>
+            <Ionicons name="information-circle" size={20} color={colors.primary.gold} />
+          </View>
+          <Text style={styles.infoText}>
+            You can also manage notifications in your device settings.
+          </Text>
+        </Animated.View>
       </ScrollView>
     </View>
   );
@@ -214,6 +189,10 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.dark.background,
+  },
+  headerGradient: {
+    paddingBottom: spacing[4],
   },
   header: {
     flexDirection: 'row',
@@ -231,6 +210,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 17,
     fontWeight: '600',
+    color: colors.primary.white,
   },
   headerRight: {
     width: 44,
@@ -243,40 +223,83 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4],
   },
   sectionLabel: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: spacing[2],
-    marginLeft: spacing[4],
+    letterSpacing: 1,
+    color: colors.transparent.white50,
+    marginBottom: spacing[3],
+    marginLeft: spacing[2],
   },
   card: {
+    backgroundColor: colors.transparent.white10,
     borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.transparent.white10,
     overflow: 'hidden',
   },
   item: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: spacing[4],
+    paddingVertical: spacing[3.5],
     paddingHorizontal: spacing[4],
-    borderBottomWidth: 1,
-    borderBottomColor: colors.neutral[100],
   },
   itemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[3],
     flex: 1,
+    marginRight: spacing[3],
+  },
+  iconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   itemContent: {
     flex: 1,
   },
   itemLabel: {
     fontSize: 16,
+    fontWeight: '500',
+    color: colors.primary.white,
   },
   itemDesc: {
     fontSize: 12,
+    color: colors.transparent.white50,
     marginTop: spacing[0.5],
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.transparent.white10,
+    marginLeft: spacing[4] + 36 + spacing[3],
+  },
+  infoCard: {
+    flexDirection: 'row',
+    padding: spacing[4],
+    backgroundColor: colors.transparent.gold10,
+    borderRadius: borderRadius.xl,
+    gap: spacing[3],
+    marginTop: spacing[6],
+    marginHorizontal: spacing[4],
+    borderWidth: 1,
+    borderColor: colors.transparent.gold20,
+  },
+  infoIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.transparent.gold20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.transparent.white70,
   },
 });

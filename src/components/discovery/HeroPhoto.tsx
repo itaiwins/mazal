@@ -142,7 +142,7 @@ export function HeroPhoto({
           <Text style={styles.age}>, {age}</Text>
           {isVerified && (
             <View style={styles.verifiedBadge}>
-              <Ionicons name="checkmark-circle" size={22} color={colors.primary.gold} />
+              <Ionicons name="checkmark-circle" size={22} color={colors.semantic.info} />
             </View>
           )}
         </View>

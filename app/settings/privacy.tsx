@@ -1,7 +1,7 @@
 /**
  * Privacy Settings Screen
  *
- * Configure privacy and safety options
+ * Premium privacy settings with dark theme
  */
 
 import { useState } from 'react';
@@ -9,12 +9,58 @@ import { View, Text, StyleSheet, Pressable, ScrollView, Switch } from 'react-nat
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '@/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInUp, FadeInRight } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 
+interface PrivacyItemProps {
+  icon: string;
+  label: string;
+  description: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+  index?: number;
+}
+
+function PrivacyItem({
+  icon,
+  label,
+  description,
+  value,
+  onValueChange,
+  index = 0,
+}: PrivacyItemProps) {
+  const handleChange = (newValue: boolean) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onValueChange(newValue);
+  };
+
+  return (
+    <Animated.View entering={FadeInRight.delay(index * 50).springify()}>
+      <View style={styles.item}>
+        <View style={styles.itemLeft}>
+          <View style={styles.iconContainer}>
+            <Ionicons name={icon as any} size={20} color={colors.primary.gold} />
+          </View>
+          <View style={styles.itemContent}>
+            <Text style={styles.itemLabel}>{label}</Text>
+            <Text style={styles.itemDesc}>{description}</Text>
+          </View>
+        </View>
+        <Switch
+          value={value}
+          onValueChange={handleChange}
+          trackColor={{ false: colors.neutral[600], true: colors.primary.gold }}
+          thumbColor={colors.primary.white}
+        />
+      </View>
+    </Animated.View>
+  );
+}
+
 export default function PrivacyScreen() {
-  const theme = useTheme();
   const insets = useSafeAreaInsets();
 
   const [hideDistance, setHideDistance] = useState(false);
@@ -24,25 +70,20 @@ export default function PrivacyScreen() {
   const [readReceipts, setReadReceipts] = useState(true);
 
   return (
-    <View
-      style={[
-        styles.container,
-        {
-          backgroundColor: theme.colors.background,
-          paddingTop: insets.top + spacing[2],
-        },
-      ]}
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-          Privacy Settings
-        </Text>
-        <View style={styles.headerRight} />
-      </View>
+    <View style={styles.container}>
+      {/* Premium Header with Gradient */}
+      <LinearGradient
+        colors={[colors.primary.navy, colors.dark.background]}
+        style={[styles.headerGradient, { paddingTop: insets.top }]}
+      >
+        <View style={styles.header}>
+          <Pressable style={styles.backButton} onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={28} color={colors.primary.white} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Privacy Settings</Text>
+          <View style={styles.headerRight} />
+        </View>
+      </LinearGradient>
 
       <ScrollView
         style={styles.content}
@@ -50,146 +91,96 @@ export default function PrivacyScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Profile Privacy */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>
-            Profile Privacy
-          </Text>
-          <View style={[styles.card, { backgroundColor: theme.colors.surface }]}>
-            <View style={styles.item}>
-              <View style={styles.itemLeft}>
-                <Ionicons name="location-outline" size={22} color={theme.colors.icon} />
-                <View style={styles.itemContent}>
-                  <Text style={[styles.itemLabel, { color: theme.colors.text }]}>
-                    Hide distance
-                  </Text>
-                  <Text style={[styles.itemDesc, { color: theme.colors.textTertiary }]}>
-                    Others won't see how far you are
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={hideDistance}
-                onValueChange={setHideDistance}
-                trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
-                thumbColor={colors.primary.white}
-              />
-            </View>
-
-            <View style={styles.item}>
-              <View style={styles.itemLeft}>
-                <Ionicons name="calendar-outline" size={22} color={theme.colors.icon} />
-                <View style={styles.itemContent}>
-                  <Text style={[styles.itemLabel, { color: theme.colors.text }]}>
-                    Hide age
-                  </Text>
-                  <Text style={[styles.itemDesc, { color: theme.colors.textTertiary }]}>
-                    Only show age range
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={hideAge}
-                onValueChange={setHideAge}
-                trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
-                thumbColor={colors.primary.white}
-              />
-            </View>
-
-            <View style={styles.item}>
-              <View style={styles.itemLeft}>
-                <Ionicons name="time-outline" size={22} color={theme.colors.icon} />
-                <View style={styles.itemContent}>
-                  <Text style={[styles.itemLabel, { color: theme.colors.text }]}>
-                    Hide last active
-                  </Text>
-                  <Text style={[styles.itemDesc, { color: theme.colors.textTertiary }]}>
-                    Don't show when you were last online
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={hideLastActive}
-                onValueChange={setHideLastActive}
-                trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
-                thumbColor={colors.primary.white}
-              />
-            </View>
+        <Animated.View entering={FadeInUp.delay(100).springify()} style={styles.section}>
+          <Text style={styles.sectionLabel}>Profile Privacy</Text>
+          <View style={styles.card}>
+            <PrivacyItem
+              icon="location-outline"
+              label="Hide distance"
+              description="Others won't see how far you are"
+              value={hideDistance}
+              onValueChange={setHideDistance}
+              index={0}
+            />
+            <View style={styles.divider} />
+            <PrivacyItem
+              icon="calendar-outline"
+              label="Hide age"
+              description="Only show age range"
+              value={hideAge}
+              onValueChange={setHideAge}
+              index={1}
+            />
+            <View style={styles.divider} />
+            <PrivacyItem
+              icon="time-outline"
+              label="Hide last active"
+              description="Don't show when you were last online"
+              value={hideLastActive}
+              onValueChange={setHideLastActive}
+              index={2}
+            />
           </View>
-        </View>
+        </Animated.View>
 
         {/* Map Privacy */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>
-            Map Privacy
-          </Text>
-          <View style={[styles.card, { backgroundColor: theme.colors.surface }]}>
-            <View style={styles.item}>
-              <View style={styles.itemLeft}>
-                <Ionicons name="map-outline" size={22} color={theme.colors.icon} />
-                <View style={styles.itemContent}>
-                  <Text style={[styles.itemLabel, { color: theme.colors.text }]}>
-                    Show on Mazal Map
-                  </Text>
-                  <Text style={[styles.itemDesc, { color: theme.colors.textTertiary }]}>
-                    Let others discover you on the map
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={showOnMap}
-                onValueChange={setShowOnMap}
-                trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
-                thumbColor={colors.primary.white}
-              />
-            </View>
+        <Animated.View entering={FadeInUp.delay(200).springify()} style={styles.section}>
+          <Text style={styles.sectionLabel}>Map Privacy</Text>
+          <View style={styles.card}>
+            <PrivacyItem
+              icon="map-outline"
+              label="Show on Mazal Map"
+              description="Let others discover you on the map"
+              value={showOnMap}
+              onValueChange={setShowOnMap}
+              index={3}
+            />
           </View>
-        </View>
+        </Animated.View>
 
         {/* Messaging Privacy */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>
-            Messaging
-          </Text>
-          <View style={[styles.card, { backgroundColor: theme.colors.surface }]}>
-            <View style={styles.item}>
-              <View style={styles.itemLeft}>
-                <Ionicons name="checkmark-done-outline" size={22} color={theme.colors.icon} />
-                <View style={styles.itemContent}>
-                  <Text style={[styles.itemLabel, { color: theme.colors.text }]}>
-                    Read receipts
-                  </Text>
-                  <Text style={[styles.itemDesc, { color: theme.colors.textTertiary }]}>
-                    Let matches know when you've read messages
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={readReceipts}
-                onValueChange={setReadReceipts}
-                trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
-                thumbColor={colors.primary.white}
-              />
-            </View>
+        <Animated.View entering={FadeInUp.delay(300).springify()} style={styles.section}>
+          <Text style={styles.sectionLabel}>Messaging</Text>
+          <View style={styles.card}>
+            <PrivacyItem
+              icon="checkmark-done-outline"
+              label="Read receipts"
+              description="Let matches know when you've read messages"
+              value={readReceipts}
+              onValueChange={setReadReceipts}
+              index={4}
+            />
           </View>
-        </View>
+        </Animated.View>
 
         {/* Data & Account */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>
-            Data & Account
-          </Text>
-          <View style={[styles.card, { backgroundColor: theme.colors.surface }]}>
-            <Pressable style={styles.navItem}>
+        <Animated.View entering={FadeInUp.delay(400).springify()} style={styles.section}>
+          <Text style={styles.sectionLabel}>Data & Account</Text>
+          <View style={styles.card}>
+            <Pressable
+              style={({ pressed }) => [styles.navItem, pressed && styles.navItemPressed]}
+              onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+            >
               <View style={styles.itemLeft}>
-                <Ionicons name="download-outline" size={22} color={theme.colors.icon} />
-                <Text style={[styles.itemLabel, { color: theme.colors.text }]}>
-                  Download my data
-                </Text>
+                <View style={styles.iconContainer}>
+                  <Ionicons name="download-outline" size={20} color={colors.primary.gold} />
+                </View>
+                <Text style={styles.itemLabel}>Download my data</Text>
               </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.neutral[400]} />
+              <Ionicons name="chevron-forward" size={20} color={colors.neutral[500]} />
             </Pressable>
           </View>
-        </View>
+        </Animated.View>
+
+        {/* Info Card */}
+        <Animated.View entering={FadeInUp.delay(500).springify()} style={styles.infoCard}>
+          <View style={styles.infoIconContainer}>
+            <Ionicons name="shield-checkmark" size={20} color={colors.primary.gold} />
+          </View>
+          <Text style={styles.infoText}>
+            Your privacy is important to us. We never share your personal information with third parties without your consent.
+          </Text>
+        </Animated.View>
       </ScrollView>
     </View>
   );
@@ -198,6 +189,10 @@ export default function PrivacyScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.dark.background,
+  },
+  headerGradient: {
+    paddingBottom: spacing[4],
   },
   header: {
     flexDirection: 'row',
@@ -215,6 +210,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 17,
     fontWeight: '600',
+    color: colors.primary.white,
   },
   headerRight: {
     width: 44,
@@ -227,31 +223,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4],
   },
   sectionLabel: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: spacing[2],
-    marginLeft: spacing[4],
+    letterSpacing: 1,
+    color: colors.transparent.white50,
+    marginBottom: spacing[3],
+    marginLeft: spacing[2],
   },
   card: {
+    backgroundColor: colors.transparent.white10,
     borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.transparent.white10,
     overflow: 'hidden',
   },
   item: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: spacing[4],
-    paddingHorizontal: spacing[4],
-    borderBottomWidth: 1,
-    borderBottomColor: colors.neutral[100],
-  },
-  navItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing[4],
+    paddingVertical: spacing[3.5],
     paddingHorizontal: spacing[4],
   },
   itemLeft: {
@@ -259,15 +250,67 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing[3],
     flex: 1,
+    marginRight: spacing[3],
+  },
+  iconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.transparent.gold10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   itemContent: {
     flex: 1,
   },
   itemLabel: {
     fontSize: 16,
+    fontWeight: '500',
+    color: colors.primary.white,
   },
   itemDesc: {
     fontSize: 12,
+    color: colors.transparent.white50,
     marginTop: spacing[0.5],
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.transparent.white10,
+    marginLeft: spacing[4] + 36 + spacing[3],
+  },
+  navItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing[3.5],
+    paddingHorizontal: spacing[4],
+  },
+  navItemPressed: {
+    backgroundColor: colors.transparent.white05,
+  },
+  infoCard: {
+    flexDirection: 'row',
+    padding: spacing[4],
+    backgroundColor: colors.transparent.gold10,
+    borderRadius: borderRadius.xl,
+    gap: spacing[3],
+    marginTop: spacing[6],
+    marginHorizontal: spacing[4],
+    borderWidth: 1,
+    borderColor: colors.transparent.gold20,
+  },
+  infoIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.transparent.gold20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.transparent.white70,
   },
 });

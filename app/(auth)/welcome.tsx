@@ -4,7 +4,7 @@
  * The first screen users see - introduces Mazal with animated gold stars
  */
 
-import { View, Text, StyleSheet, Pressable, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Dimensions, Alert } from 'react-native';
 import { Link } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
@@ -677,21 +677,26 @@ export default function WelcomeScreen() {
           </Pressable>
         </Link>
 
-        {/* Orthodox Mode Entry */}
-        <Link href="/(orthodox-auth)/welcome" asChild>
-          <Pressable style={styles.orthodoxButton}>
-            <View style={styles.orthodoxIconContainer}>
-              <Text style={styles.orthodoxIcon}>✡</Text>
-            </View>
-            <View style={styles.orthodoxButtonContent}>
-              <Text style={styles.orthodoxButtonTitle}>Orthodox Shidduch</Text>
-              <Text style={styles.orthodoxButtonSubtitle}>Dedicated matching for observant Jews</Text>
-            </View>
-            <View style={styles.orthodoxPremiumBadge}>
-              <Text style={styles.orthodoxPremiumText}>Premium</Text>
-            </View>
-          </Pressable>
-        </Link>
+        {/* Orthodox Mode Entry - Coming Soon */}
+        <Pressable
+          style={[styles.orthodoxButton, styles.orthodoxButtonDisabled]}
+          onPress={() => Alert.alert(
+            'Coming Soon',
+            'Orthodox Shidduch mode is currently in development. Check back soon!',
+            [{ text: 'OK' }]
+          )}
+        >
+          <View style={[styles.orthodoxIconContainer, styles.orthodoxIconDisabled]}>
+            <Text style={styles.orthodoxIcon}>✡</Text>
+          </View>
+          <View style={styles.orthodoxButtonContent}>
+            <Text style={[styles.orthodoxButtonTitle, styles.orthodoxTitleDisabled]}>Orthodox Shidduch</Text>
+            <Text style={styles.orthodoxButtonSubtitle}>Dedicated matching for observant Jews</Text>
+          </View>
+          <View style={styles.orthodoxComingSoonBadge}>
+            <Text style={styles.orthodoxComingSoonText}>Coming Soon</Text>
+          </View>
+        </Pressable>
 
         {/* Terms */}
         <Text style={styles.termsText}>
@@ -708,7 +713,7 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.primary.navy,
+    backgroundColor: colors.dark.background,
   },
   content: {
     flex: 1,
@@ -894,6 +899,31 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: colors.primary.navy,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  orthodoxButtonDisabled: {
+    opacity: 0.6,
+    borderColor: colors.neutral[500],
+    backgroundColor: 'rgba(100, 100, 100, 0.15)',
+  },
+  orthodoxIconDisabled: {
+    backgroundColor: colors.neutral[500],
+    shadowOpacity: 0,
+  },
+  orthodoxTitleDisabled: {
+    color: colors.neutral[400],
+  },
+  orthodoxComingSoonBadge: {
+    backgroundColor: colors.neutral[600],
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[1],
+    borderRadius: borderRadius.sm,
+  },
+  orthodoxComingSoonText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: colors.neutral[300],
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },

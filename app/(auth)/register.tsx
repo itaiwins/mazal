@@ -26,6 +26,7 @@ import * as AuthSession from 'expo-auth-session';
 import * as Crypto from 'expo-crypto';
 import { supabase } from '@/api/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
+import { useUIStore } from '@/stores/uiStore';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 
@@ -43,6 +44,7 @@ export default function RegisterScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const setSession = useAuthStore((s) => s.setSession);
+  const setOrthodoxMode = useUIStore((s) => s.setOrthodoxMode);
 
   const validateForm = (): boolean => {
     if (!email || !password || !confirmPassword) {
@@ -97,6 +99,7 @@ export default function RegisterScreen() {
 
       if (data.session) {
         setSession(data.session);
+        setOrthodoxMode(false); // Ensure Orthodox mode is off for regular registration
         // Navigate to onboarding
         router.replace('/(onboarding)/welcome');
       } else if (data.user) {
@@ -451,7 +454,7 @@ export default function RegisterScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.primary.navy,
+    backgroundColor: colors.dark.background,
   },
   scrollContent: {
     flexGrow: 1,

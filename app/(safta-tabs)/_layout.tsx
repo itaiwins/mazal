@@ -1,102 +1,63 @@
 /**
  * Safta Tabs Layout
  *
- * Tab navigator for grandparent matchmaking mode
- * Three tabs: Discover, Messages, Profile
- * Uses same design as regular user mode with "Safta Mode" indicator
+ * Minimal dot navigation for grandparent matchmaking mode
  */
 
-import { Tabs } from 'expo-router';
-import { View, Text, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCallback } from 'react';
+import { Tabs, usePathname, useRouter } from 'expo-router';
+import { View, StyleSheet } from 'react-native';
 import { colors } from '@/theme/colors';
-import { spacing, borderRadius } from '@/theme/spacing';
+import { DotNavigator } from '@/components/navigation/DotNavigator';
 
-type TabIconName = 'heart' | 'heart-outline' | 'chatbubbles' | 'chatbubbles-outline' | 'person' | 'person-outline';
-
-function TabBarIcon({
-  name,
-  color,
-  focused,
-}: {
-  name: TabIconName;
-  color: string;
-  focused: boolean;
-}) {
-  return (
-    <View style={styles.iconContainer}>
-      <Ionicons name={name} size={26} color={color} />
-      {focused && <View style={[styles.activeIndicator, { backgroundColor: color }]} />}
-    </View>
-  );
-}
+// Define Safta tabs
+const SAFTA_TABS = [
+  { name: 'index', label: 'Discover' },
+  { name: 'messages', label: 'Messages' },
+  { name: 'profile', label: 'Profile' },
+];
 
 export default function SaftaTabsLayout() {
-  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const getActiveTab = () => {
+    if (pathname === '/(safta-tabs)' || pathname === '/(safta-tabs)/index') {
+      return 'index';
+    }
+    const segments = pathname.split('/').filter(Boolean);
+    const tabSegment = segments.find(s => !s.startsWith('('));
+    return tabSegment || 'index';
+  };
+
+  const activeTab = getActiveTab();
+
+  const handleTabPress = useCallback((tabName: string) => {
+    if (tabName === 'index') {
+      router.push('/(safta-tabs)/');
+    } else {
+      router.push(`/(safta-tabs)/${tabName}` as any);
+    }
+  }, [router]);
 
   return (
     <View style={styles.container}>
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: colors.primary.gold,
-          tabBarInactiveTintColor: colors.transparent.white50,
-          tabBarStyle: {
-            backgroundColor: colors.dark.card,
-            borderTopColor: colors.neutral[800],
-            borderTopWidth: 1,
-            height: 60 + insets.bottom,
-            paddingTop: 8,
-            paddingBottom: insets.bottom,
-          },
-          tabBarLabelStyle: {
-            fontSize: 11,
-            fontWeight: '500',
-          },
-          tabBarHideOnKeyboard: true,
+          tabBarStyle: { display: 'none' },
         }}
       >
-        <Tabs.Screen
-          name="index"
-          options={{
-            title: 'Discover',
-            tabBarIcon: ({ color, focused }) => (
-              <TabBarIcon
-                name={focused ? 'heart' : 'heart-outline'}
-                color={color}
-                focused={focused}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="messages"
-          options={{
-            title: 'Messages',
-            tabBarIcon: ({ color, focused }) => (
-              <TabBarIcon
-                name={focused ? 'chatbubbles' : 'chatbubbles-outline'}
-                color={color}
-                focused={focused}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="profile"
-          options={{
-            title: 'Profile',
-            tabBarIcon: ({ color, focused }) => (
-              <TabBarIcon
-                name={focused ? 'person' : 'person-outline'}
-                color={color}
-                focused={focused}
-              />
-            ),
-          }}
-        />
+        <Tabs.Screen name="index" />
+        <Tabs.Screen name="messages" />
+        <Tabs.Screen name="profile" />
       </Tabs>
+
+      <DotNavigator
+        tabs={SAFTA_TABS}
+        activeTab={activeTab}
+        onTabPress={handleTabPress}
+      />
     </View>
   );
 }
@@ -105,15 +66,5 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.dark.background,
-  },
-  iconContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  activeIndicator: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    marginTop: 4,
   },
 });

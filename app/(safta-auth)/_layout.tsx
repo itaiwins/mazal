@@ -14,7 +14,7 @@ export default function SaftaAuthLayout() {
         headerShown: false,
         animation: 'slide_from_right',
         contentStyle: {
-          backgroundColor: colors.primary.navy,
+          backgroundColor: colors.dark.background,
         },
       }}
     >

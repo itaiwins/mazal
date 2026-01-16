@@ -64,7 +64,6 @@ export default function SaftaBrowseScreen() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   // Filter state
-  const [useGrandchildFilters, setUseGrandchildFilters] = useState(true);
   const [showFilterModal, setShowFilterModal] = useState(false);
 
   // Custom filter state (when not using grandchild's preferences)
@@ -207,15 +206,15 @@ export default function SaftaBrowseScreen() {
       {/* Filter Mode Indicator */}
       <View style={[styles.filterIndicator, { backgroundColor: theme.colors.surface }]}>
         <Ionicons
-          name={useGrandchildFilters ? 'person' : 'options'}
+          name="options"
           size={16}
           color={colors.primary.gold}
         />
         <Text style={[styles.filterIndicatorText, { color: theme.colors.textSecondary }]}>
-          {useGrandchildFilters ? "Using Sarah's preferences" : 'Using your custom filters'}
+          Using your custom filters
         </Text>
         <Pressable onPress={handleOpenFilters}>
-          <Text style={[styles.changeFilterText, { color: colors.primary.gold }]}>Change</Text>
+          <Text style={[styles.changeFilterText, { color: colors.primary.gold }]}>Edit</Text>
         </Pressable>
       </View>
 
@@ -393,31 +392,7 @@ export default function SaftaBrowseScreen() {
             style={styles.modalContent}
             contentContainerStyle={{ paddingBottom: spacing[8] }}
           >
-            {/* Filter Mode Toggle */}
-            <View style={[styles.filterSection, { backgroundColor: theme.colors.surface }]}>
-              <View style={styles.filterToggleRow}>
-                <View style={styles.filterToggleInfo}>
-                  <Ionicons name="person" size={22} color={colors.primary.gold} />
-                  <View style={styles.filterToggleText}>
-                    <Text style={[styles.filterToggleLabel, { color: theme.colors.text }]}>
-                      Use Sarah's Preferences
-                    </Text>
-                    <Text style={[styles.filterToggleDesc, { color: theme.colors.textTertiary }]}>
-                      Search using the same filters as your grandchild
-                    </Text>
-                  </View>
-                </View>
-                <Switch
-                  value={useGrandchildFilters}
-                  onValueChange={setUseGrandchildFilters}
-                  trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
-                  thumbColor={colors.primary.white}
-                />
-              </View>
-            </View>
-
-            {!useGrandchildFilters && (
-              <Animated.View entering={FadeInDown.springify()}>
+            <View>
                 {/* Age Range */}
                 <View style={styles.filterGroup}>
                   <Text style={[styles.filterGroupTitle, { color: theme.colors.text }]}>
@@ -526,19 +501,7 @@ export default function SaftaBrowseScreen() {
                     ))}
                   </View>
                 </View>
-              </Animated.View>
-            )}
-
-            {useGrandchildFilters && (
-              <View style={[styles.preferencesPreview, { backgroundColor: colors.transparent.gold20 }]}>
-                <Text style={[styles.preferencesTitle, { color: theme.colors.text }]}>
-                  Connected User's Preferences
-                </Text>
-                <Text style={[styles.preferencesDetail, { color: theme.colors.textSecondary }]}>
-                  No connected users yet. Connect with a grandchild to use their preferences.
-                </Text>
-              </View>
-            )}
+            </View>
           </ScrollView>
 
           <View style={styles.modalFooter}>

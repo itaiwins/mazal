@@ -34,6 +34,17 @@ import { spacing, borderRadius } from '@/theme/spacing';
 import { useOnboardingStore } from '@/stores/onboardingStore';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/api/supabase/client';
+import {
+  checkUserExists,
+  insertUser,
+  updateUser,
+  deleteUserPhotos,
+  insertUserPhotos,
+  deleteUserPrompts,
+  insertUserPrompts,
+  uploadToStorage,
+  getStoragePublicUrl,
+} from '@/api/supabase/directApi';
 import * as FileSystem from 'expo-file-system/legacy';
 import { decode } from 'base64-arraybuffer';
 
@@ -149,7 +160,7 @@ export default function CompleteScreen() {
         try {
           const { data: sessionData, error: sessionError } = await withTimeout(
             supabase.auth.getSession(),
-            15000,
+            60000,
             'getSession timed out'
           );
 
@@ -170,7 +181,7 @@ export default function CompleteScreen() {
         try {
           const { data: refreshData, error: refreshError } = await withTimeout(
             supabase.auth.refreshSession(),
-            15000,
+            60000,
             'refreshSession timed out'
           );
 
@@ -191,7 +202,7 @@ export default function CompleteScreen() {
         try {
           const { data: userData, error: userError } = await withTimeout(
             supabase.auth.getUser(),
-            15000,
+            60000,
             'getUser timed out'
           );
 
@@ -301,102 +312,47 @@ export default function CompleteScreen() {
         is_active: true,
       };
 
-      console.log('[Complete] Saving profile to database...');
+      console.log('[Complete] Saving profile to database using direct API...');
 
-      // Check if user already exists (with timeout)
-      let existingUser = null;
-      let checkError = null;
-      try {
-        const result = await withTimeout(
-          supabase
-            .from('users')
-            .select('id')
-            .eq('auth_id', verifiedAuthId)
-            .maybeSingle(),
-          10000,
-          'Check existing user timed out'
-        );
-        existingUser = result.data;
-        checkError = result.error;
-      } catch (e: any) {
-        console.log('[Complete] Check existing user error:', e.message);
-        checkError = { message: e.message };
+      // Check if user already exists using direct REST API
+      const { exists: userExists, userId: existingUserId, error: checkError } = await checkUserExists(verifiedAuthId);
+
+      if (checkError && checkError.code !== 'TIMEOUT') {
+        console.log('[Complete] Check existing user error:', checkError.message);
       }
 
-      console.log('[Complete] Existing user check:', existingUser?.id || 'none', checkError?.message || 'no error');
+      console.log('[Complete] Existing user check:', existingUserId || 'none', userExists);
 
       let userData;
       let userError;
 
-      if (existingUser) {
-        // Update existing user
-        console.log('[Complete] Updating existing user:', existingUser.id);
-        try {
-          const result = await withTimeout(
-            supabase
-              .from('users')
-              .update(profileData)
-              .eq('auth_id', verifiedAuthId)
-              .select()
-              .single(),
-            15000,
-            'Update user timed out'
-          );
-          userData = result.data;
-          userError = result.error;
-        } catch (e: any) {
-          console.log('[Complete] Update error:', e.message);
-          userError = { message: e.message, code: 'TIMEOUT' };
-        }
+      if (userExists && existingUserId) {
+        // Update existing user using direct REST API
+        console.log('[Complete] Updating existing user:', existingUserId);
+        const updateResult = await updateUser(verifiedAuthId, profileData);
+        userData = updateResult.data;
+        userError = updateResult.error;
       } else {
-        // Insert new user
+        // Insert new user using direct REST API
         console.log('[Complete] Inserting new user with auth_id:', verifiedAuthId);
-
-        try {
-          const result = await withTimeout(
-            supabase
-              .from('users')
-              .insert(profileData)
-              .select()
-              .single(),
-            15000,
-            'Insert user timed out'
-          );
-          userData = result.data;
-          userError = result.error;
-        } catch (e: any) {
-          console.log('[Complete] Insert error:', e.message);
-          userError = { message: e.message, code: 'TIMEOUT' };
-        }
+        const insertResult = await insertUser(profileData);
+        userData = insertResult.data;
+        userError = insertResult.error;
 
         // If insert fails with foreign key error, retry after a delay
-        // This handles potential timing issues with auth.users replication
-        if (userError && userError.code === '23503') {
+        if (userError && (userError.code === '23503' || userError.message?.includes('foreign key'))) {
           console.log('[Complete] Insert failed with FK error, retrying after delay...');
 
-          // Wait longer for the auth.users entry to be committed
+          // Wait for the auth.users entry to be committed
           await new Promise(resolve => setTimeout(resolve, 2000));
 
-          try {
-            const retryResult = await withTimeout(
-              supabase
-                .from('users')
-                .insert(profileData)
-                .select()
-                .single(),
-              15000,
-              'Retry insert timed out'
-            );
-
-            if (!retryResult.error) {
-              userData = retryResult.data;
-              userError = null;
-              console.log('[Complete] Retry successful!');
-            } else {
-              console.error('[Complete] Retry also failed:', retryResult.error.message, retryResult.error.code);
-            }
-          } catch (e: any) {
-            console.error('[Complete] Retry timed out:', e.message);
+          const retryResult = await insertUser(profileData);
+          if (!retryResult.error) {
+            userData = retryResult.data;
+            userError = null;
+            console.log('[Complete] Retry successful!');
+          } else {
+            console.error('[Complete] Retry also failed:', retryResult.error.message);
           }
         }
       }
@@ -428,76 +384,78 @@ export default function CompleteScreen() {
       const userId = userData.id;
 
       console.log('[Complete] Processing photos...');
+      console.log('[Complete] Photos count:', data?.photos?.length || 0);
       // Upload and save photos if any
       if (data?.photos && data.photos.length > 0) {
-        // Delete existing photos first (with timeout)
-        try {
-          await withTimeout(
-            supabase.from('user_photos').delete().eq('user_id', userId),
-            10000,
-            'Delete photos timed out'
-          );
-        } catch (e) {
-          console.log('[Complete] Delete photos error (continuing):', e);
+        // Delete existing photos first using direct API
+        console.log('[Complete] Deleting existing photos...');
+        const { error: deletePhotosErr } = await deleteUserPhotos(userId);
+        console.log('[Complete] Delete photos complete, error:', deletePhotosErr?.message || 'none');
+        if (deletePhotosErr) {
+          console.log('[Complete] Delete photos error (continuing):', deletePhotosErr.message);
         }
 
         // Upload photos to Supabase storage and collect URLs
         const uploadedPhotos: Array<{ url: string; order: number }> = [];
 
+        console.log('[Complete] Starting photo upload loop...');
         for (let i = 0; i < data.photos.length; i++) {
           const photo = data.photos[i];
           const photoUri = photo.uri || photo.uploadedUrl;
+          console.log(`[Complete] Photo ${i}: uri=${photoUri?.substring(0, 50)}...`);
 
-          if (!photoUri) continue;
+          if (!photoUri) {
+            console.log(`[Complete] Photo ${i}: skipping - no URI`);
+            continue;
+          }
 
           try {
             // If already a remote URL (starts with http), use as is
             if (photoUri.startsWith('http')) {
+              console.log(`[Complete] Photo ${i}: already remote URL, using as-is`);
               uploadedPhotos.push({ url: photoUri, order: i });
               continue;
             }
 
             // Read the local file as base64
+            console.log(`[Complete] Photo ${i}: reading file as base64...`);
             const base64 = await FileSystem.readAsStringAsync(photoUri, {
               encoding: Base64Encoding,
             });
+            console.log(`[Complete] Photo ${i}: read ${base64.length} chars`);
 
             // Generate unique filename - use verifiedAuthId for storage folder (matches RLS policy)
             const fileExt = photoUri.split('.').pop()?.toLowerCase() || 'jpg';
             const fileName = `${verifiedAuthId}/${Date.now()}_${i}.${fileExt}`;
+            const contentType = `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`;
 
-            // Upload to Supabase storage (with 30s timeout for large files)
-            const { data: uploadData, error: uploadError } = await withTimeout(
-              supabase.storage
-                .from('profile-photos')
-                .upload(fileName, decode(base64), {
-                  contentType: `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`,
-                  upsert: true,
-                }),
-              30000,
-              'Photo upload timed out'
+            // Upload to Supabase storage using direct API (bypasses hanging JS client)
+            console.log(`[Complete] Photo ${i}: uploading to storage via direct API...`);
+            const { data: uploadData, error: uploadError } = await uploadToStorage(
+              'profile-photos',
+              fileName,
+              base64,
+              contentType,
+              60000
             );
+            console.log(`[Complete] Photo ${i}: upload complete, error:`, uploadError?.message || 'none');
 
             if (uploadError) {
               console.error('Error uploading photo:', uploadError);
               continue;
             }
 
-            // Get public URL
-            const { data: urlData } = supabase.storage
-              .from('profile-photos')
-              .getPublicUrl(fileName);
-
-            if (urlData?.publicUrl) {
-              uploadedPhotos.push({ url: urlData.publicUrl, order: i });
-            }
+            // Get public URL using direct API helper
+            const publicUrl = getStoragePublicUrl('profile-photos', fileName);
+            console.log(`[Complete] Photo ${i}: public URL:`, publicUrl.substring(0, 80) + '...');
+            uploadedPhotos.push({ url: publicUrl, order: i });
           } catch (err) {
             console.error('Error processing photo:', err);
             // Continue with other photos
           }
         }
 
-        // Insert photo records
+        // Insert photo records using direct API
         if (uploadedPhotos.length > 0) {
           const photosToInsert = uploadedPhotos.map((photo, index) => ({
             user_id: userId,
@@ -506,16 +464,10 @@ export default function CompleteScreen() {
             is_primary: index === 0,
           }));
 
-          const { error: photosError } = await withTimeout(
-            supabase
-              .from('user_photos')
-              .insert(photosToInsert),
-            10000,
-            'Insert photos timed out'
-          );
+          const { error: photosError } = await insertUserPhotos(photosToInsert);
 
           if (photosError) {
-            console.error('[Complete] Error saving photo records:', photosError);
+            console.error('[Complete] Error saving photo records:', photosError.message);
             // Continue anyway - photos are not critical for the profile
           } else {
             console.log('[Complete] Photos saved successfully');
@@ -524,20 +476,15 @@ export default function CompleteScreen() {
       }
 
       console.log('[Complete] Processing prompts...');
-      // Save prompts if any
+      // Save prompts if any using direct API
       if (data?.prompts && data.prompts.length > 0) {
-        // Delete existing prompts first (with timeout)
-        try {
-          await withTimeout(
-            supabase.from('user_prompts').delete().eq('user_id', userId),
-            10000,
-            'Delete prompts timed out'
-          );
-        } catch (e) {
-          console.log('[Complete] Delete prompts error (continuing):', e);
+        // Delete existing prompts first using direct API
+        const { error: deletePromptsErr } = await deleteUserPrompts(userId);
+        if (deletePromptsErr) {
+          console.log('[Complete] Delete prompts error (continuing):', deletePromptsErr.message);
         }
 
-        // Insert new prompts
+        // Insert new prompts using direct API
         const promptsToInsert = data.prompts.map((prompt, index) => ({
           user_id: userId,
           prompt_id: prompt.prompt_id,
@@ -545,16 +492,10 @@ export default function CompleteScreen() {
           display_order: index,
         }));
 
-        const { error: promptsError } = await withTimeout(
-          supabase
-            .from('user_prompts')
-            .insert(promptsToInsert),
-          10000,
-          'Insert prompts timed out'
-        );
+        const { error: promptsError } = await insertUserPrompts(promptsToInsert);
 
         if (promptsError) {
-          console.error('[Complete] Error saving prompts:', promptsError);
+          console.error('[Complete] Error saving prompts:', promptsError.message);
           // Continue anyway - prompts are not critical
         } else {
           console.log('[Complete] Prompts saved successfully');

@@ -117,6 +117,11 @@ export const colors = {
     coral20: 'rgba(255, 127, 80, 0.2)',
     coral40: 'rgba(255, 127, 80, 0.4)',
     coral50: 'rgba(255, 127, 80, 0.5)',
+    // Error transparents (for danger zones)
+    error10: 'rgba(229, 57, 53, 0.1)',
+    error20: 'rgba(229, 57, 53, 0.2)',
+    // White very light
+    white05: 'rgba(255, 255, 255, 0.05)',
   },
 } as const;
 

@@ -23,6 +23,8 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius, shadows } from '@/theme/spacing';
@@ -31,6 +33,7 @@ import { useAllMessagesSubscription, useMatchesSubscription } from '@/api/realti
 import { AdBanner } from '@/components/ads';
 import { useUIStore } from '@/stores/uiStore';
 import { AnimatedHeader } from '@/components/ui/AnimatedHeader';
+import { NewMatchCarousel, ConversationCard } from '@/components/matches';
 import { DEMO_MATCHES, DEMO_MESSAGES, DEMO_SAFTA_CONNECTIONS, getDemoConversations } from '@/lib/demo/demoProfiles';
 
 // Message category types
@@ -437,7 +440,8 @@ export default function MatchesScreen() {
     );
   };
 
-  if (isLoading) {
+  // Only show loading if not in demo mode (demo mode has preloaded data)
+  if (isLoading && !isDemoMode) {
     return (
       <View style={[styles.container, styles.centered, { backgroundColor: theme.colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary.gold} />
@@ -570,45 +574,61 @@ export default function MatchesScreen() {
         {/* MATCHES TAB */}
         {activeTab === 'matches' && (
           <>
-            {/* New Matches Section */}
+            {/* New Matches Carousel with Golden Thread */}
             {newMatches.length > 0 && (
-              <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
-                  New Matches
-                </Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.newMatchesList}
-                >
-                  {newMatches.map((match) => (
-                    <NewMatchItemCard
-                      key={match.id}
-                      match={match}
-                      onPress={() => handleNewMatchPress(match.id)}
-                    />
-                  ))}
-                </ScrollView>
-              </View>
+              <NewMatchCarousel
+                matches={newMatches.map((match, index) => ({
+                  id: match.id,
+                  name: match.name,
+                  photo: match.photo,
+                  matchedAt: match.matchedAt,
+                  isNew: index < 3, // First 3 are marked as new
+                }))}
+                onMatchPress={(match) => handleNewMatchPress(match.id)}
+              />
             )}
 
-            {/* Conversations */}
+            {/* Conversations with Glass Morphism Cards */}
             {conversations.length > 0 ? (
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
-                  Conversations
-                </Text>
-                {conversations.map((conversation) => (
-                  <ConversationItemCard
+                <Animated.View entering={FadeIn.duration(400)} style={styles.sectionHeader}>
+                  <Ionicons name="chatbubbles" size={18} color={colors.primary.gold} />
+                  <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
+                    Conversations
+                  </Text>
+                </Animated.View>
+                {conversations.map((conversation, index) => (
+                  <ConversationCard
                     key={conversation.id}
-                    conversation={conversation}
+                    conversation={{
+                      id: conversation.id,
+                      name: conversation.name,
+                      photo: conversation.photo,
+                      lastMessage: conversation.lastMessage,
+                      lastMessageTime: conversation.lastMessageTime,
+                      unread: conversation.unread,
+                      isOnline: conversation.isOnline,
+                    }}
+                    index={index}
                     onPress={() => handleConversationPress(conversation.id)}
+                    onArchive={() => {
+                      // Handle archive - could add mutation here
+                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    }}
                   />
                 ))}
               </View>
             ) : newMatches.length === 0 ? (
               <View style={styles.emptyState}>
-                <Ionicons name="heart-outline" size={48} color={colors.neutral[300]} />
+                <LinearGradient
+                  colors={[colors.transparent.gold20, colors.transparent.gold10]}
+                  style={styles.emptyIconContainer}
+                >
+                  <Ionicons name="heart-outline" size={48} color={colors.primary.gold} />
+                </LinearGradient>
+                <Text style={[styles.emptyTitle, { color: colors.primary.white }]}>
+                  No matches yet
+                </Text>
                 <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
                   When you match with someone, they'll appear here
                 </Text>
@@ -873,6 +893,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing[10],
     paddingHorizontal: spacing[8],
+  },
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing[4],
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: spacing[2],
   },
   emptyText: {
     fontSize: 15,

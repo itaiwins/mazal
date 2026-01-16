@@ -14,7 +14,7 @@ export default function OrthodoxAuthLayout() {
       screenOptions={{
         headerShown: false,
         contentStyle: {
-          backgroundColor: colors.primary.navy,
+          backgroundColor: colors.dark.background,
         },
         animation: 'slide_from_right',
       }}

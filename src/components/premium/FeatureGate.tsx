@@ -109,7 +109,7 @@ export function UpgradeBanner({ onPress }: { onPress?: () => void }) {
 
   return (
     <Pressable
-      style={[styles.banner, { backgroundColor: colors.primary.navy }]}
+      style={[styles.banner, { backgroundColor: colors.dark.background }]}
       onPress={handlePress}
     >
       <View style={styles.bannerContent}>

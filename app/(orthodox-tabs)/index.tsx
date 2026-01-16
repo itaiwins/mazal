@@ -2,9 +2,10 @@
  * Orthodox Discover Screen
  *
  * Browse Orthodox singles with elegant styling
+ * Uses the shared 3D Card Stack system for consistent UX
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,11 +13,14 @@ import {
   Pressable,
   ActivityIndicator,
   Dimensions,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import * as Haptics from 'expo-haptics';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -24,18 +28,17 @@ import Animated, {
   withTiming,
   runOnJS,
 } from 'react-native-reanimated';
-import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { supabase } from '@/api/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { CardStack, ActionButtons, ProfileData } from '@/components/discovery';
+import { HapticPatterns } from '@/utils/haptics';
+import { StarOfDavid } from '@/components/icons/StarOfDavid';
 
 const { width, height } = Dimensions.get('window');
-const CARD_WIDTH = width - spacing[8];
-const CARD_HEIGHT = height * 0.6;
-const SWIPE_THRESHOLD = width * 0.3;
 
-interface Profile {
+interface OrthodoxProfile {
   id: string;
   first_name: string;
   age: number;
@@ -45,134 +48,18 @@ interface Profile {
   photo_url: string | null;
 }
 
-// Animated Header with Star of David
-function OrthodoxHeader() {
-  return (
-    <View style={styles.header}>
-      <View style={styles.headerLeft}>
-        <Text style={styles.starOfDavid}>✡</Text>
-        <View>
-          <Text style={styles.headerTitle}>Shidduch</Text>
-          <Text style={styles.headerSubtitle}>Orthodox Matching</Text>
-        </View>
-      </View>
-      <Pressable style={styles.filterButton}>
-        <Ionicons name="options-outline" size={24} color={colors.primary.gold} />
-      </Pressable>
-    </View>
-  );
-}
-
-// Profile Card Component
-function ProfileCard({
-  profile,
-  isFirst,
-  onSwipeLeft,
-  onSwipeRight,
-}: {
-  profile: Profile;
-  isFirst: boolean;
-  onSwipeLeft: () => void;
-  onSwipeRight: () => void;
-}) {
-  const translateX = useSharedValue(0);
-  const translateY = useSharedValue(0);
-  const rotation = useSharedValue(0);
-  const scale = useSharedValue(isFirst ? 1 : 0.95);
-
-  useEffect(() => {
-    scale.value = withSpring(isFirst ? 1 : 0.95);
-  }, [isFirst]);
-
-  const gesture = Gesture.Pan()
-    .onUpdate((event) => {
-      if (!isFirst) return;
-      translateX.value = event.translationX;
-      translateY.value = event.translationY * 0.3;
-      rotation.value = event.translationX * 0.1;
-    })
-    .onEnd((event) => {
-      if (!isFirst) return;
-
-      if (event.translationX > SWIPE_THRESHOLD) {
-        translateX.value = withTiming(width * 1.5, { duration: 300 });
-        runOnJS(onSwipeRight)();
-      } else if (event.translationX < -SWIPE_THRESHOLD) {
-        translateX.value = withTiming(-width * 1.5, { duration: 300 });
-        runOnJS(onSwipeLeft)();
-      } else {
-        translateX.value = withSpring(0);
-        translateY.value = withSpring(0);
-        rotation.value = withSpring(0);
-      }
-    });
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: translateX.value },
-      { translateY: translateY.value },
-      { rotate: `${rotation.value}deg` },
-      { scale: scale.value },
-    ],
-  }));
-
-  return (
-    <GestureDetector gesture={gesture}>
-      <Animated.View style={[styles.card, animatedStyle]}>
-        {profile.photo_url ? (
-          <Image
-            source={{ uri: profile.photo_url }}
-            style={styles.cardImage}
-            contentFit="cover"
-          />
-        ) : (
-          <View style={styles.cardImagePlaceholder}>
-            <Ionicons name="person" size={80} color={colors.neutral[400]} />
-          </View>
-        )}
-
-        <LinearGradient
-          colors={['transparent', 'rgba(10, 22, 40, 0.8)', 'rgba(10, 22, 40, 0.95)']}
-          style={styles.cardGradient}
-        >
-          <View style={styles.cardContent}>
-            <View style={styles.nameRow}>
-              <Text style={styles.cardName}>{profile.first_name}, {profile.age}</Text>
-              <View style={styles.verifiedBadge}>
-                <Text style={styles.verifiedBadgeText}>✡</Text>
-              </View>
-            </View>
-
-            {profile.jewish_background && (
-              <View style={styles.backgroundBadge}>
-                <Text style={styles.backgroundBadgeText}>
-                  {profile.jewish_background.replace(/_/g, ' ')}
-                </Text>
-              </View>
-            )}
-
-            {profile.occupation && (
-              <Text style={styles.cardOccupation}>{profile.occupation}</Text>
-            )}
-
-            {profile.bio && (
-              <Text style={styles.cardBio} numberOfLines={2}>
-                {profile.bio}
-              </Text>
-            )}
-          </View>
-        </LinearGradient>
-      </Animated.View>
-    </GestureDetector>
-  );
-}
-
 export default function OrthodoxDiscoverScreen() {
   const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
-  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [profiles, setProfiles] = useState<OrthodoxProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  // View mode - card stack vs original
+  const [viewMode, setViewMode] = useState<'cards' | 'story'>('cards');
+  const [selectedProfileForModal, setSelectedProfileForModal] = useState<OrthodoxProfile | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   // Fetch Orthodox profiles
   useEffect(() => {
@@ -180,7 +67,6 @@ export default function OrthodoxDiscoverScreen() {
       if (!user?.id) return;
 
       try {
-        // Note: is_orthodox_user column added via migration
         const { data, error } = await (supabase as any)
           .from('users')
           .select(`
@@ -227,30 +113,100 @@ export default function OrthodoxDiscoverScreen() {
     fetchProfiles();
   }, [user?.id]);
 
-  const handleSwipeLeft = () => {
-    setCurrentIndex((prev) => prev + 1);
-  };
+  // Convert OrthodoxProfile to ProfileData for CardStack
+  const cardStackProfiles: ProfileData[] = useMemo(() => {
+    return profiles.map((profile) => ({
+      id: profile.id,
+      first_name: profile.first_name,
+      age: profile.age,
+      occupation: profile.occupation,
+      jewish_background: profile.jewish_background,
+      photos: profile.photo_url ? [{ id: '1', photo_url: profile.photo_url, photo_order: 0 }] : [],
+      prompts: [],
+    }));
+  }, [profiles]);
 
-  const handleSwipeRight = async () => {
-    const likedProfile = profiles[currentIndex];
-    if (likedProfile && user?.id) {
-      // Record the like
+  const currentProfile = profiles[currentIndex];
+  const hasMoreProfiles = currentIndex < profiles.length;
+
+  // CardStack Handlers
+  const handleCardSwipeLeft = useCallback((profile: ProfileData) => {
+    HapticPatterns.pass();
+    setCurrentIndex((prev) => prev + 1);
+  }, []);
+
+  const handleCardSwipeRight = useCallback(async (profile: ProfileData) => {
+    HapticPatterns.like();
+    if (user?.id) {
       await supabase.from('swipes').insert({
         swiper_id: user.id,
-        swiped_id: likedProfile.id,
+        swiped_id: profile.id,
         action: 'like',
       });
     }
     setCurrentIndex((prev) => prev + 1);
-  };
+  }, [user?.id]);
 
-  const handleButtonSwipe = (isLike: boolean) => {
-    if (isLike) {
-      handleSwipeRight();
-    } else {
-      handleSwipeLeft();
+  const handleCardSwipeUp = useCallback((profile: ProfileData) => {
+    const fullProfile = profiles.find((p) => p.id === profile.id);
+    if (fullProfile) {
+      setSelectedProfileForModal(fullProfile);
+      setShowProfileModal(true);
     }
-  };
+  }, [profiles]);
+
+  const handleCardTap = useCallback((profile: ProfileData) => {
+    const fullProfile = profiles.find((p) => p.id === profile.id);
+    if (fullProfile) {
+      setSelectedProfileForModal(fullProfile);
+      setShowProfileModal(true);
+    }
+  }, [profiles]);
+
+  const handleCardAdvance = useCallback(() => {
+    setCurrentIndex((prev) => prev + 1);
+  }, []);
+
+  const handleCloseProfileModal = useCallback(() => {
+    setShowProfileModal(false);
+    setSelectedProfileForModal(null);
+  }, []);
+
+  // Button handlers
+  const handlePass = useCallback(() => {
+    HapticPatterns.pass();
+    setCurrentIndex((prev) => prev + 1);
+  }, []);
+
+  const handleLike = useCallback(async () => {
+    HapticPatterns.like();
+    if (currentProfile && user?.id) {
+      await supabase.from('swipes').insert({
+        swiper_id: user.id,
+        swiped_id: currentProfile.id,
+        action: 'like',
+      });
+    }
+    setCurrentIndex((prev) => prev + 1);
+  }, [currentProfile, user?.id]);
+
+  const handleSuperLike = useCallback(async () => {
+    HapticPatterns.superLike();
+    if (currentProfile && user?.id) {
+      await supabase.from('swipes').insert({
+        swiper_id: user.id,
+        swiped_id: currentProfile.id,
+        action: 'super_like',
+      });
+    }
+    setCurrentIndex((prev) => prev + 1);
+  }, [currentProfile, user?.id]);
+
+  // Toggle view mode
+  const toggleViewMode = useCallback(() => {
+    setViewMode((prev) => prev === 'cards' ? 'story' : 'cards');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
 
   if (isLoading) {
     return (
@@ -265,59 +221,62 @@ export default function OrthodoxDiscoverScreen() {
     );
   }
 
-  const visibleProfiles = profiles.slice(currentIndex, currentIndex + 2);
-
   return (
-    <GestureHandlerRootView style={styles.container}>
+    <View style={styles.container}>
       <LinearGradient
         colors={['#0a1628', '#0f1d36', '#1a2d52']}
         style={StyleSheet.absoluteFill}
       />
 
       <View style={[styles.content, { paddingTop: insets.top }]}>
-        <OrthodoxHeader />
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <StarOfDavid size={32} color={colors.primary.gold} />
+            <View>
+              <Text style={styles.headerTitle}>Shidduch</Text>
+              <Text style={styles.headerSubtitle}>Orthodox Matching</Text>
+            </View>
+          </View>
+          <View style={styles.headerActions}>
+            {/* View Mode Toggle */}
+            <Pressable style={styles.headerButton} onPress={toggleViewMode}>
+              <Ionicons
+                name={viewMode === 'cards' ? 'albums-outline' : 'layers-outline'}
+                size={22}
+                color={colors.primary.gold}
+              />
+            </Pressable>
+            <Pressable style={styles.filterButton}>
+              <Ionicons name="options-outline" size={24} color={colors.primary.gold} />
+            </Pressable>
+          </View>
+        </View>
 
-        {visibleProfiles.length > 0 ? (
+        {hasMoreProfiles && currentProfile ? (
           <>
-            <View style={styles.cardsContainer}>
-              {visibleProfiles.map((profile, index) => (
-                <ProfileCard
-                  key={profile.id}
-                  profile={profile}
-                  isFirst={index === 0}
-                  onSwipeLeft={handleSwipeLeft}
-                  onSwipeRight={handleSwipeRight}
-                />
-              )).reverse()}
-            </View>
+            {/* 3D Card Stack */}
+            <CardStack
+              profiles={cardStackProfiles}
+              currentIndex={currentIndex}
+              onSwipeLeft={handleCardSwipeLeft}
+              onSwipeRight={handleCardSwipeRight}
+              onSwipeUp={handleCardSwipeUp}
+              onTap={handleCardTap}
+              onCardAdvance={handleCardAdvance}
+            />
 
-            {/* Action Buttons */}
-            <View style={styles.actionButtons}>
-              <Pressable
-                style={[styles.actionButton, styles.passButton]}
-                onPress={() => handleButtonSwipe(false)}
-              >
-                <Ionicons name="close" size={32} color="#ff6b6b" />
-              </Pressable>
-
-              <Pressable
-                style={[styles.actionButton, styles.superLikeButton]}
-                onPress={() => {/* Super like */}}
-              >
-                <Text style={styles.superLikeIcon}>✡</Text>
-              </Pressable>
-
-              <Pressable
-                style={[styles.actionButton, styles.likeButton]}
-                onPress={() => handleButtonSwipe(true)}
-              >
-                <Ionicons name="heart" size={32} color={colors.primary.gold} />
-              </Pressable>
-            </View>
+            {/* Orthodox-styled Action Buttons */}
+            <ActionButtons
+              onPass={handlePass}
+              onLike={handleLike}
+              onSuperLike={handleSuperLike}
+              disabled={isTransitioning}
+            />
           </>
         ) : (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyStateIcon}>✡</Text>
+            <StarOfDavid size={64} color={colors.primary.gold} />
             <Text style={styles.emptyStateTitle}>No More Profiles</Text>
             <Text style={styles.emptyStateText}>
               Check back later for new matches in your community
@@ -325,7 +284,100 @@ export default function OrthodoxDiscoverScreen() {
           </View>
         )}
       </View>
-    </GestureHandlerRootView>
+
+      {/* Full Profile Modal */}
+      {showProfileModal && selectedProfileForModal && (
+        <Modal
+          visible={true}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={handleCloseProfileModal}
+        >
+          <View style={styles.profileModalContainer}>
+            <Pressable style={styles.profileModalClose} onPress={handleCloseProfileModal}>
+              <Ionicons name="close" size={28} color={colors.primary.white} />
+            </Pressable>
+
+            <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
+              {/* Hero Photo */}
+              <View style={styles.heroContainer}>
+                {selectedProfileForModal.photo_url ? (
+                  <Image
+                    source={{ uri: selectedProfileForModal.photo_url }}
+                    style={styles.heroImage}
+                    contentFit="cover"
+                  />
+                ) : (
+                  <View style={[styles.heroImage, styles.heroPlaceholder]}>
+                    <Ionicons name="person" size={80} color={colors.neutral[400]} />
+                  </View>
+                )}
+                <LinearGradient
+                  colors={['transparent', 'rgba(10,22,40,0.8)', 'rgba(10,22,40,0.98)']}
+                  style={styles.heroGradient}
+                />
+                <View style={styles.heroInfo}>
+                  <View style={styles.heroNameRow}>
+                    <Text style={styles.heroName}>
+                      {selectedProfileForModal.first_name}, {selectedProfileForModal.age}
+                    </Text>
+                    <View style={styles.verifiedBadge}>
+                      <StarOfDavid size={16} color={colors.primary.navy} />
+                    </View>
+                  </View>
+                  {selectedProfileForModal.jewish_background && (
+                    <View style={styles.backgroundBadge}>
+                      <Text style={styles.backgroundBadgeText}>
+                        {selectedProfileForModal.jewish_background.replace(/_/g, ' ')}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+
+              {/* About Section */}
+              {selectedProfileForModal.bio && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>About</Text>
+                  <Text style={styles.bioText}>{selectedProfileForModal.bio}</Text>
+                </View>
+              )}
+
+              {/* Occupation */}
+              {selectedProfileForModal.occupation && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Occupation</Text>
+                  <Text style={styles.bioText}>{selectedProfileForModal.occupation}</Text>
+                </View>
+              )}
+            </ScrollView>
+
+            {/* Modal Action Footer */}
+            <View style={[styles.modalActionFooter, { paddingBottom: insets.bottom + spacing[2] }]}>
+              <Pressable style={styles.passButtonModal} onPress={() => {
+                handleCloseProfileModal();
+                handlePass();
+              }}>
+                <Ionicons name="close" size={28} color={colors.neutral[400]} />
+              </Pressable>
+              <Pressable style={styles.superLikeButtonModal} onPress={() => {
+                handleCloseProfileModal();
+                handleSuperLike();
+              }}>
+                <StarOfDavid size={24} color={colors.primary.navy} />
+              </Pressable>
+              <Pressable style={styles.likeButtonModal} onPress={() => {
+                handleCloseProfileModal();
+                handleLike();
+              }}>
+                <Ionicons name="heart" size={28} color={colors.primary.navy} />
+                <Text style={styles.likeButtonText}>Like</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+      )}
+    </View>
   );
 }
 
@@ -353,9 +405,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing[3],
   },
-  starOfDavid: {
-    fontSize: 32,
-    color: colors.primary.gold,
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
+  },
+  headerButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
     fontSize: 24,
@@ -374,49 +433,83 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cardsContainer: {
+  loadingText: {
+    marginTop: spacing[4],
+    fontSize: 16,
+    color: colors.transparent.white60,
+  },
+  emptyState: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    padding: spacing[6],
+    gap: spacing[4],
   },
-  card: {
+  emptyStateTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.primary.white,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    color: colors.transparent.white60,
+    textAlign: 'center',
+  },
+  // Profile Modal Styles
+  profileModalContainer: {
+    flex: 1,
+    backgroundColor: '#0a1628',
+  },
+  profileModalClose: {
     position: 'absolute',
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT,
-    borderRadius: borderRadius.xl,
-    overflow: 'hidden',
-    backgroundColor: '#1a2d52',
+    top: spacing[6],
+    right: spacing[4],
+    zIndex: 100,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  cardImage: {
+  modalScrollView: {
+    flex: 1,
+  },
+  heroContainer: {
+    height: height * 0.5,
+    position: 'relative',
+  },
+  heroImage: {
     width: '100%',
     height: '100%',
   },
-  cardImagePlaceholder: {
-    width: '100%',
-    height: '100%',
+  heroPlaceholder: {
     backgroundColor: '#1a2d52',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cardGradient: {
+  heroGradient: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    height: '50%',
-    justifyContent: 'flex-end',
-    padding: spacing[5],
+    height: '60%',
   },
-  cardContent: {
-    gap: spacing[2],
+  heroInfo: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: spacing[4],
   },
-  nameRow: {
+  heroNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[2],
+    marginBottom: spacing[2],
   },
-  cardName: {
-    fontSize: 28,
+  heroName: {
+    fontSize: 32,
     fontWeight: '700',
     color: colors.primary.white,
   },
@@ -427,10 +520,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary.gold,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  verifiedBadgeText: {
-    fontSize: 16,
-    color: colors.primary.navy,
   },
   backgroundBadge: {
     alignSelf: 'flex-start',
@@ -447,80 +536,70 @@ const styles = StyleSheet.create({
     color: colors.primary.gold,
     textTransform: 'capitalize',
   },
-  cardOccupation: {
-    fontSize: 16,
-    color: colors.transparent.white80,
-  },
-  cardBio: {
-    fontSize: 14,
-    color: colors.transparent.white60,
-    lineHeight: 20,
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: spacing[5],
-    paddingVertical: spacing[4],
-    paddingBottom: spacing[6],
-  },
-  actionButton: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  passButton: {
-    backgroundColor: 'rgba(255, 107, 107, 0.15)',
-    borderWidth: 2,
-    borderColor: 'rgba(255, 107, 107, 0.5)',
-  },
-  superLikeButton: {
-    backgroundColor: colors.primary.gold,
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-  },
-  superLikeIcon: {
-    fontSize: 32,
-    color: colors.primary.navy,
-  },
-  likeButton: {
-    backgroundColor: 'rgba(212, 175, 55, 0.15)',
-    borderWidth: 2,
-    borderColor: colors.primary.gold,
-  },
-  loadingText: {
-    marginTop: spacing[4],
-    fontSize: 16,
-    color: colors.transparent.white60,
-  },
-  emptyState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing[6],
-  },
-  emptyStateIcon: {
-    fontSize: 64,
-    color: colors.primary.gold,
+  section: {
+    marginHorizontal: spacing[4],
     marginBottom: spacing[4],
+    padding: spacing[4],
+    backgroundColor: 'rgba(26, 45, 82, 0.8)',
+    borderRadius: borderRadius.xl,
   },
-  emptyStateTitle: {
-    fontSize: 24,
+  sectionTitle: {
+    fontSize: 18,
     fontWeight: '700',
     color: colors.primary.white,
     marginBottom: spacing[2],
   },
-  emptyStateText: {
-    fontSize: 16,
-    color: colors.transparent.white60,
-    textAlign: 'center',
+  bioText: {
+    fontSize: 15,
+    lineHeight: 24,
+    color: colors.transparent.white80,
+  },
+  modalActionFooter: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing[6],
+    paddingTop: spacing[4],
+    backgroundColor: '#0a1628',
+    gap: spacing[3],
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(212, 175, 55, 0.2)',
+  },
+  passButtonModal: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 2,
+    borderColor: colors.neutral[700],
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 107, 107, 0.15)',
+  },
+  superLikeButtonModal: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: colors.primary.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  likeButtonModal: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: colors.primary.gold,
+    paddingVertical: spacing[4],
+    borderRadius: borderRadius.xl,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing[2],
+  },
+  likeButtonText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: colors.primary.navy,
   },
 });

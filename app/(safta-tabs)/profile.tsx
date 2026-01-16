@@ -1,7 +1,7 @@
 /**
  * Safta Profile Tab
  *
- * Manage Safta account - mirrors regular profile.tsx but for Saftas
+ * Premium Safta profile with dark theme design
  */
 
 import { useState, useEffect } from 'react';
@@ -21,12 +21,13 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInUp, FadeInRight } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
 import * as FileSystem from 'expo-file-system/legacy';
 import { decode } from 'base64-arraybuffer';
-import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius, shadows } from '@/theme/spacing';
 import { useAuthStore } from '@/stores/authStore';
@@ -34,7 +35,6 @@ import { useSaftaPremiumStore } from '@/stores/saftaPremiumStore';
 import { supabase } from '@/api/supabase/client';
 import { useDeactivateAccount } from '@/api/mutations/useProfile';
 
-// Type for connected users (followers)
 interface ConnectedUser {
   id: string;
   first_name: string;
@@ -43,10 +43,6 @@ interface ConnectedUser {
   connected_at: string;
 }
 
-// Safta mode uses gold accent (matching user mode)
-const SAFTA_ACCENT = colors.primary.gold;
-
-// FileSystem encoding type
 const Base64Encoding = 'base64' as const;
 
 function SettingsItem({
@@ -56,6 +52,7 @@ function SettingsItem({
   showArrow = true,
   rightElement,
   danger = false,
+  index = 0,
 }: {
   icon: string;
   label: string;
@@ -63,30 +60,35 @@ function SettingsItem({
   showArrow?: boolean;
   rightElement?: React.ReactNode;
   danger?: boolean;
+  index?: number;
 }) {
-  const theme = useTheme();
-
   return (
-    <Pressable style={styles.settingsItem} onPress={onPress}>
-      <View style={styles.settingsItemLeft}>
-        <Ionicons
-          name={icon as any}
-          size={22}
-          color={danger ? colors.semantic.error : SAFTA_ACCENT}
-        />
-        <Text style={[styles.settingsItemLabel, { color: danger ? colors.semantic.error : theme.colors.text }]}>
-          {label}
-        </Text>
-      </View>
-      {rightElement || (showArrow && (
-        <Ionicons name="chevron-forward" size={20} color={colors.neutral[400]} />
-      ))}
-    </Pressable>
+    <Animated.View entering={FadeInRight.delay(index * 30).springify()}>
+      <Pressable
+        style={({ pressed }) => [styles.settingsItem, pressed && styles.settingsItemPressed]}
+        onPress={onPress}
+      >
+        <View style={styles.settingsItemLeft}>
+          <View style={[styles.settingIconContainer, danger && styles.settingIconDanger]}>
+            <Ionicons
+              name={icon as any}
+              size={20}
+              color={danger ? colors.semantic.error : colors.primary.gold}
+            />
+          </View>
+          <Text style={[styles.settingsItemLabel, danger && styles.settingsItemLabelDanger]}>
+            {label}
+          </Text>
+        </View>
+        {rightElement || (showArrow && (
+          <Ionicons name="chevron-forward" size={20} color={colors.neutral[500]} />
+        ))}
+      </Pressable>
+    </Animated.View>
   );
 }
 
 export default function SaftaProfileScreen() {
-  const theme = useTheme();
   const insets = useSafeAreaInsets();
 
   const session = useAuthStore((s) => s.session);
@@ -95,43 +97,33 @@ export default function SaftaProfileScreen() {
   const logout = useAuthStore((s) => s.logout);
   const hasUserProfile = useAuthStore((s) => s.isOnboardingComplete);
 
-  // Premium store
   const { isProSubscriber, dailyRecommendationsRemaining } = useSaftaPremiumStore();
-
-  // Account deletion mutation
   const deleteAccountMutation = useDeactivateAccount();
 
-  // Get Safta profile from user metadata
   const saftaName = session?.user?.user_metadata?.safta_name || 'Safta';
   const saftaRelationship = session?.user?.user_metadata?.safta_relationship || 'grandmother';
   const saftaPhoto = session?.user?.user_metadata?.safta_photo || null;
 
-  // Modal states
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPreferencesModal, setShowPreferencesModal] = useState(false);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
 
-  // Edit profile state
   const [editName, setEditName] = useState(saftaName);
   const [editRelationship, setEditRelationship] = useState(saftaRelationship);
   const [editPhoto, setEditPhoto] = useState<string | null>(saftaPhoto);
   const [isUploading, setIsUploading] = useState(false);
 
-  // Notification preferences
   const [notifyNewMatches, setNotifyNewMatches] = useState(true);
   const [notifyMessages, setNotifyMessages] = useState(true);
   const [notifyRecommendations, setNotifyRecommendations] = useState(true);
 
-  // Connected users (followers) - used for follower count
   const [connectedUsers, setConnectedUsers] = useState<ConnectedUser[]>([]);
 
-  // Fetch connected users count
   useEffect(() => {
     async function fetchConnectedUsers() {
       if (!session?.user?.id) return;
 
       try {
-        // Query safta_connections table to get connected users
         const { data, error } = await supabase
           .from('safta_connections')
           .select(`
@@ -151,19 +143,16 @@ export default function SaftaProfileScreen() {
           .order('created_at', { ascending: false });
 
         if (error) {
-          // Table might not exist yet - that's okay
           console.log('No safta_connections data:', error.message);
           setConnectedUsers([]);
           return;
         }
 
-        // Transform data to ConnectedUser format
         const users: ConnectedUser[] = (data || []).map((conn: any) => {
           const user = conn.user;
           const primaryPhoto = user?.user_photos?.find((p: any) => p.photo_order === 0)?.photo_url ||
                                user?.user_photos?.[0]?.photo_url || null;
 
-          // Calculate age
           let age = 0;
           if (user?.date_of_birth) {
             const today = new Date();
@@ -209,7 +198,6 @@ export default function SaftaProfileScreen() {
   const handlePickPhoto = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    // Show options: camera or gallery
     Alert.alert(
       'Add Profile Photo',
       'Choose how to add your photo',
@@ -273,16 +261,12 @@ export default function SaftaProfileScreen() {
   };
 
   const handleSwitchToUserMode = () => {
-    console.log('[Safta Profile] Switching to user mode, onboarding complete:', isOnboardingComplete);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setCurrentMode('user');
 
-    // Navigate directly based on onboarding state (like handleSwitchToSaftaMode does)
     if (isOnboardingComplete) {
-      console.log('[Safta Profile] Navigating to tabs');
       router.replace('/(tabs)');
     } else {
-      console.log('[Safta Profile] Navigating to onboarding');
       router.replace('/(onboarding)/welcome');
     }
   };
@@ -343,21 +327,15 @@ export default function SaftaProfileScreen() {
     try {
       let photoUrl = editPhoto;
 
-      // Upload photo to storage if it's a local file
       if (editPhoto && !editPhoto.startsWith('http') && session?.user?.id) {
         try {
-          console.log('[Safta Profile] Uploading photo...');
-
-          // Read file as base64
           const base64 = await FileSystem.readAsStringAsync(editPhoto, {
             encoding: Base64Encoding,
           });
 
-          // Generate unique filename
           const fileExt = editPhoto.split('.').pop()?.toLowerCase() || 'jpg';
           const fileName = `safta-photos/${session.user.id}/${Date.now()}.${fileExt}`;
 
-          // Upload to Supabase storage
           const { data: uploadData, error: uploadError } = await supabase.storage
             .from('profile-photos')
             .upload(fileName, decode(base64), {
@@ -367,21 +345,17 @@ export default function SaftaProfileScreen() {
 
           if (uploadError) {
             console.error('[Safta Profile] Photo upload error:', uploadError);
-            // Continue without photo update
           } else {
-            // Get public URL
             const { data: urlData } = supabase.storage
               .from('profile-photos')
               .getPublicUrl(fileName);
 
             if (urlData?.publicUrl) {
               photoUrl = urlData.publicUrl;
-              console.log('[Safta Profile] Photo uploaded:', photoUrl);
             }
           }
         } catch (uploadErr) {
           console.error('[Safta Profile] Error uploading photo:', uploadErr);
-          // Continue with profile save without photo
         }
       }
 
@@ -433,7 +407,7 @@ export default function SaftaProfileScreen() {
         },
         {
           text: 'Contact Support',
-          onPress: () => Linking.openURL('mailto:support@mazal.app?subject=Safta%20Mode%20Support'),
+          onPress: () => Linking.openURL('mailto:support@mazaldating.com?subject=Safta%20Mode%20Support'),
         },
         { text: 'Cancel', style: 'cancel' },
       ]
@@ -451,185 +425,191 @@ export default function SaftaProfileScreen() {
   ];
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-      contentContainerStyle={{ paddingBottom: insets.bottom + spacing[4] }}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + spacing[2] }]}>
-        <Text style={[styles.title, { color: theme.colors.text }]}>Profile</Text>
-        <Pressable
-          style={styles.settingsButton}
-          onPress={() => router.push('/settings')}
-        >
-          <Ionicons name="settings-outline" size={24} color={theme.colors.icon} />
-        </Pressable>
-      </View>
-
-      {/* Profile Preview */}
-      <View style={styles.profilePreview}>
-        <Pressable onPress={() => setShowEditModal(true)}>
-          {saftaPhoto ? (
-            <Image source={{ uri: saftaPhoto }} style={styles.mainPhoto} />
-          ) : (
-            <View style={[styles.mainPhoto, styles.photoPlaceholder]}>
-              <Text style={styles.avatarEmoji}>👵</Text>
-            </View>
-          )}
-          <View style={styles.editPhotoOverlay}>
-            <Ionicons name="camera" size={16} color={colors.primary.white} />
-          </View>
-        </Pressable>
-        <View style={styles.saftaBadgeOnPhoto}>
-          <Text style={styles.saftaBadgeText}>SAFTA</Text>
-        </View>
-        <View style={styles.profileInfo}>
-          <Text style={[styles.name, { color: theme.colors.text }]}>
-            {saftaName}
-          </Text>
-          <Text style={[styles.occupation, { color: theme.colors.textSecondary }]}>
-            {getRelationshipLabel(saftaRelationship)}
-          </Text>
-        </View>
-
-        {/* Edit Profile Button */}
-        <Pressable
-          style={styles.editButton}
-          onPress={() => setShowEditModal(true)}
-        >
-          <Ionicons name="pencil" size={18} color={SAFTA_ACCENT} />
-          <Text style={styles.editButtonText}>Edit Profile</Text>
-        </Pressable>
-      </View>
-
-      {/* Stats Section */}
-      <View style={styles.statsSection}>
-        <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>
-          Your Activity
-        </Text>
-        <View style={styles.statsRow}>
-          <View style={[styles.statCard, { backgroundColor: theme.colors.surface }]}>
-            <Ionicons name="sparkles" size={24} color={colors.semantic.success} />
-            <Text style={[styles.statValue, { color: theme.colors.text }]}>
-              0
-            </Text>
-            <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
-              Matches
-            </Text>
-          </View>
-          <View style={[styles.statCard, { backgroundColor: theme.colors.surface }]}>
-            <Ionicons name="people" size={24} color={SAFTA_ACCENT} />
-            <Text style={[styles.statValue, { color: theme.colors.text }]}>
-              {connectedUsers.length}
-            </Text>
-            <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
-              Followers
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Premium Banner */}
-      {isProSubscriber ? (
-        <View style={styles.proBanner}>
-          <View style={styles.premiumContent}>
-            <View style={styles.proBadge}>
-              <Text style={styles.proBadgeText}>PRO</Text>
-            </View>
-            <View style={styles.premiumText}>
-              <Text style={styles.proTitle}>Safta Pro</Text>
-              <Text style={styles.proSubtitle}>Unlimited recommendations & connections</Text>
-            </View>
-          </View>
-          <Ionicons name="checkmark-circle" size={24} color={colors.semantic.success} />
-        </View>
-      ) : (
-        <Pressable
-          style={styles.premiumBanner}
-          onPress={handlePremiumPress}
-        >
-          <View style={styles.premiumContent}>
-            <Ionicons name="star" size={24} color={SAFTA_ACCENT} />
-            <View style={styles.premiumText}>
-              <Text style={styles.premiumTitle}>Upgrade to Safta Pro</Text>
-              <Text style={styles.premiumSubtitle}>
-                {dailyRecommendationsRemaining} recommendations left today
-              </Text>
-            </View>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={SAFTA_ACCENT} />
-        </Pressable>
-      )}
-
-      {/* Settings Sections */}
-      <View style={[styles.settingsSection, { backgroundColor: theme.colors.surface }]}>
-        <SettingsItem
-          icon="options-outline"
-          label="Browse Preferences"
-          onPress={() => setShowPreferencesModal(true)}
-        />
-        <SettingsItem
-          icon="notifications-outline"
-          label="Notifications"
-          onPress={() => setShowNotificationsModal(true)}
-        />
-      </View>
-
-      {/* Switch to Dating Mode */}
-      <Pressable
-        style={styles.saftaModeBanner}
-        onPress={handleSwitchToUserMode}
+    <View style={styles.container}>
+      {/* Premium Header with Gradient */}
+      <LinearGradient
+        colors={[colors.primary.navy, colors.dark.background]}
+        style={[styles.headerGradient, { paddingTop: insets.top }]}
       >
-        <View style={styles.saftaModeContent}>
-          <View style={styles.saftaModeIconContainer}>
-            <Ionicons name="heart" size={22} color={colors.primary.gold} />
-          </View>
-          <View style={styles.saftaModeText}>
-            <Text style={styles.saftaModeTitle}>Switch to Dating Mode</Text>
-            <Text style={styles.saftaModeSubtitle}>
-              {isOnboardingComplete
-                ? 'Browse profiles for yourself'
-                : 'Set up your dating profile'}
-            </Text>
-          </View>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Profile</Text>
+          <Pressable
+            style={styles.settingsButton}
+            onPress={() => router.push('/settings')}
+          >
+            <Ionicons name="settings-outline" size={24} color={colors.primary.white} />
+          </Pressable>
         </View>
-        <Ionicons name="chevron-forward" size={20} color={colors.primary.gold} />
-      </Pressable>
+      </LinearGradient>
 
-      <View style={[styles.settingsSection, { backgroundColor: theme.colors.surface }]}>
-        <SettingsItem
-          icon="help-circle-outline"
-          label="Help & Support"
-          onPress={handleHelpPress}
-        />
-        <SettingsItem
-          icon="document-text-outline"
-          label="Terms & Privacy"
-          onPress={() => router.push('/legal/terms')}
-        />
-      </View>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={{ paddingBottom: insets.bottom + spacing[4] }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Profile Preview */}
+        <Animated.View entering={FadeInUp.delay(100).springify()} style={styles.profilePreview}>
+          <Pressable onPress={() => setShowEditModal(true)}>
+            {saftaPhoto ? (
+              <Image source={{ uri: saftaPhoto }} style={styles.mainPhoto} />
+            ) : (
+              <View style={[styles.mainPhoto, styles.photoPlaceholder]}>
+                <Text style={styles.avatarEmoji}>👵</Text>
+              </View>
+            )}
+            <View style={styles.editPhotoOverlay}>
+              <Ionicons name="camera" size={16} color={colors.primary.navy} />
+            </View>
+          </Pressable>
+          <View style={styles.saftaBadgeOnPhoto}>
+            <Text style={styles.saftaBadgeText}>SAFTA</Text>
+          </View>
+          <View style={styles.profileInfo}>
+            <Text style={styles.name}>{saftaName}</Text>
+            <Text style={styles.occupation}>{getRelationshipLabel(saftaRelationship)}</Text>
+          </View>
 
-      {/* Account Actions */}
-      <View style={styles.accountActions}>
-        <Pressable style={styles.logoutButton} onPress={handleLogout}>
-          <Text style={styles.logoutText}>Log Out</Text>
-        </Pressable>
+          <Pressable style={styles.editButton} onPress={() => setShowEditModal(true)}>
+            <Ionicons name="pencil" size={18} color={colors.primary.gold} />
+            <Text style={styles.editButtonText}>Edit Profile</Text>
+          </Pressable>
+        </Animated.View>
 
-        <Pressable
-          style={[styles.deleteButton, deleteAccountMutation.isPending && { opacity: 0.5 }]}
-          onPress={deleteAccountMutation.isPending ? undefined : handleDeleteAccount}
-          disabled={deleteAccountMutation.isPending}
-        >
-          {deleteAccountMutation.isPending ? (
-            <ActivityIndicator size="small" color={colors.semantic.error} />
+        {/* Stats Section */}
+        <Animated.View entering={FadeInUp.delay(200).springify()} style={styles.statsSection}>
+          <Text style={styles.sectionLabel}>Your Activity</Text>
+          <View style={styles.statsRow}>
+            <View style={styles.statCard}>
+              <View style={styles.statIconContainer}>
+                <Ionicons name="sparkles" size={24} color={colors.semantic.success} />
+              </View>
+              <Text style={styles.statValue}>0</Text>
+              <Text style={styles.statLabel}>Matches</Text>
+            </View>
+            <View style={styles.statCard}>
+              <View style={[styles.statIconContainer, { backgroundColor: colors.transparent.gold10 }]}>
+                <Ionicons name="people" size={24} color={colors.primary.gold} />
+              </View>
+              <Text style={styles.statValue}>{connectedUsers.length}</Text>
+              <Text style={styles.statLabel}>Followers</Text>
+            </View>
+          </View>
+        </Animated.View>
+
+        {/* Premium Banner */}
+        <Animated.View entering={FadeInUp.delay(300).springify()}>
+          {isProSubscriber ? (
+            <View style={styles.proBanner}>
+              <View style={styles.premiumContent}>
+                <View style={styles.proBadge}>
+                  <Text style={styles.proBadgeText}>PRO</Text>
+                </View>
+                <View style={styles.premiumText}>
+                  <Text style={styles.proTitle}>Safta Pro</Text>
+                  <Text style={styles.proSubtitle}>Unlimited recommendations & connections</Text>
+                </View>
+              </View>
+              <Ionicons name="checkmark-circle" size={24} color={colors.semantic.success} />
+            </View>
           ) : (
-            <Text style={styles.deleteText}>Delete Account</Text>
+            <Pressable style={styles.premiumBanner} onPress={handlePremiumPress}>
+              <View style={styles.premiumContent}>
+                <View style={styles.premiumIconContainer}>
+                  <Ionicons name="star" size={22} color={colors.primary.gold} />
+                </View>
+                <View style={styles.premiumText}>
+                  <Text style={styles.premiumTitle}>Upgrade to Safta Pro</Text>
+                  <Text style={styles.premiumSubtitle}>
+                    {dailyRecommendationsRemaining} recommendations left today
+                  </Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.primary.gold} />
+            </Pressable>
           )}
-        </Pressable>
-      </View>
+        </Animated.View>
 
-      <Text style={styles.versionText}>Mazal for Saftas v1.0.0</Text>
+        {/* Settings Sections */}
+        <Animated.View entering={FadeInUp.delay(400).springify()} style={styles.settingsSection}>
+          <Text style={styles.sectionLabel}>Settings</Text>
+          <View style={styles.settingsCard}>
+            <SettingsItem
+              icon="options-outline"
+              label="Browse Preferences"
+              onPress={() => setShowPreferencesModal(true)}
+              index={0}
+            />
+            <View style={styles.divider} />
+            <SettingsItem
+              icon="notifications-outline"
+              label="Notifications"
+              onPress={() => setShowNotificationsModal(true)}
+              index={1}
+            />
+          </View>
+        </Animated.View>
+
+        {/* Switch to Dating Mode */}
+        <Animated.View entering={FadeInUp.delay(500).springify()}>
+          <Pressable style={styles.saftaModeBanner} onPress={handleSwitchToUserMode}>
+            <View style={styles.saftaModeContent}>
+              <View style={styles.saftaModeIconContainer}>
+                <Ionicons name="heart" size={22} color={colors.primary.gold} />
+              </View>
+              <View style={styles.saftaModeText}>
+                <Text style={styles.saftaModeTitle}>Switch to Dating Mode</Text>
+                <Text style={styles.saftaModeSubtitle}>
+                  {isOnboardingComplete
+                    ? 'Browse profiles for yourself'
+                    : 'Set up your dating profile'}
+                </Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.primary.gold} />
+          </Pressable>
+        </Animated.View>
+
+        {/* Support Section */}
+        <Animated.View entering={FadeInUp.delay(600).springify()} style={styles.settingsSection}>
+          <Text style={styles.sectionLabel}>Support</Text>
+          <View style={styles.settingsCard}>
+            <SettingsItem
+              icon="help-circle-outline"
+              label="Help & Support"
+              onPress={handleHelpPress}
+              index={0}
+            />
+            <View style={styles.divider} />
+            <SettingsItem
+              icon="document-text-outline"
+              label="Terms & Privacy"
+              onPress={() => router.push('/legal/terms')}
+              index={1}
+            />
+          </View>
+        </Animated.View>
+
+        {/* Account Actions */}
+        <Animated.View entering={FadeInUp.delay(700).springify()} style={styles.accountActions}>
+          <Pressable style={styles.logoutButton} onPress={handleLogout}>
+            <Text style={styles.logoutText}>Log Out</Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.deleteButton, deleteAccountMutation.isPending && { opacity: 0.5 }]}
+            onPress={deleteAccountMutation.isPending ? undefined : handleDeleteAccount}
+            disabled={deleteAccountMutation.isPending}
+          >
+            {deleteAccountMutation.isPending ? (
+              <ActivityIndicator size="small" color={colors.semantic.error} />
+            ) : (
+              <Text style={styles.deleteText}>Delete Account</Text>
+            )}
+          </Pressable>
+        </Animated.View>
+
+        <Text style={styles.versionText}>Mazal for Saftas v1.0.0</Text>
+      </ScrollView>
 
       {/* Edit Profile Modal */}
       <Modal
@@ -638,12 +618,12 @@ export default function SaftaProfileScreen() {
         presentationStyle="pageSheet"
         onRequestClose={() => setShowEditModal(false)}
       >
-        <View style={[styles.modalContainer, { backgroundColor: theme.colors.background }]}>
+        <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Pressable onPress={() => setShowEditModal(false)}>
               <Text style={styles.modalCancel}>Cancel</Text>
             </Pressable>
-            <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Edit Profile</Text>
+            <Text style={styles.modalTitle}>Edit Profile</Text>
             <Pressable onPress={handleSaveProfile} disabled={isUploading}>
               <Text style={[styles.modalSave, isUploading && { opacity: 0.5 }]}>
                 {isUploading ? 'Saving...' : 'Save'}
@@ -652,11 +632,8 @@ export default function SaftaProfileScreen() {
           </View>
 
           <ScrollView style={styles.modalContent}>
-            {/* Photo Section */}
             <View style={styles.photoEditSection}>
-              <Text style={[styles.inputLabel, { color: theme.colors.textSecondary }]}>
-                Profile Photo
-              </Text>
+              <Text style={styles.inputLabel}>Profile Photo</Text>
               <View style={styles.photoEditContainer}>
                 <Pressable onPress={handlePickPhoto}>
                   {editPhoto ? (
@@ -667,12 +644,12 @@ export default function SaftaProfileScreen() {
                     </View>
                   )}
                   <View style={styles.editPhotoButton}>
-                    <Ionicons name="camera" size={14} color={colors.primary.white} />
+                    <Ionicons name="camera" size={14} color={colors.primary.navy} />
                   </View>
                 </Pressable>
                 <View style={styles.photoActions}>
                   <Pressable style={styles.photoActionButton} onPress={handlePickPhoto}>
-                    <Ionicons name="image-outline" size={20} color={SAFTA_ACCENT} />
+                    <Ionicons name="image-outline" size={20} color={colors.primary.gold} />
                     <Text style={styles.photoActionText}>Change Photo</Text>
                   </Pressable>
                   {editPhoto && (
@@ -685,32 +662,25 @@ export default function SaftaProfileScreen() {
                   )}
                 </View>
               </View>
-              <Text style={[styles.photoHint, { color: theme.colors.textTertiary }]}>
-                Adding a photo helps your family recognize you
-              </Text>
+              <Text style={styles.photoHint}>Adding a photo helps your family recognize you</Text>
             </View>
 
-            <Text style={[styles.inputLabel, { color: theme.colors.textSecondary }]}>
-              Display Name
-            </Text>
+            <Text style={styles.inputLabel}>Display Name</Text>
             <TextInput
-              style={[styles.textInput, { backgroundColor: theme.colors.surface, color: theme.colors.text }]}
+              style={styles.textInput}
               value={editName}
               onChangeText={setEditName}
               placeholder="Enter your name"
-              placeholderTextColor={colors.transparent.white40}
+              placeholderTextColor={colors.transparent.white30}
             />
 
-            <Text style={[styles.inputLabel, { color: theme.colors.textSecondary }]}>
-              Relationship
-            </Text>
+            <Text style={styles.inputLabel}>Relationship</Text>
             <View style={styles.relationshipOptions}>
               {relationships.map((rel) => (
                 <Pressable
                   key={rel.id}
                   style={[
                     styles.relationshipOption,
-                    { backgroundColor: theme.colors.surface },
                     editRelationship === rel.id && styles.relationshipOptionActive,
                   ]}
                   onPress={() => setEditRelationship(rel.id)}
@@ -718,7 +688,6 @@ export default function SaftaProfileScreen() {
                   <Text
                     style={[
                       styles.relationshipOptionText,
-                      { color: theme.colors.text },
                       editRelationship === rel.id && styles.relationshipOptionTextActive,
                     ]}
                   >
@@ -738,25 +707,27 @@ export default function SaftaProfileScreen() {
         presentationStyle="pageSheet"
         onRequestClose={() => setShowPreferencesModal(false)}
       >
-        <View style={[styles.modalContainer, { backgroundColor: theme.colors.background }]}>
+        <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Pressable onPress={() => setShowPreferencesModal(false)}>
               <Text style={styles.modalCancel}>Close</Text>
             </Pressable>
-            <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Browse Preferences</Text>
+            <Text style={styles.modalTitle}>Browse Preferences</Text>
             <View style={{ width: 50 }} />
           </View>
 
           <ScrollView style={styles.modalContent}>
-            <Text style={[styles.preferencesInfo, { color: theme.colors.textSecondary }]}>
+            <Text style={styles.preferencesInfo}>
               Your browse preferences are managed from the Discover tab. Tap the filter icon to customize who you see.
             </Text>
 
             <View style={styles.tipCard}>
-              <Ionicons name="bulb-outline" size={24} color={SAFTA_ACCENT} />
+              <View style={styles.tipIconContainer}>
+                <Ionicons name="bulb-outline" size={22} color={colors.primary.gold} />
+              </View>
               <View style={styles.tipContent}>
-                <Text style={[styles.tipTitle, { color: theme.colors.text }]}>Tip</Text>
-                <Text style={[styles.tipText, { color: theme.colors.textSecondary }]}>
+                <Text style={styles.tipTitle}>Tip</Text>
+                <Text style={styles.tipText}>
                   You can toggle between using your grandchild's preferences or setting your own custom filters.
                 </Text>
               </View>
@@ -769,7 +740,14 @@ export default function SaftaProfileScreen() {
                 router.push('/(safta-tabs)');
               }}
             >
-              <Text style={styles.goToDiscoverButtonText}>Go to Discover</Text>
+              <LinearGradient
+                colors={[colors.primary.gold, '#b8922a']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.goToDiscoverGradient}
+              >
+                <Text style={styles.goToDiscoverButtonText}>Go to Discover</Text>
+              </LinearGradient>
             </Pressable>
           </ScrollView>
         </View>
@@ -782,89 +760,88 @@ export default function SaftaProfileScreen() {
         presentationStyle="pageSheet"
         onRequestClose={() => setShowNotificationsModal(false)}
       >
-        <View style={[styles.modalContainer, { backgroundColor: theme.colors.background }]}>
+        <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Pressable onPress={() => setShowNotificationsModal(false)}>
               <Text style={styles.modalCancel}>Cancel</Text>
             </Pressable>
-            <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Notifications</Text>
+            <Text style={styles.modalTitle}>Notifications</Text>
             <Pressable onPress={handleSaveNotifications}>
               <Text style={styles.modalSave}>Save</Text>
             </Pressable>
           </View>
 
           <ScrollView style={styles.modalContent}>
-            <View style={[styles.notificationRow, { backgroundColor: theme.colors.surface }]}>
+            <View style={styles.notificationRow}>
               <View style={styles.notificationInfo}>
-                <Text style={[styles.notificationLabel, { color: theme.colors.text }]}>
-                  New Matches
-                </Text>
-                <Text style={[styles.notificationDesc, { color: theme.colors.textSecondary }]}>
+                <Text style={styles.notificationLabel}>New Matches</Text>
+                <Text style={styles.notificationDesc}>
                   When someone you recommended matches
                 </Text>
               </View>
               <Switch
                 value={notifyNewMatches}
                 onValueChange={setNotifyNewMatches}
-                trackColor={{ false: colors.neutral[200], true: SAFTA_ACCENT }}
+                trackColor={{ false: colors.neutral[600], true: colors.primary.gold }}
                 thumbColor={colors.primary.white}
               />
             </View>
 
-            <View style={[styles.notificationRow, { backgroundColor: theme.colors.surface }]}>
+            <View style={styles.notificationRow}>
               <View style={styles.notificationInfo}>
-                <Text style={[styles.notificationLabel, { color: theme.colors.text }]}>
-                  Messages
-                </Text>
-                <Text style={[styles.notificationDesc, { color: theme.colors.textSecondary }]}>
+                <Text style={styles.notificationLabel}>Messages</Text>
+                <Text style={styles.notificationDesc}>
                   When you receive new messages
                 </Text>
               </View>
               <Switch
                 value={notifyMessages}
                 onValueChange={setNotifyMessages}
-                trackColor={{ false: colors.neutral[200], true: SAFTA_ACCENT }}
+                trackColor={{ false: colors.neutral[600], true: colors.primary.gold }}
                 thumbColor={colors.primary.white}
               />
             </View>
 
-            <View style={[styles.notificationRow, { backgroundColor: theme.colors.surface }]}>
+            <View style={styles.notificationRow}>
               <View style={styles.notificationInfo}>
-                <Text style={[styles.notificationLabel, { color: theme.colors.text }]}>
-                  Recommendations
-                </Text>
-                <Text style={[styles.notificationDesc, { color: theme.colors.textSecondary }]}>
+                <Text style={styles.notificationLabel}>Recommendations</Text>
+                <Text style={styles.notificationDesc}>
                   Updates on your sent recommendations
                 </Text>
               </View>
               <Switch
                 value={notifyRecommendations}
                 onValueChange={setNotifyRecommendations}
-                trackColor={{ false: colors.neutral[200], true: SAFTA_ACCENT }}
+                trackColor={{ false: colors.neutral[600], true: colors.primary.gold }}
                 thumbColor={colors.primary.white}
               />
             </View>
           </ScrollView>
         </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.dark.background,
+  },
+  headerGradient: {
+    paddingBottom: spacing[4],
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: spacing[4],
-    paddingBottom: spacing[3],
+    paddingVertical: spacing[2],
   },
-  title: {
+  headerTitle: {
     fontSize: 28,
     fontWeight: '700',
+    color: colors.primary.white,
   },
   settingsButton: {
     width: 44,
@@ -872,10 +849,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  scrollView: {
+    flex: 1,
+  },
   profilePreview: {
     alignItems: 'center',
     paddingHorizontal: spacing[4],
-    paddingVertical: spacing[4],
+    paddingTop: spacing[2],
+    paddingBottom: spacing[4],
   },
   mainPhoto: {
     width: 120,
@@ -925,10 +906,12 @@ const styles = StyleSheet.create({
   name: {
     fontSize: 24,
     fontWeight: '700',
+    color: colors.primary.white,
   },
   occupation: {
     fontSize: 14,
     marginTop: spacing[1],
+    color: colors.transparent.white60,
   },
   editButton: {
     flexDirection: 'row',
@@ -939,23 +922,26 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[2.5],
     backgroundColor: colors.transparent.gold20,
     borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.transparent.gold30,
   },
   editButtonText: {
     fontSize: 15,
     fontWeight: '600',
     color: colors.primary.gold,
   },
-  // Stats Section
   statsSection: {
     paddingHorizontal: spacing[4],
     paddingVertical: spacing[4],
   },
   sectionLabel: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 1,
+    color: colors.transparent.white50,
     marginBottom: spacing[3],
+    marginLeft: spacing[2],
   },
   statsRow: {
     flexDirection: 'row',
@@ -965,19 +951,30 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingVertical: spacing[4],
-    borderRadius: borderRadius.lg,
-    ...shadows.sm,
+    borderRadius: borderRadius.xl,
+    backgroundColor: colors.transparent.white10,
+    borderWidth: 1,
+    borderColor: colors.transparent.white10,
+  },
+  statIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.transparent.success10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing[2],
   },
   statValue: {
     fontSize: 24,
     fontWeight: '700',
-    marginTop: spacing[2],
+    color: colors.primary.white,
   },
   statLabel: {
     fontSize: 12,
     marginTop: spacing[0.5],
+    color: colors.transparent.white50,
   },
-  // Premium Banner
   premiumBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -994,6 +991,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[3],
+    flex: 1,
+  },
+  premiumIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.transparent.gold20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   premiumText: {
     flex: 1,
@@ -1005,10 +1011,9 @@ const styles = StyleSheet.create({
   },
   premiumSubtitle: {
     fontSize: 13,
-    color: colors.transparent.white80,
+    color: colors.transparent.white60,
     marginTop: spacing[0.5],
   },
-  // Pro Banner (for subscribed users)
   proBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1043,31 +1048,56 @@ const styles = StyleSheet.create({
     color: colors.transparent.white70,
     marginTop: spacing[0.5],
   },
-  // Settings
   settingsSection: {
     marginTop: spacing[4],
-    marginHorizontal: spacing[4],
+    paddingHorizontal: spacing[4],
+  },
+  settingsCard: {
+    backgroundColor: colors.transparent.white10,
     borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.transparent.white10,
     overflow: 'hidden',
   },
   settingsItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: spacing[4],
+    paddingVertical: spacing[3.5],
     paddingHorizontal: spacing[4],
-    borderBottomWidth: 1,
-    borderBottomColor: colors.transparent.white10,
+  },
+  settingsItemPressed: {
+    backgroundColor: colors.transparent.white05,
   },
   settingsItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[3],
   },
+  settingIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.transparent.gold10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  settingIconDanger: {
+    backgroundColor: colors.transparent.error10,
+  },
   settingsItemLabel: {
     fontSize: 16,
+    fontWeight: '500',
+    color: colors.primary.white,
   },
-  // Safta Mode Banner (Switch to Dating)
+  settingsItemLabelDanger: {
+    color: colors.semantic.error,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.transparent.white10,
+    marginLeft: spacing[4] + 36 + spacing[3],
+  },
   saftaModeBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1104,10 +1134,9 @@ const styles = StyleSheet.create({
   },
   saftaModeSubtitle: {
     fontSize: 12,
-    color: colors.transparent.gold70,
+    color: colors.transparent.white50,
     marginTop: spacing[0.5],
   },
-  // Account Actions
   accountActions: {
     marginTop: spacing[6],
     marginHorizontal: spacing[4],
@@ -1116,10 +1145,12 @@ const styles = StyleSheet.create({
   logoutButton: {
     paddingVertical: spacing[4],
     alignItems: 'center',
+    backgroundColor: colors.transparent.white10,
+    borderRadius: borderRadius.xl,
   },
   logoutText: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
     color: colors.semantic.error,
   },
   deleteButton: {
@@ -1129,13 +1160,13 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   deleteText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
-    color: colors.semantic.error,
+    color: colors.transparent.white50,
   },
   versionText: {
     fontSize: 12,
-    color: colors.neutral[400],
+    color: colors.neutral[500],
     textAlign: 'center',
     marginTop: spacing[2],
     marginBottom: spacing[4],
@@ -1143,6 +1174,7 @@ const styles = StyleSheet.create({
   // Modal Styles
   modalContainer: {
     flex: 1,
+    backgroundColor: colors.dark.background,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1156,6 +1188,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 17,
     fontWeight: '600',
+    color: colors.primary.white,
   },
   modalCancel: {
     fontSize: 16,
@@ -1170,7 +1203,6 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: spacing[4],
   },
-  // Photo Edit Section
   photoEditSection: {
     marginBottom: spacing[4],
   },
@@ -1222,17 +1254,25 @@ const styles = StyleSheet.create({
   photoHint: {
     fontSize: 13,
     marginTop: spacing[2],
+    color: colors.transparent.white50,
   },
   inputLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    color: colors.transparent.white50,
     marginBottom: spacing[2],
     marginTop: spacing[4],
   },
   textInput: {
     fontSize: 16,
     padding: spacing[4],
-    borderRadius: borderRadius.lg,
+    borderRadius: borderRadius.xl,
+    backgroundColor: colors.transparent.white10,
+    color: colors.primary.white,
+    borderWidth: 1,
+    borderColor: colors.transparent.white10,
   },
   relationshipOptions: {
     flexDirection: 'row',
@@ -1244,7 +1284,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[3],
     borderRadius: borderRadius.lg,
     borderWidth: 2,
-    borderColor: 'transparent',
+    borderColor: colors.transparent.white10,
+    backgroundColor: colors.transparent.white10,
   },
   relationshipOptionActive: {
     borderColor: colors.primary.gold,
@@ -1253,23 +1294,34 @@ const styles = StyleSheet.create({
   relationshipOptionText: {
     fontSize: 14,
     fontWeight: '500',
+    color: colors.transparent.white70,
   },
   relationshipOptionTextActive: {
     color: colors.primary.gold,
   },
-  // Preferences Modal
   preferencesInfo: {
     fontSize: 15,
     lineHeight: 22,
     marginBottom: spacing[4],
+    color: colors.transparent.white70,
   },
   tipCard: {
     flexDirection: 'row',
     padding: spacing[4],
     backgroundColor: colors.transparent.gold10,
-    borderRadius: borderRadius.lg,
+    borderRadius: borderRadius.xl,
     gap: spacing[3],
     marginBottom: spacing[4],
+    borderWidth: 1,
+    borderColor: colors.transparent.gold20,
+  },
+  tipIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.transparent.gold20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   tipContent: {
     flex: 1,
@@ -1278,15 +1330,19 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     marginBottom: spacing[1],
+    color: colors.primary.white,
   },
   tipText: {
     fontSize: 14,
     lineHeight: 20,
+    color: colors.transparent.white70,
   },
   goToDiscoverButton: {
-    backgroundColor: colors.primary.gold,
-    paddingVertical: spacing[4],
     borderRadius: borderRadius.xl,
+    overflow: 'hidden',
+  },
+  goToDiscoverGradient: {
+    paddingVertical: spacing[4],
     alignItems: 'center',
   },
   goToDiscoverButtonText: {
@@ -1294,14 +1350,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.primary.navy,
   },
-  // Notifications Modal
   notificationRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: spacing[4],
-    borderRadius: borderRadius.lg,
+    borderRadius: borderRadius.xl,
     marginBottom: spacing[2],
+    backgroundColor: colors.transparent.white10,
+    borderWidth: 1,
+    borderColor: colors.transparent.white10,
   },
   notificationInfo: {
     flex: 1,
@@ -1310,9 +1368,11 @@ const styles = StyleSheet.create({
   notificationLabel: {
     fontSize: 16,
     fontWeight: '500',
+    color: colors.primary.white,
   },
   notificationDesc: {
     fontSize: 13,
     marginTop: spacing[0.5],
+    color: colors.transparent.white50,
   },
 });

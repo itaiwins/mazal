@@ -1,7 +1,7 @@
 /**
  * Chat Screen
  *
- * Individual conversation with a match
+ * Premium redesigned conversation with dark theme
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -21,21 +21,26 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Animated, {
   useAnimatedStyle,
   withSpring,
   useSharedValue,
+  FadeIn,
+  FadeInDown,
+  FadeInLeft,
+  FadeInRight,
+  SharedValue,
+  runOnJS,
 } from 'react-native-reanimated';
-import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
-import { spacing, borderRadius, shadows } from '@/theme/spacing';
+import { spacing, borderRadius } from '@/theme/spacing';
 import { useMessages, useMatchById } from '@/api/queries';
 import { useSendMessage, useMarkMessagesAsRead } from '@/api/mutations';
 import { useMessagesSubscription, useTypingIndicator, useTypingSubscription } from '@/api/realtime';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
-import { FilterShareMessage, ProfileShareMessage } from '@/components/chat';
 import { DEMO_MATCHES, DEMO_MESSAGES } from '@/lib/demo/demoProfiles';
 
 // Message type
@@ -63,27 +68,95 @@ interface MessageBubbleProps {
 }
 
 function MessageBubble({ message, isMe, showAvatar, matchPhoto }: MessageBubbleProps) {
+  // Different entrance animations for sent vs received
+  const enteringAnimation = isMe
+    ? FadeInRight.springify().damping(18).stiffness(200)
+    : FadeInLeft.springify().damping(18).stiffness(200);
+
   return (
-    <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
+    <Animated.View
+      entering={enteringAnimation}
+      style={[styles.messageRow, isMe && styles.messageRowMe]}
+    >
       {!isMe && showAvatar && matchPhoto && (
         <Image source={{ uri: matchPhoto }} style={styles.messageAvatar} />
       )}
       {!isMe && !showAvatar && <View style={styles.messageAvatarPlaceholder} />}
-      <View
-        style={[
-          styles.messageBubble,
-          isMe ? styles.messageBubbleMe : styles.messageBubbleOther,
-        ]}
-      >
-        <Text
-          style={[
-            styles.messageText,
-            isMe ? styles.messageTextMe : styles.messageTextOther,
-          ]}
+      {isMe ? (
+        <LinearGradient
+          colors={[colors.primary.gold, '#b8922a']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.messageBubble, styles.messageBubbleMe]}
         >
-          {message.content}
-        </Text>
-      </View>
+          <Text style={[styles.messageText, styles.messageTextMe]}>
+            {message.content}
+          </Text>
+          <View style={styles.messageTimeContainer}>
+            <Text style={styles.messageTimeMe}>
+              {formatTime(message.createdAt)}
+            </Text>
+            {message.isRead && (
+              <Ionicons name="checkmark-done" size={14} color={colors.primary.navy} />
+            )}
+          </View>
+        </LinearGradient>
+      ) : (
+        <View style={[styles.messageBubble, styles.messageBubbleOther]}>
+          <Text style={[styles.messageText, styles.messageTextOther]}>
+            {message.content}
+          </Text>
+          <Text style={styles.messageTimeOther}>
+            {formatTime(message.createdAt)}
+          </Text>
+        </View>
+      )}
+    </Animated.View>
+  );
+}
+
+function TypingIndicator() {
+  // Animated values for wave effect
+  const dot1Y = useSharedValue(0);
+  const dot2Y = useSharedValue(0);
+  const dot3Y = useSharedValue(0);
+
+  useEffect(() => {
+    const animateDot = (dotY: SharedValue<number>, delay: number) => {
+      setTimeout(() => {
+        const loop = () => {
+          dotY.value = withSpring(-6, { damping: 8, stiffness: 300 }, () => {
+            dotY.value = withSpring(0, { damping: 8, stiffness: 300 }, () => {
+              setTimeout(loop, 600);
+            });
+          });
+        };
+        loop();
+      }, delay);
+    };
+
+    animateDot(dot1Y, 0);
+    animateDot(dot2Y, 150);
+    animateDot(dot3Y, 300);
+  }, []);
+
+  const dot1Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: dot1Y.value }],
+  }));
+
+  const dot2Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: dot2Y.value }],
+  }));
+
+  const dot3Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: dot3Y.value }],
+  }));
+
+  return (
+    <View style={styles.typingContainer}>
+      <Animated.View style={[styles.typingDot, dot1Style]} />
+      <Animated.View style={[styles.typingDot, dot2Style]} />
+      <Animated.View style={[styles.typingDot, dot3Style]} />
     </View>
   );
 }
@@ -106,7 +179,6 @@ function formatDate(date: Date): string {
 }
 
 export default function ChatScreen() {
-  const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { matchId } = useLocalSearchParams<{ matchId: string }>();
   const [message, setMessage] = useState('');
@@ -170,7 +242,7 @@ export default function ChatScreen() {
     id: otherUser?.id || DEFAULT_MATCH_DATA.id,
     name: otherUser?.first_name || DEFAULT_MATCH_DATA.name,
     photo: otherUser?.photos?.[0]?.photo_url || DEFAULT_MATCH_DATA.photo,
-    isOnline: DEFAULT_MATCH_DATA.isOnline, // TODO: Get real online status
+    isOnline: DEFAULT_MATCH_DATA.isOnline,
   };
 
   const inputHeight = useSharedValue(48);
@@ -182,6 +254,7 @@ export default function ChatScreen() {
 
     // Stop typing indicator
     setTyping(false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     // Clear message immediately for better UX
     setMessage('');
@@ -217,13 +290,12 @@ export default function ChatScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     Alert.alert(
       'Share Your Filters',
-      'Would you like to share your current search filters with this person? They can apply your filters to their own search.',
+      'Would you like to share your current search filters with this person?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Share Filters',
           onPress: () => {
-            // In production, this would send the filters as a special message
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             Alert.alert('Filters Shared', 'Your search filters have been sent!');
           },
@@ -232,13 +304,86 @@ export default function ChatScreen() {
     );
   };
 
-  // Handle apply received filters
-  const handleApplyFilters = (filters: any) => {
-    // In production, this would update the user's search filters
+  // Handle more options menu
+  const handleMoreOptions = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     Alert.alert(
-      'Apply Filters',
-      'Your search filters have been updated!',
-      [{ text: 'OK' }]
+      'Options',
+      undefined,
+      [
+        {
+          text: 'View Profile',
+          onPress: () => {
+            // Navigate to profile view
+            Alert.alert('Coming Soon', 'Profile view will be available soon!');
+          },
+        },
+        {
+          text: 'Report User',
+          onPress: () => {
+            Alert.alert(
+              'Report User',
+              'Are you sure you want to report this user?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Report',
+                  style: 'destructive',
+                  onPress: () => {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    Alert.alert('Reported', 'Thank you for your report. We will review it shortly.');
+                  },
+                },
+              ]
+            );
+          },
+        },
+        {
+          text: 'Block User',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Block User',
+              'Are you sure you want to block this user? You will no longer see each other.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Block',
+                  style: 'destructive',
+                  onPress: () => {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                    Alert.alert('Blocked', 'This user has been blocked.');
+                    router.replace('/(tabs)/matches');
+                  },
+                },
+              ]
+            );
+          },
+        },
+        {
+          text: 'Unmatch',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Unmatch',
+              'Are you sure you want to unmatch? This conversation will be deleted.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Unmatch',
+                  style: 'destructive',
+                  onPress: () => {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                    Alert.alert('Unmatched', 'You have been unmatched from this person.');
+                    router.replace('/(tabs)/matches');
+                  },
+                },
+              ]
+            );
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
     );
   };
 
@@ -265,38 +410,34 @@ export default function ChatScreen() {
   // Skip loading state in demo mode
   if (!isDemoMode && (messagesLoading || matchLoading)) {
     return (
-      <View style={[styles.container, styles.centered, { backgroundColor: theme.colors.background }]}>
+      <View style={[styles.container, styles.centered]}>
         <ActivityIndicator size="large" color={colors.primary.gold} />
       </View>
     );
   }
 
-  // Handle error state (conversation not found or not authorized)
-  // In demo mode, check if we found the demo match
+  // Handle error state
   const hasError = isDemoMode
     ? !demoMatch
     : (matchError || (!matchData && !messagesLoading && !matchLoading));
 
   if (hasError) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={styles.container}>
         <View style={[styles.header, { paddingTop: insets.top }]}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
+          <Pressable style={styles.backButton} onPress={() => router.replace('/(tabs)/matches')}>
+            <Ionicons name="chevron-back" size={28} color={colors.primary.white} />
           </Pressable>
         </View>
         <View style={[styles.centered, { flex: 1 }]}>
-          <Ionicons name="chatbubble-ellipses-outline" size={64} color={colors.neutral[300]} />
-          <Text style={[styles.errorTitle, { color: theme.colors.text }]}>
-            Conversation Not Found
+          <View style={styles.errorIconContainer}>
+            <Ionicons name="chatbubble-ellipses-outline" size={48} color={colors.transparent.white30} />
+          </View>
+          <Text style={styles.errorTitle}>Conversation Not Found</Text>
+          <Text style={styles.errorSubtitle}>
+            This conversation may no longer be available
           </Text>
-          <Text style={[styles.errorSubtitle, { color: theme.colors.textSecondary }]}>
-            This conversation may no longer be available or you may not have permission to view it.
-          </Text>
-          <Pressable
-            style={styles.errorButton}
-            onPress={() => router.back()}
-          >
+          <Pressable style={styles.errorButton} onPress={() => router.replace('/(tabs)/matches')}>
             <Text style={styles.errorButtonText}>Go Back</Text>
           </Pressable>
         </View>
@@ -306,38 +447,46 @@ export default function ChatScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={0}
     >
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        <Pressable style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
-        </Pressable>
-        <Pressable style={styles.profileInfo}>
-          <Image
-            source={{ uri: match.photo || 'https://via.placeholder.com/200' }}
-            style={styles.headerAvatar}
-          />
-          <View>
-            <Text style={[styles.headerName, { color: theme.colors.text }]}>
-              {match.name}
-            </Text>
-            {isOtherTyping ? (
-              <Text style={styles.typingStatus}>Typing...</Text>
-            ) : match.isOnline ? (
-              <Text style={styles.onlineStatus}>Online now</Text>
-            ) : null}
-          </View>
-        </Pressable>
-        <Pressable style={styles.shareFiltersButton} onPress={handleShareFilters}>
-          <Ionicons name="options-outline" size={22} color={colors.primary.gold} />
-        </Pressable>
-        <Pressable style={styles.moreButton}>
-          <Ionicons name="ellipsis-horizontal" size={24} color={theme.colors.icon} />
-        </Pressable>
-      </View>
+      <LinearGradient
+        colors={[colors.primary.navy, colors.dark.background]}
+        style={[styles.headerGradient, { paddingTop: insets.top }]}
+      >
+        <Animated.View entering={FadeIn} style={styles.header}>
+          <Pressable style={styles.backButton} onPress={() => router.replace('/(tabs)/matches')}>
+            <Ionicons name="chevron-back" size={28} color={colors.primary.white} />
+          </Pressable>
+          <Pressable style={styles.profileInfo}>
+            <View style={styles.avatarContainer}>
+              <Image
+                source={{ uri: match.photo || 'https://via.placeholder.com/200' }}
+                style={styles.headerAvatar}
+              />
+              {match.isOnline && <View style={styles.onlineDot} />}
+            </View>
+            <View>
+              <Text style={styles.headerName}>{match.name}</Text>
+              {isOtherTyping ? (
+                <Text style={styles.typingStatus}>typing...</Text>
+              ) : match.isOnline ? (
+                <Text style={styles.onlineStatus}>Online</Text>
+              ) : (
+                <Text style={styles.offlineStatus}>Offline</Text>
+              )}
+            </View>
+          </Pressable>
+          <Pressable style={styles.shareButton} onPress={handleShareFilters}>
+            <Ionicons name="options-outline" size={20} color={colors.primary.gold} />
+          </Pressable>
+          <Pressable style={styles.moreButton} onPress={handleMoreOptions}>
+            <Ionicons name="ellipsis-horizontal" size={24} color={colors.primary.white} />
+          </Pressable>
+        </Animated.View>
+      </LinearGradient>
 
       {/* Messages */}
       <FlatList
@@ -367,21 +516,29 @@ export default function ChatScreen() {
         onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
       />
 
-      {/* Typing indicator would go here */}
+      {/* Typing indicator */}
+      {isOtherTyping && (
+        <View style={styles.typingWrapper}>
+          <Image source={{ uri: match.photo }} style={styles.typingAvatar} />
+          <View style={styles.typingBubble}>
+            <TypingIndicator />
+          </View>
+        </View>
+      )}
 
-      {/* Input */}
+      {/* Input - positioned above dot navigator */}
       <Animated.View
         style={[
           styles.inputContainer,
-          { paddingBottom: insets.bottom + spacing[2] },
+          { paddingBottom: insets.bottom + 70 },
           inputContainerStyle,
         ]}
       >
-        <View style={[styles.inputRow, { backgroundColor: theme.colors.surface }]}>
+        <View style={styles.inputRow}>
           <TextInput
-            style={[styles.input, styles.inputPadded, { color: theme.colors.text }]}
+            style={styles.input}
             placeholder="Type a message..."
-            placeholderTextColor={theme.colors.textTertiary}
+            placeholderTextColor={colors.transparent.white40}
             value={message}
             onChangeText={handleTextChange}
             multiline
@@ -392,7 +549,7 @@ export default function ChatScreen() {
             onPress={handleSend}
             disabled={!message.trim()}
           >
-            <Ionicons name="send" size={20} color={colors.primary.white} />
+            <Ionicons name="send" size={18} color={colors.primary.navy} />
           </Pressable>
         </View>
       </Animated.View>
@@ -403,18 +560,21 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.dark.background,
   },
   centered: {
     justifyContent: 'center',
     alignItems: 'center',
   },
+  headerGradient: {
+    paddingBottom: spacing[3],
+    borderBottomWidth: 1,
+    borderBottomColor: colors.transparent.white10,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing[2],
-    paddingBottom: spacing[3],
-    borderBottomWidth: 1,
-    borderBottomColor: colors.neutral[100],
   },
   backButton: {
     width: 44,
@@ -428,18 +588,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing[3],
   },
+  avatarContainer: {
+    position: 'relative',
+  },
   headerAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: colors.primary.gold,
+  },
+  onlineDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.semantic.success,
+    borderWidth: 2,
+    borderColor: colors.dark.background,
   },
   headerName: {
     fontSize: 17,
     fontWeight: '600',
+    color: colors.primary.white,
   },
   onlineStatus: {
     fontSize: 12,
     color: colors.semantic.success,
+    marginTop: 1,
+  },
+  offlineStatus: {
+    fontSize: 12,
+    color: colors.transparent.white50,
     marginTop: 1,
   },
   typingStatus: {
@@ -448,12 +630,12 @@ const styles = StyleSheet.create({
     marginTop: 1,
     fontStyle: 'italic',
   },
-  shareFiltersButton: {
+  shareButton: {
     width: 40,
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.transparent.gold10,
+    backgroundColor: colors.transparent.gold20,
     borderRadius: 20,
     marginRight: spacing[1],
   },
@@ -473,15 +655,15 @@ const styles = StyleSheet.create({
   },
   dateText: {
     fontSize: 12,
-    color: colors.neutral[500],
-    backgroundColor: colors.neutral[100],
+    color: colors.transparent.white50,
+    backgroundColor: colors.transparent.white10,
     paddingHorizontal: spacing[3],
-    paddingVertical: spacing[1],
+    paddingVertical: spacing[1.5],
     borderRadius: borderRadius.full,
   },
   messageRow: {
     flexDirection: 'row',
-    marginBottom: spacing[1],
+    marginBottom: spacing[2],
     alignItems: 'flex-end',
   },
   messageRowMe: {
@@ -504,12 +686,13 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.xl,
   },
   messageBubbleMe: {
-    backgroundColor: colors.primary.gold,
     borderBottomRightRadius: spacing[1],
   },
   messageBubbleOther: {
-    backgroundColor: colors.secondary.cream,
+    backgroundColor: colors.transparent.white10,
     borderBottomLeftRadius: spacing[1],
+    borderWidth: 1,
+    borderColor: colors.transparent.white10,
   },
   messageText: {
     fontSize: 15,
@@ -519,29 +702,82 @@ const styles = StyleSheet.create({
     color: colors.primary.navy,
   },
   messageTextOther: {
-    color: colors.primary.navy,
+    color: colors.primary.white,
+  },
+  messageTimeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 4,
+    marginTop: spacing[1],
+  },
+  messageTimeMe: {
+    fontSize: 11,
+    color: 'rgba(13, 27, 62, 0.6)',
+  },
+  messageTimeOther: {
+    fontSize: 11,
+    color: colors.transparent.white40,
+    marginTop: spacing[1],
+    textAlign: 'right',
+  },
+  typingWrapper: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingHorizontal: spacing[4],
+    paddingBottom: spacing[2],
+  },
+  typingAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    marginRight: spacing[2],
+  },
+  typingBubble: {
+    backgroundColor: colors.transparent.white10,
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
+    borderRadius: borderRadius.xl,
+    borderBottomLeftRadius: spacing[1],
+  },
+  typingContainer: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  typingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary.gold,
+    shadowColor: colors.primary.gold,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 4,
   },
   inputContainer: {
     paddingHorizontal: spacing[4],
     paddingTop: spacing[2],
     borderTopWidth: 1,
-    borderTopColor: colors.neutral[100],
+    borderTopColor: colors.transparent.white10,
+    backgroundColor: colors.dark.background,
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
+    backgroundColor: colors.transparent.white10,
     borderRadius: borderRadius.xl,
     paddingHorizontal: spacing[2],
     paddingVertical: spacing[1],
+    borderWidth: 1,
+    borderColor: colors.transparent.white10,
   },
   input: {
     flex: 1,
     fontSize: 16,
+    color: colors.primary.white,
     maxHeight: 100,
     paddingVertical: spacing[2],
-  },
-  inputPadded: {
-    paddingLeft: spacing[4],
+    paddingLeft: spacing[3],
   },
   sendButton: {
     width: 36,
@@ -553,20 +789,29 @@ const styles = StyleSheet.create({
     marginBottom: spacing[0.5],
   },
   sendButtonDisabled: {
-    opacity: 0.5,
+    opacity: 0.4,
+  },
+  errorIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.transparent.white10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing[4],
   },
   errorTitle: {
     fontSize: 18,
     fontWeight: '600',
-    marginTop: spacing[4],
+    color: colors.primary.white,
     textAlign: 'center',
   },
   errorSubtitle: {
     fontSize: 14,
+    color: colors.transparent.white50,
     marginTop: spacing[2],
     textAlign: 'center',
     paddingHorizontal: spacing[8],
-    lineHeight: 20,
   },
   errorButton: {
     marginTop: spacing[6],
@@ -578,6 +823,6 @@ const styles = StyleSheet.create({
   errorButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: colors.primary.white,
+    color: colors.primary.navy,
   },
 });

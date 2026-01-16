@@ -42,7 +42,8 @@ const DEMO_PHOTOS = {
   ],
 };
 
-// Note: Demo profiles are partial - only include fields needed for UI display
+// Note: Demo profiles only include Jewish fields asked during onboarding
+// Onboarding asks: jewish_background, observance_level
 export const DEMO_PROFILES = [
   {
     id: 'demo-1',
@@ -51,7 +52,7 @@ export const DEMO_PROFILES = [
     email: 'demo@mazal.app',
     gender: 'female',
     date_of_birth: '1996-03-15',
-    jewish_background: 'Conservative',
+    jewish_background: 'conservative', // From JEWISH_BACKGROUNDS
     bio: 'Lawyer by day, amateur chef by night. Looking for someone to share Shabbat dinners and spontaneous adventures with.',
     current_city: 'New York',
     current_latitude: 40.7128,
@@ -69,6 +70,8 @@ export const DEMO_PROFILES = [
     compatibility_score: 92,
     has_liked_me: true,
     safta_approved_count: 4,
+    // Jewish Life Fields (only what's asked in onboarding)
+    observance_level: 'somewhat_observant', // From OBSERVANCE_LEVELS
     photos: DEMO_PHOTOS.sarah.map((url, i) => ({
       id: `demo-1-photo-${i}`,
       user_id: 'demo-1',
@@ -131,6 +134,8 @@ export const DEMO_PROFILES = [
     compatibility_score: 88,
     has_liked_me: false,
     safta_approved_count: 2,
+    // Jewish Life Fields (only what's asked in onboarding)
+    observance_level: 'culturally_jewish', // From OBSERVANCE_LEVELS
     photos: DEMO_PHOTOS.david.map((url, i) => ({
       id: `demo-2-photo-${i}`,
       user_id: 'demo-2',
@@ -193,6 +198,8 @@ export const DEMO_PROFILES = [
     compatibility_score: 95,
     has_liked_me: false,
     safta_approved_count: 6,
+    // Jewish Life Fields (only what's asked in onboarding)
+    observance_level: 'very_observant', // From OBSERVANCE_LEVELS
     photos: DEMO_PHOTOS.rachel.map((url, i) => ({
       id: `demo-3-photo-${i}`,
       user_id: 'demo-3',
@@ -262,6 +269,8 @@ export const DEMO_PROFILES = [
     compatibility_score: 85,
     has_liked_me: true,
     safta_approved_count: 3,
+    // Jewish Life Fields (only what's asked in onboarding)
+    observance_level: 'somewhat_observant', // From OBSERVANCE_LEVELS
     photos: DEMO_PHOTOS.michael.map((url, i) => ({
       id: `demo-4-photo-${i}`,
       user_id: 'demo-4',
@@ -324,6 +333,8 @@ export const DEMO_PROFILES = [
     compatibility_score: 90,
     has_liked_me: false,
     safta_approved_count: 5,
+    // Jewish Life Fields (only what's asked in onboarding)
+    observance_level: 'not_observant', // From OBSERVANCE_LEVELS
     photos: DEMO_PHOTOS.leah.map((url, i) => ({
       id: `demo-5-photo-${i}`,
       user_id: 'demo-5',
@@ -361,7 +372,7 @@ export const DEMO_PROFILES = [
       },
     ],
   },
-] as DiscoveryUser[];
+] as unknown as DiscoveryUser[];
 
 // Demo Matches (for the matches/messages screen)
 export const DEMO_MATCHES = [
@@ -479,6 +490,79 @@ export const DEMO_MESSAGES: Record<string, Array<{
     },
   ],
 };
+
+// Demo Safta Accounts (Matchmakers in Safta Mode)
+// These are the grandparents/parents/aunts who are doing the matchmaking
+export const DEMO_SAFTA_ACCOUNTS = [
+  {
+    id: 'safta-1',
+    first_name: 'Ruth',
+    last_name: 'Goldberg',
+    email: 'bubbe.ruth@mazal.app',
+    phone: '+1234567890',
+    relationship_to_user: 'grandmother',
+    is_verified: true,
+    is_premium: true,
+    profile_photo: 'https://images.unsplash.com/photo-1566616213894-2d4e1baee5d8?w=400',
+    bio: 'Looking for a nice Jewish match for my grandchild! I have a great eye for compatibility.',
+    location: 'Boca Raton, FL',
+    daily_recommendations_remaining: 10,
+    total_recommendations: 47,
+    successful_matches: 3,
+    created_at: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: 'safta-2',
+    first_name: 'Linda',
+    last_name: 'Schwartz',
+    email: 'aunt.linda@mazal.app',
+    phone: '+1234567891',
+    relationship_to_user: 'aunt',
+    is_verified: true,
+    is_premium: false,
+    profile_photo: 'https://images.unsplash.com/photo-1551836022-d5d88e9218df?w=400',
+    bio: 'My niece/nephew deserves the best! Happy to help find their bashert.',
+    location: 'Great Neck, NY',
+    daily_recommendations_remaining: 3,
+    total_recommendations: 12,
+    successful_matches: 1,
+    created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: 'safta-3',
+    first_name: 'Miriam',
+    last_name: 'Cohen',
+    email: 'safta.miriam@mazal.app',
+    phone: '+1234567892',
+    relationship_to_user: 'grandmother',
+    is_verified: true,
+    is_premium: true,
+    profile_photo: 'https://images.unsplash.com/photo-1581579438747-1dc8d17bbce4?w=400',
+    bio: 'Former shadchan with 40 years of experience. Let me help!',
+    location: 'Brooklyn, NY',
+    daily_recommendations_remaining: 10,
+    total_recommendations: 156,
+    successful_matches: 12,
+    created_at: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: 'safta-4',
+    first_name: 'Barbara',
+    last_name: 'Levy',
+    email: 'mom.barb@mazal.app',
+    phone: '+1234567893',
+    relationship_to_user: 'mother',
+    is_verified: true,
+    is_premium: true,
+    profile_photo: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?w=400',
+    bio: 'I know my child better than anyone. Let me help find their perfect match!',
+    location: 'Scarsdale, NY',
+    daily_recommendations_remaining: 8,
+    total_recommendations: 34,
+    successful_matches: 2,
+    created_at: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+];
 
 // Demo Safta Connections
 export const DEMO_SAFTA_CONNECTIONS = [

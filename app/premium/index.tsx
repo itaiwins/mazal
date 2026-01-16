@@ -172,7 +172,7 @@ export default function PremiumPaywallScreen() {
       style={[
         styles.container,
         {
-          backgroundColor: colors.primary.navy,
+          backgroundColor: colors.dark.background,
           paddingTop: insets.top + spacing[2],
         },
       ]}

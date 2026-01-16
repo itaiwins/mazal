@@ -5,14 +5,14 @@
 Mazal is a React Native/Expo dating app designed specifically for Jewish users with three distinct user modes:
 
 - **Regular User Mode**: Standard swiping/matching experience
-- **Orthodox/Shidduch Mode**: Comprehensive shidduch matchmaking platform with shadchanim, family portal, and no swiping
+- **Orthodox/Shidduch Mode**: (COMING SOON) Comprehensive shidduch matchmaking platform with shadchanim, family portal, and no swiping
 - **Safta Mode**: Grandparent/parent matchmaker mode where family members can set up younger relatives
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | React Native (Expo SDK 52) |
+| Frontend | React Native (Expo SDK 54) |
 | Navigation | Expo Router (file-based) |
 | Backend | Supabase (PostgreSQL + Auth + Realtime) |
 | State Management | Zustand (persisted to AsyncStorage) |
@@ -112,7 +112,9 @@ mazal/
 - Matches - Conversations
 - Profile - View/edit profile
 
-### 2. Orthodox/Shidduch Mode
+### 2. Orthodox/Shidduch Mode (COMING SOON)
+
+> **Note:** Orthodox mode is currently locked and displays "Coming Soon" on the welcome page. The code structure exists but the feature is not available to users at launch.
 
 **Flow:** `(auth)/welcome → register → (shidduch-onboarding)/[8 steps] → (shidduch-tabs)/`
 
@@ -317,7 +319,7 @@ The app requires users to be 18+. This is enforced:
 - [ ] Paywall triggers at limit
 - [ ] Pro features unlock after purchase
 
-### Orthodox Flow
+### Orthodox Flow (Coming Soon - Skip for Launch)
 - [ ] Orthodox registration works
 - [ ] Dedicated pool filters correctly
 - [ ] Shadchan directory loads

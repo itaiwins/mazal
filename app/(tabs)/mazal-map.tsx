@@ -19,7 +19,6 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_DEFAULT, Region, Callout } from 'react-native-maps';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -43,6 +42,34 @@ import { usePremiumStore } from '@/stores/premiumStore';
 import { useUIStore } from '@/stores/uiStore';
 import { FEATURE_LIMITS } from '@/lib/config/revenuecat';
 import { DEMO_NEARBY_USERS } from '@/lib/demo/demoProfiles';
+import Constants from 'expo-constants';
+
+// Conditionally import MapView - not available in Expo Go
+let MapView: any = null;
+let Marker: any = null;
+let PROVIDER_DEFAULT: any = null;
+let Callout: any = null;
+type Region = {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+};
+
+// Check if we're in Expo Go
+const isExpoGo = Constants.appOwnership === 'expo';
+
+if (!isExpoGo) {
+  try {
+    const Maps = require('react-native-maps');
+    MapView = Maps.default;
+    Marker = Maps.Marker;
+    PROVIDER_DEFAULT = Maps.PROVIDER_DEFAULT;
+    Callout = Maps.Callout;
+  } catch (e) {
+    console.log('react-native-maps not available');
+  }
+}
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -141,7 +168,7 @@ function ProfilePreview({
             <View style={styles.previewHeader}>
               <Text style={styles.previewName}>{user.name}, {user.age}</Text>
               {user.isVerified && (
-                <Ionicons name="checkmark-circle" size={18} color={colors.primary.gold} />
+                <Ionicons name="checkmark-circle" size={18} color={colors.semantic.info} />
               )}
             </View>
 
@@ -192,7 +219,7 @@ function ProfilePreview({
 
 export default function MazalMapScreen() {
   const insets = useSafeAreaInsets();
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<any>(null);
 
   // Premium state
   const entitlements = usePremiumStore((s) => s.entitlements);
@@ -346,6 +373,38 @@ export default function MazalMapScreen() {
       );
     }
   }, [selectedUser]);
+
+  // Fallback UI for Expo Go (maps not available)
+  if (!MapView || isExpoGo) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <LinearGradient
+          colors={[colors.dark.background, colors.primary.navy]}
+          style={styles.expoGoFallback}
+        >
+          <View style={styles.expoGoContent}>
+            <View style={styles.expoGoIconContainer}>
+              <Ionicons name="map" size={64} color={colors.primary.gold} />
+            </View>
+            <Text style={styles.expoGoTitle}>Map View</Text>
+            <Text style={styles.expoGoSubtitle}>
+              Maps require a development build and are not available in Expo Go.
+            </Text>
+            <Text style={styles.expoGoHint}>
+              Use the Discover tab to browse profiles, or build the app with{'\n'}
+              <Text style={styles.expoGoCode}>npx expo run:ios</Text>
+            </Text>
+            <Pressable
+              style={styles.expoGoButton}
+              onPress={() => router.push('/(tabs)/')}
+            >
+              <Text style={styles.expoGoButtonText}>Go to Discover</Text>
+            </Pressable>
+          </View>
+        </LinearGradient>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -585,6 +644,60 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.dark.background,
+  },
+  // Expo Go fallback styles
+  expoGoFallback: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  expoGoContent: {
+    alignItems: 'center',
+    paddingHorizontal: spacing[8],
+  },
+  expoGoIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(201, 162, 39, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing[6],
+  },
+  expoGoTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: colors.primary.white,
+    marginBottom: spacing[3],
+  },
+  expoGoSubtitle: {
+    fontSize: 16,
+    color: colors.transparent.white60,
+    textAlign: 'center',
+    marginBottom: spacing[4],
+    lineHeight: 24,
+  },
+  expoGoHint: {
+    fontSize: 14,
+    color: colors.transparent.white40,
+    textAlign: 'center',
+    marginBottom: spacing[6],
+    lineHeight: 22,
+  },
+  expoGoCode: {
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: colors.primary.gold,
+  },
+  expoGoButton: {
+    backgroundColor: colors.primary.gold,
+    paddingHorizontal: spacing[8],
+    paddingVertical: spacing[4],
+    borderRadius: borderRadius.xl,
+  },
+  expoGoButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.primary.navy,
   },
   map: {
     ...StyleSheet.absoluteFillObject,

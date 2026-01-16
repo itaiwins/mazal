@@ -27,6 +27,7 @@ import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/api/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
+import { useUIStore } from '@/stores/uiStore';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 
@@ -43,6 +44,7 @@ export default function LoginScreen() {
 
   const setSession = useAuthStore((s) => s.setSession);
   const setCurrentMode = useAuthStore((s) => s.setCurrentMode);
+  const setOrthodoxMode = useUIStore((s) => s.setOrthodoxMode);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -69,6 +71,7 @@ export default function LoginScreen() {
         console.log('[Login] Login successful');
         setSession(data.session);
         setCurrentMode('user'); // Explicitly set to user mode
+        setOrthodoxMode(false); // Ensure Orthodox mode is off for regular login
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         // Let the main router handle navigation based on onboarding state
         router.replace('/');
@@ -402,7 +405,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.primary.navy,
+    backgroundColor: colors.dark.background,
   },
   scrollContent: {
     flexGrow: 1,

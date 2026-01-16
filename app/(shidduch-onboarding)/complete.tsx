@@ -21,7 +21,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown, FadeIn, ZoomIn } from 'react-native-reanimated';
 import { useShidduchOnboardingStore } from '@/stores/shidduchOnboardingStore';
-import { supabase } from '@/api/supabase/client';
+import {
+  checkUserExists,
+  insertUser,
+  updateUser,
+  upsertShidduchProfile,
+  insertShidduchReferences,
+  updateAuthUserMetadata,
+} from '@/api/supabase/directApi';
 import { useAuthStore } from '@/stores/authStore';
 
 const COMMUNITIES_MAP: Record<string, string> = {
@@ -42,96 +49,27 @@ export default function ShidduchCompleteScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  // Helper function to add timeout to promises
-  const withTimeout = <T,>(promise: PromiseLike<T>, ms: number, errorMsg: string): Promise<T> => {
-    return Promise.race([
-      Promise.resolve(promise),
-      new Promise<T>((_, reject) =>
-        setTimeout(() => reject(new Error(errorMsg)), ms)
-      ),
-    ]);
-  };
-
   const handleSubmit = async () => {
-    // Try multiple methods to get auth ID
+    // Get auth ID from store (already verified during onboarding)
     let verifiedAuthId: string | undefined;
     let verifiedEmail: string | undefined;
 
     console.log('[Shidduch] Session user:', session?.user?.id || 'none');
     console.log('[Shidduch] AuthUser from store:', authUser?.id || 'none');
 
-    // Method 1: Try authUser from store
+    // Try authUser from store first
     if (authUser?.id) {
       verifiedAuthId = authUser.id;
       verifiedEmail = authUser.email;
       console.log('[Shidduch] Got user from authStore.authUser:', verifiedAuthId);
     }
 
-    // Method 2: Try session.user from store
+    // Fallback to session.user from store
     if (!verifiedAuthId && session?.user?.id) {
       verifiedAuthId = session.user.id;
       verifiedEmail = session.user.email;
       console.log('[Shidduch] Got user from authStore.session:', verifiedAuthId);
     }
-
-    // Method 3: Try getSession API
-    if (!verifiedAuthId) {
-      console.log('[Shidduch] Trying getSession API...');
-      try {
-        const { data: sessionData } = await withTimeout(
-          supabase.auth.getSession(),
-          15000,
-          'getSession timed out'
-        );
-        if (sessionData?.session?.user) {
-          verifiedAuthId = sessionData.session.user.id;
-          verifiedEmail = sessionData.session.user.email;
-          console.log('[Shidduch] Got user from getSession API:', verifiedAuthId);
-        }
-      } catch (e: any) {
-        console.log('[Shidduch] getSession API error:', e.message);
-      }
-    }
-
-    // Method 4: Try refreshing the session
-    if (!verifiedAuthId) {
-      console.log('[Shidduch] Trying to refresh session...');
-      try {
-        const { data: refreshData } = await withTimeout(
-          supabase.auth.refreshSession(),
-          15000,
-          'refreshSession timed out'
-        );
-        if (refreshData?.session?.user) {
-          verifiedAuthId = refreshData.session.user.id;
-          verifiedEmail = refreshData.session.user.email;
-          console.log('[Shidduch] Got user from refreshSession:', verifiedAuthId);
-        }
-      } catch (e: any) {
-        console.log('[Shidduch] refreshSession error:', e.message);
-      }
-    }
-
-    // Method 5: Try getUser API as last resort
-    if (!verifiedAuthId) {
-      console.log('[Shidduch] Trying getUser API as last resort...');
-      try {
-        const { data: userData } = await withTimeout(
-          supabase.auth.getUser(),
-          15000,
-          'getUser timed out'
-        );
-        if (userData?.user) {
-          verifiedAuthId = userData.user.id;
-          verifiedEmail = userData.user.email;
-          console.log('[Shidduch] Got user from getUser API:', verifiedAuthId);
-        }
-      } catch (e: any) {
-        console.log('[Shidduch] getUser API error:', e.message);
-      }
-    }
-
-    console.log('[Shidduch] Final auth result:', !!verifiedAuthId, verifiedAuthId || 'none');
 
     if (!verifiedAuthId) {
       Alert.alert('Error', 'Could not verify your account. Please close the app and sign in again.');
@@ -143,20 +81,14 @@ export default function ShidduchCompleteScreen() {
     setSubmitting(true);
 
     try {
-      // First, check if user exists in users table (with 10s timeout)
-      console.log('[Shidduch] Checking for existing user...');
-      let { data: userData } = await withTimeout(
-        supabase
-          .from('users')
-          .select('id')
-          .eq('auth_id', verifiedAuthId)
-          .maybeSingle(),
-        10000,
-        'Check existing user timed out'
-      );
+      // Check if user exists using direct API
+      console.log('[Shidduch] Checking for existing user using direct API...');
+      const { exists: userExists, userId: existingUserId } = await checkUserExists(verifiedAuthId);
+
+      let userData: { id: string } | null = existingUserId ? { id: existingUserId } : null;
 
       // If user doesn't exist, create them
-      if (!userData) {
+      if (!userExists) {
         console.log('[Shidduch] User not found, creating new user record...');
         const displayName = [data.firstName, data.lastName].filter(Boolean).join(' ') || 'User';
 
@@ -174,31 +106,23 @@ export default function ShidduchCompleteScreen() {
         };
         const jewishBackground = jewishBackgroundMap[data.community || ''] || 'orthodox';
 
-        const { data: newUser, error: createError } = await withTimeout(
-          supabase
-            .from('users')
-            .insert({
-              auth_id: verifiedAuthId,
-              email: verifiedEmail || `${verifiedAuthId}@placeholder.com`,
-              first_name: data.firstName || 'User',
-              last_name: data.lastName,
-              display_name: displayName,
-              date_of_birth: data.birthDate || '1990-01-01',
-              gender: data.gender || 'male',
-              gender_preference: data.gender === 'male' ? ['female'] : ['male'],
-              current_city: data.city,
-              current_state: data.state,
-              current_country: data.country || 'USA',
-              jewish_background: jewishBackground,
-              looking_for: 'marriage_minded',
-              is_orthodox_only: true,
-              onboarding_complete: true,
-            })
-            .select('id')
-            .single(),
-          15000,
-          'Create user timed out'
-        );
+        const { data: newUser, error: createError } = await insertUser({
+          auth_id: verifiedAuthId,
+          email: verifiedEmail || `${verifiedAuthId}@placeholder.com`,
+          first_name: data.firstName || 'User',
+          last_name: data.lastName,
+          display_name: displayName,
+          date_of_birth: data.birthDate || '1990-01-01',
+          gender: data.gender || 'male',
+          gender_preference: data.gender === 'male' ? ['female'] : ['male'],
+          current_city: data.city,
+          current_state: data.state,
+          current_country: data.country || 'USA',
+          jewish_background: jewishBackground,
+          looking_for: 'marriage_minded',
+          is_orthodox_only: true,
+          onboarding_complete: true,
+        });
 
         if (createError) {
           console.error('[Shidduch] Error creating user:', createError);
@@ -210,22 +134,15 @@ export default function ShidduchCompleteScreen() {
       } else {
         // User exists, update their info
         console.log('[Shidduch] User exists, updating info...');
-        const { error: userError } = await withTimeout(
-          supabase
-            .from('users')
-            .update({
-              first_name: data.firstName,
-              last_name: data.lastName,
-              date_of_birth: data.birthDate,
-              gender: data.gender,
-              current_city: data.city,
-              current_state: data.state,
-              current_country: data.country,
-            })
-            .eq('auth_id', verifiedAuthId),
-          10000,
-          'Update user timed out'
-        );
+        const { error: userError } = await updateUser(verifiedAuthId, {
+          first_name: data.firstName,
+          last_name: data.lastName,
+          date_of_birth: data.birthDate,
+          gender: data.gender,
+          current_city: data.city,
+          current_state: data.state,
+          current_country: data.country,
+        });
 
         if (userError) {
           console.error('[Shidduch] User update error:', userError);
@@ -334,18 +251,8 @@ export default function ShidduchCompleteScreen() {
       console.log('[Shidduch] Saving shidduch profile for user:', userData.id);
       console.log('[Shidduch] Profile data:', JSON.stringify(profileData, null, 2));
 
-      // Insert shidduch profile (with 15s timeout)
-      const { data: profileResult, error: profileError } = await withTimeout(
-        supabase
-          .from('shidduch_profiles')
-          .upsert(profileData as any, {
-            onConflict: 'user_id',
-          })
-          .select('id')
-          .single(),
-        15000,
-        'Save profile timed out'
-      );
+      // Insert shidduch profile using direct API (bypasses hanging Supabase JS client)
+      const { data: profileResult, error: profileError } = await upsertShidduchProfile(profileData);
 
       if (profileError) {
         console.error('[Shidduch] Profile error:', profileError);
@@ -374,13 +281,8 @@ export default function ShidduchCompleteScreen() {
           }));
 
         if (referencesData.length > 0) {
-          const { error: refError } = await withTimeout(
-            supabase
-              .from('shidduch_references')
-              .insert(referencesData),
-            10000,
-            'Save references timed out'
-          );
+          // Insert references using direct API
+          const { error: refError } = await insertShidduchReferences(referencesData);
 
           if (refError) {
             console.error('[Shidduch] References error:', refError);
@@ -391,15 +293,11 @@ export default function ShidduchCompleteScreen() {
         }
       }
 
-      // Mark shidduch onboarding as complete in Supabase user metadata
+      // Mark shidduch onboarding as complete in Supabase user metadata using direct API
       console.log('[Shidduch] Updating user metadata...');
-      const { error: metadataError } = await withTimeout(
-        supabase.auth.updateUser({
-          data: { shidduch_onboarding_complete: true },
-        }),
-        10000,
-        'Update metadata timed out'
-      );
+      const { error: metadataError } = await updateAuthUserMetadata({
+        shidduch_onboarding_complete: true,
+      });
 
       if (metadataError) {
         console.error('Metadata update error:', metadataError);

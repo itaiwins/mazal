@@ -1,7 +1,7 @@
 /**
  * Blocked Users Screen
  *
- * Manage blocked users list
+ * Premium blocked users with dark theme
  */
 
 import { useState } from 'react';
@@ -17,12 +17,12 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInUp, FadeInRight } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 
-// Blocked user type
 type BlockedUser = {
   id: string;
   name: string;
@@ -31,14 +31,8 @@ type BlockedUser = {
 };
 
 export default function BlockedUsersScreen() {
-  const theme = useTheme();
   const insets = useSafeAreaInsets();
-  // Empty array - will be populated from Supabase when the feature is implemented
   const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
-
-  const handleBack = () => {
-    router.back();
-  };
 
   const handleUnblock = (user: BlockedUser) => {
     Alert.alert(
@@ -58,25 +52,20 @@ export default function BlockedUsersScreen() {
   };
 
   return (
-    <View
-      style={[
-        styles.container,
-        {
-          backgroundColor: theme.colors.background,
-          paddingTop: insets.top + spacing[2],
-        },
-      ]}
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={handleBack}>
-          <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-          Blocked Users
-        </Text>
-        <View style={styles.headerRight} />
-      </View>
+    <View style={styles.container}>
+      {/* Premium Header with Gradient */}
+      <LinearGradient
+        colors={[colors.primary.navy, colors.dark.background]}
+        style={[styles.headerGradient, { paddingTop: insets.top }]}
+      >
+        <View style={styles.header}>
+          <Pressable style={styles.backButton} onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={28} color={colors.primary.white} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Blocked Users</Text>
+          <View style={styles.headerRight} />
+        </View>
+      </LinearGradient>
 
       <ScrollView
         style={styles.content}
@@ -84,57 +73,56 @@ export default function BlockedUsersScreen() {
         showsVerticalScrollIndicator={false}
       >
         {blockedUsers.length === 0 ? (
-          <View style={styles.emptyState}>
-            <View style={[styles.emptyIcon, { backgroundColor: theme.colors.surface }]}>
-              <Ionicons name="hand-left-outline" size={48} color={colors.neutral[400]} />
+          <Animated.View entering={FadeInUp.delay(100).springify()} style={styles.emptyState}>
+            <View style={styles.emptyIcon}>
+              <Ionicons name="hand-left-outline" size={48} color={colors.primary.gold} />
             </View>
-            <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
-              No Blocked Users
-            </Text>
-            <Text style={[styles.emptySubtitle, { color: theme.colors.textSecondary }]}>
+            <Text style={styles.emptyTitle}>No Blocked Users</Text>
+            <Text style={styles.emptySubtitle}>
               Users you block will appear here. They won't be able to see your profile or message you.
             </Text>
-          </View>
+          </Animated.View>
         ) : (
           <>
-            <Text style={[styles.count, { color: theme.colors.textSecondary }]}>
-              {blockedUsers.length} blocked user{blockedUsers.length !== 1 ? 's' : ''}
-            </Text>
+            <Animated.View entering={FadeInUp.delay(100).springify()}>
+              <Text style={styles.count}>
+                {blockedUsers.length} blocked user{blockedUsers.length !== 1 ? 's' : ''}
+              </Text>
+            </Animated.View>
 
-            <View style={[styles.userList, { backgroundColor: theme.colors.surface }]}>
+            <View style={styles.userList}>
               {blockedUsers.map((user, index) => (
-                <View
+                <Animated.View
                   key={user.id}
-                  style={[
-                    styles.userItem,
-                    index < blockedUsers.length - 1 && styles.userItemBorder,
-                  ]}
+                  entering={FadeInRight.delay(index * 50).springify()}
                 >
-                  <Image source={{ uri: user.photo }} style={styles.userPhoto} />
-                  <View style={styles.userInfo}>
-                    <Text style={[styles.userName, { color: theme.colors.text }]}>
-                      {user.name}
-                    </Text>
-                    <Text style={[styles.blockedDate, { color: theme.colors.textTertiary }]}>
-                      Blocked on {new Date(user.blockedAt).toLocaleDateString()}
-                    </Text>
+                  <View style={styles.userItem}>
+                    <Image source={{ uri: user.photo }} style={styles.userPhoto} />
+                    <View style={styles.userInfo}>
+                      <Text style={styles.userName}>{user.name}</Text>
+                      <Text style={styles.blockedDate}>
+                        Blocked on {new Date(user.blockedAt).toLocaleDateString()}
+                      </Text>
+                    </View>
+                    <Pressable
+                      style={styles.unblockButton}
+                      onPress={() => handleUnblock(user)}
+                    >
+                      <Text style={styles.unblockButtonText}>Unblock</Text>
+                    </Pressable>
                   </View>
-                  <Pressable
-                    style={styles.unblockButton}
-                    onPress={() => handleUnblock(user)}
-                  >
-                    <Text style={styles.unblockButtonText}>Unblock</Text>
-                  </Pressable>
-                </View>
+                </Animated.View>
               ))}
             </View>
 
-            <View style={[styles.infoCard, { backgroundColor: colors.transparent.gold20 }]}>
-              <Ionicons name="information-circle" size={20} color={colors.primary.gold} />
-              <Text style={[styles.infoText, { color: theme.colors.text }]}>
+            <Animated.View entering={FadeInUp.delay(300).springify()} style={styles.infoCard}>
+              <View style={styles.infoIconContainer}>
+                <Ionicons name="information-circle" size={20} color={colors.primary.gold} />
+              </View>
+              <Text style={styles.infoText}>
                 Blocked users cannot see your profile, send you messages, or find you in search results.
               </Text>
-            </View>
+            </Animated.View>
           </>
         )}
       </ScrollView>
@@ -145,6 +133,10 @@ export default function BlockedUsersScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.dark.background,
+  },
+  headerGradient: {
+    paddingBottom: spacing[4],
   },
   header: {
     flexDirection: 'row',
@@ -162,6 +154,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 17,
     fontWeight: '600',
+    color: colors.primary.white,
   },
   headerRight: {
     width: 44,
@@ -176,31 +169,43 @@ const styles = StyleSheet.create({
     paddingTop: spacing[12],
   },
   emptyIcon: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: colors.transparent.gold10,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: spacing[4],
+    borderWidth: 2,
+    borderColor: colors.transparent.gold20,
   },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: '600',
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.primary.white,
     marginBottom: spacing[2],
   },
   emptySubtitle: {
     fontSize: 15,
     textAlign: 'center',
     lineHeight: 22,
+    color: colors.transparent.white60,
   },
   count: {
-    fontSize: 14,
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    color: colors.transparent.white50,
     marginTop: spacing[4],
     marginBottom: spacing[3],
-    marginLeft: spacing[1],
+    marginLeft: spacing[2],
   },
   userList: {
-    borderRadius: borderRadius.lg,
+    backgroundColor: colors.transparent.white10,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.transparent.white10,
     overflow: 'hidden',
   },
   userItem: {
@@ -208,15 +213,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: spacing[4],
     gap: spacing[3],
-  },
-  userItemBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: colors.neutral[100],
+    borderBottomColor: colors.transparent.white10,
   },
   userPhoto: {
     width: 48,
     height: 48,
     borderRadius: 24,
+    borderWidth: 2,
+    borderColor: colors.transparent.white20,
   },
   userInfo: {
     flex: 1,
@@ -224,32 +229,48 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: 16,
     fontWeight: '600',
+    color: colors.primary.white,
   },
   blockedDate: {
     fontSize: 13,
-    marginTop: spacing[1],
+    color: colors.transparent.white50,
+    marginTop: spacing[0.5],
   },
   unblockButton: {
     paddingHorizontal: spacing[4],
     paddingVertical: spacing[2],
-    backgroundColor: colors.neutral[200],
-    borderRadius: borderRadius.md,
+    backgroundColor: colors.transparent.white10,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.transparent.white20,
   },
   unblockButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: colors.primary.navy,
+    color: colors.primary.white,
   },
   infoCard: {
     flexDirection: 'row',
     padding: spacing[4],
-    borderRadius: borderRadius.lg,
+    backgroundColor: colors.transparent.gold10,
+    borderRadius: borderRadius.xl,
     gap: spacing[3],
     marginTop: spacing[6],
+    borderWidth: 1,
+    borderColor: colors.transparent.gold20,
+  },
+  infoIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.transparent.gold20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   infoText: {
     flex: 1,
     fontSize: 14,
     lineHeight: 20,
+    color: colors.transparent.white70,
   },
 });

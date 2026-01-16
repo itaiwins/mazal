@@ -117,8 +117,8 @@ const initialState = {
   keyboardVisible: false,
   keyboardHeight: 0,
   isDarkMode: true, // Default to dark theme (navy/gold)
-  isOrthodoxMode: DEV_BYPASS_PREMIUM, // DEV: Auto-enable Orthodox mode
-  hasOrthodoxSubscription: DEV_BYPASS_PREMIUM, // DEV: Auto-grant subscription
+  isOrthodoxMode: false, // Only true when user explicitly selects Orthodox mode
+  hasOrthodoxSubscription: DEV_BYPASS_PREMIUM, // DEV: Auto-grant subscription for testing
   isShabbatModeEnabled: false,
   isShabbatModeActive: false,
   shabbatStartTime: null,

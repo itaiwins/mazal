@@ -41,13 +41,32 @@ export const PRODUCTS = {
 export type EntitlementId = (typeof ENTITLEMENTS)[keyof typeof ENTITLEMENTS];
 
 /**
+ * Check if running in Expo Go
+ */
+function isExpoGo(): boolean {
+  // @ts-ignore - expo-constants may not be typed
+  try {
+    const Constants = require('expo-constants').default;
+    return Constants.appOwnership === 'expo';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Initialize RevenueCat SDK
  */
 export async function initializeRevenueCat(userId?: string): Promise<void> {
+  // Skip RevenueCat in Expo Go - it requires a development build
+  if (isExpoGo()) {
+    console.log('[RevenueCat] Skipping initialization in Expo Go - use DEV_BYPASS_PREMIUM for testing');
+    return;
+  }
+
   const apiKey = Platform.OS === 'ios' ? REVENUECAT_IOS_KEY : REVENUECAT_ANDROID_KEY;
 
   if (!apiKey) {
-    console.warn('RevenueCat API key not configured');
+    console.warn('[RevenueCat] API key not configured');
     return;
   }
 
@@ -57,9 +76,14 @@ export async function initializeRevenueCat(userId?: string): Promise<void> {
     }
 
     await Purchases.configure({ apiKey, appUserID: userId });
-    console.log('RevenueCat initialized');
-  } catch (error) {
-    console.error('Failed to initialize RevenueCat:', error);
+    console.log('[RevenueCat] Initialized successfully');
+  } catch (error: any) {
+    // Check if this is an Expo Go limitation error
+    if (error?.message?.includes('Expo Go') || error?.message?.includes('native store')) {
+      console.log('[RevenueCat] Native store not available - using DEV_BYPASS_PREMIUM for testing');
+    } else {
+      console.warn('[RevenueCat] Failed to initialize:', error?.message || error);
+    }
   }
 }
 

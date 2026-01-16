@@ -35,9 +35,10 @@ import { useDiscoveryProfiles } from '@/api/queries';
 import { useSwipe } from '@/api/mutations';
 import { useMatchesSubscription } from '@/api/realtime';
 import { StarOfDavid } from '@/components/icons/StarOfDavid';
-import { ProfileStory } from '@/components/discovery';
+import { ProfileStory, CardStack, ActionButtons } from '@/components/discovery';
 import { AdBanner, useInterstitialAd } from '@/components/ads';
 import { AnimatedHeader } from '@/components/ui/AnimatedHeader';
+import { MatchCelebration2 } from '@/components/celebrations';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -188,7 +189,7 @@ function SaftaCard({
           <View style={saftaStyles.nameRow}>
             <Text style={[saftaStyles.name, { color: theme.colors.text }]}>{safta.name}</Text>
             {safta.isVerified && (
-              <Ionicons name="checkmark-circle" size={18} color={colors.primary.gold} />
+              <Ionicons name="checkmark-circle" size={18} color={colors.semantic.info} />
             )}
           </View>
           <View style={saftaStyles.relationshipBadge}>
@@ -240,6 +241,11 @@ export default function DiscoveryScreen() {
   const insets = useSafeAreaInsets();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
+
+  // UI mode - card stack vs story scroll
+  const [viewMode, setViewMode] = useState<'cards' | 'story'>('cards');
+  const [selectedProfileForModal, setSelectedProfileForModal] = useState<any>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   // Match state
   const showMatchCelebration = useMatchStore((s) => s.showMatchCelebration);
@@ -495,6 +501,111 @@ export default function DiscoveryScreen() {
     router.push(`/(tabs)/messages/${saftaId}`);
   }, []);
 
+  // Card Stack Handlers
+  const handleCardSwipeLeft = useCallback((profile: any) => {
+    if (isTransitioning) return;
+
+    // Check swipe limit for non-premium users
+    if (!canSwipe) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      showPaywallModal(
+        'You\'ve used all your daily swipes! Upgrade to Mazal Gold for unlimited swipes.',
+        'gold'
+      );
+      return;
+    }
+
+    // Use a swipe from the limit
+    if (!isUnlimited) {
+      useSwipeLimit();
+    }
+
+    setIsTransitioning(true);
+
+    swipeMutation.mutate(
+      { swipedUserId: profile.id, action: 'pass' },
+      {
+        onSettled: () => {
+          setIsTransitioning(false);
+          trackSwipe();
+        },
+      }
+    );
+  }, [isTransitioning, canSwipe, isUnlimited, useSwipeLimit, showPaywallModal, swipeMutation, trackSwipe]);
+
+  const handleCardSwipeRight = useCallback((profile: any) => {
+    if (isTransitioning) return;
+
+    // Check swipe limit
+    if (!canSwipe) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      showPaywallModal(
+        'You\'ve used all your daily swipes! Upgrade to Mazal Gold for unlimited swipes.',
+        'gold'
+      );
+      return;
+    }
+
+    if (!isUnlimited) {
+      useSwipeLimit();
+    }
+
+    setIsTransitioning(true);
+
+    swipeMutation.mutate(
+      { swipedUserId: profile.id, action: 'like' },
+      {
+        onSuccess: (result) => {
+          if (result.isMatch) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            showCelebration({
+              id: result.matchId || `match-${profile.id}`,
+              created_at: new Date().toISOString(),
+              other_user: {
+                id: profile.id,
+                first_name: profile.first_name,
+                display_name: profile.first_name,
+                primary_photo_url: getPhotoUrl(profile),
+              },
+              unread_count: 0,
+            });
+          }
+        },
+        onSettled: () => {
+          setIsTransitioning(false);
+          trackSwipe();
+        },
+      }
+    );
+  }, [isTransitioning, canSwipe, isUnlimited, useSwipeLimit, showPaywallModal, swipeMutation, showCelebration, getPhotoUrl, trackSwipe]);
+
+  const handleCardSwipeUp = useCallback((profile: any) => {
+    // Open full profile modal
+    setSelectedProfileForModal(profile);
+    setShowProfileModal(true);
+  }, []);
+
+  const handleCardTap = useCallback((profile: any) => {
+    // Also open full profile modal on tap
+    setSelectedProfileForModal(profile);
+    setShowProfileModal(true);
+  }, []);
+
+  const handleCardAdvance = useCallback(() => {
+    setCurrentIndex((prev) => prev + 1);
+  }, []);
+
+  const handleCloseProfileModal = useCallback(() => {
+    setShowProfileModal(false);
+    setSelectedProfileForModal(null);
+  }, []);
+
+  // Toggle view mode
+  const toggleViewMode = useCallback(() => {
+    setViewMode((prev) => prev === 'cards' ? 'story' : 'cards');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
+
   return (
     <View style={[styles.container, { backgroundColor: colors.dark.background }]}>
       {/* Header */}
@@ -508,9 +619,20 @@ export default function DiscoveryScreen() {
             </View>
           )}
         </View>
-        <Pressable style={styles.headerButton} onPress={() => router.push('/settings')}>
-          <Ionicons name="options-outline" size={24} color={colors.transparent.white70} />
-        </Pressable>
+        <View style={styles.headerActions}>
+          {/* View Mode Toggle */}
+          <Pressable style={styles.headerButton} onPress={toggleViewMode}>
+            <Ionicons
+              name={viewMode === 'cards' ? 'albums-outline' : 'layers-outline'}
+              size={22}
+              color={colors.transparent.white70}
+            />
+          </Pressable>
+          {/* Settings */}
+          <Pressable style={styles.headerButton} onPress={() => router.push('/settings')}>
+            <Ionicons name="options-outline" size={24} color={colors.transparent.white70} />
+          </Pressable>
+        </View>
       </View>
 
       {/* Ad Banner - only shows for free users */}
@@ -551,19 +673,45 @@ export default function DiscoveryScreen() {
               <Text style={styles.loadingText}>Finding great people...</Text>
             </View>
           ) : hasMoreProfiles && currentProfile ? (
-            <Animated.View
-              key={currentProfile.id}
-              entering={SlideInRight.duration(400)}
-              exiting={SlideOutLeft.duration(300)}
-              style={styles.profileStoryContainer}
-            >
-              <ProfileStory
-                profile={currentProfile}
-                onPass={handlePass}
-                onLike={handleLike}
-                onSuperLike={handleSuperLike}
-              />
-            </Animated.View>
+            viewMode === 'cards' ? (
+              // NEW: 3D Card Stack Mode
+              <>
+                <CardStack
+                  profiles={profiles}
+                  currentIndex={currentIndex}
+                  onSwipeLeft={handleCardSwipeLeft}
+                  onSwipeRight={handleCardSwipeRight}
+                  onSwipeUp={handleCardSwipeUp}
+                  onTap={handleCardTap}
+                  onCardAdvance={handleCardAdvance}
+                />
+                <ActionButtons
+                  onPass={handlePass}
+                  onLike={() => handleLike([])}
+                  onSuperLike={handleSuperLike}
+                  disabled={isTransitioning}
+                  hasLikedSomething={false}
+                  superLikesRemaining={superLikesRemaining}
+                  swipesRemaining={swipesRemaining}
+                  isUnlimited={isUnlimited}
+                />
+              </>
+            ) : (
+              // Original: Profile Story Mode
+              <Animated.View
+                key={currentProfile.id}
+                entering={SlideInRight.duration(400)}
+                exiting={SlideOutLeft.duration(300)}
+                style={styles.profileStoryContainer}
+              >
+                <ProfileStory
+                  profile={currentProfile}
+                  onPass={handlePass}
+                  onLike={handleLike}
+                  onSuperLike={handleSuperLike}
+                />
+              </Animated.View>
+            )
           ) : (
             <View style={styles.emptyState}>
               <View style={styles.emptyIcon}>
@@ -601,10 +749,53 @@ export default function DiscoveryScreen() {
         </ScrollView>
       )}
 
-      {/* Match Celebration */}
+      {/* Full Profile Modal (for Card Stack mode) */}
+      {showProfileModal && selectedProfileForModal && (
+        <Modal
+          visible={true}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={handleCloseProfileModal}
+        >
+          <View style={styles.profileModalContainer}>
+            {/* Close button */}
+            <Pressable style={styles.profileModalClose} onPress={handleCloseProfileModal}>
+              <Ionicons name="close" size={28} color={colors.primary.white} />
+            </Pressable>
+
+            {/* Full Profile Story */}
+            <ProfileStory
+              profile={selectedProfileForModal}
+              onPass={() => {
+                handleCloseProfileModal();
+                handlePass();
+              }}
+              onLike={(likedContent) => {
+                handleCloseProfileModal();
+                handleLike(likedContent);
+              }}
+              onSuperLike={() => {
+                handleCloseProfileModal();
+                handleSuperLike();
+              }}
+            />
+          </View>
+        </Modal>
+      )}
+
+      {/* Match Celebration - Premium animated version with particles */}
       {showMatchCelebration && newMatch && (
-        <MatchCelebration
-          match={newMatch}
+        <MatchCelebration2
+          match={{
+            id: newMatch.id,
+            otherUser: {
+              id: newMatch.other_user?.id || '',
+              firstName: newMatch.other_user?.first_name || 'Someone special',
+              photoUrl: newMatch.other_user?.primary_photo_url || 'https://via.placeholder.com/150',
+            },
+            yourPhotoUrl: undefined, // User's photo is handled by the component
+          }}
+          visible={showMatchCelebration}
           onClose={hideCelebration}
           onSendMessage={() => {
             hideCelebration();
@@ -632,6 +823,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[3],
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
   },
   logoText: {
     fontSize: 28,
@@ -746,6 +942,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: colors.primary.navy,
+  },
+  profileModalContainer: {
+    flex: 1,
+    backgroundColor: colors.dark.background,
+  },
+  profileModalClose: {
+    position: 'absolute',
+    top: spacing[6],
+    right: spacing[4],
+    zIndex: 100,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.transparent.black50,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   saftaScrollView: {
     flex: 1,

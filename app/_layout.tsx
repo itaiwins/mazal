@@ -24,6 +24,8 @@ import { validateEnv, env } from '@/lib/config/env';
 // Stores
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
+import { useOnboardingStore } from '@/stores/onboardingStore';
+import { useShidduchOnboardingStore } from '@/stores/shidduchOnboardingStore';
 
 // Supabase
 import { supabase, onAuthStateChange } from '@/api/supabase/client';
@@ -177,10 +179,13 @@ export default function RootLayout() {
     const { data: { subscription } } = onAuthStateChange(async (event, session) => {
       console.log('Auth event:', event, '| Has session:', !!session);
 
-      // Debug: Log when sign out happens to help diagnose issues
+      // Clear all user data on sign out
       if (event === 'SIGNED_OUT') {
-        console.log('[Layout] SIGNED_OUT event received - session was cleared');
-        console.log('[Layout] This may indicate a session storage or refresh issue');
+        console.log('[Layout] SIGNED_OUT event received - clearing all stores');
+        // Reset onboarding stores to prevent data leaking between accounts
+        useOnboardingStore.getState().reset();
+        useShidduchOnboardingStore.getState().reset();
+        console.log('[Layout] Onboarding stores cleared');
       }
 
       // Debug: Log token refresh events

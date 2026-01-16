@@ -1,28 +1,44 @@
 /**
  * Jewish Life Section Component
  *
- * Display Jewish background and observance information beautifully
+ * Display Jewish background and observance information
+ * Only shows fields that are collected during onboarding:
+ * - jewish_background (denomination)
+ * - observance_level
  */
 
 import { View, Text, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { StarOfDavid } from '@/components/icons/StarOfDavid';
+import { JEWISH_BACKGROUNDS, OBSERVANCE_LEVELS } from '@/lib/constants/jewish';
 
 interface JewishLifeProps {
   jewishBackground?: string;
   observanceLevel?: string;
-  keepsShabbat?: string;
-  keepsKosher?: string;
-  synagogueAttendance?: string;
-  wantsChildren?: string;
-  partnerMustBeJewish?: boolean;
-  raiseChildrenJewish?: boolean;
 }
 
-// Format display strings
+// Get label from constants
+const getBackgroundLabel = (id?: string): string => {
+  if (!id) return '';
+  const bg = JEWISH_BACKGROUNDS.find((b) => b.id === id);
+  return bg?.label || formatValue(id);
+};
+
+const getObservanceLabel = (id?: string): string => {
+  if (!id) return '';
+  const obs = OBSERVANCE_LEVELS.find((o) => o.id === id);
+  return obs?.label || formatValue(id);
+};
+
+const getObservanceDescription = (id?: string): string => {
+  if (!id) return '';
+  const obs = OBSERVANCE_LEVELS.find((o) => o.id === id);
+  return obs?.description || '';
+};
+
+// Fallback format for legacy data
 const formatValue = (value?: string): string => {
   if (!value) return '';
   return value
@@ -31,59 +47,19 @@ const formatValue = (value?: string): string => {
     .join(' ');
 };
 
-interface ValueChipProps {
-  label: string;
-  isPrimary?: boolean;
-}
-
-function ValueChip({ label, isPrimary }: ValueChipProps) {
-  return (
-    <View style={[styles.chip, isPrimary && styles.chipPrimary]}>
-      <Text style={[styles.chipText, isPrimary && styles.chipTextPrimary]}>{label}</Text>
-    </View>
-  );
-}
-
-interface DetailItemProps {
-  icon: string;
-  label: string;
-  value: string;
-}
-
-function DetailItem({ icon, label, value }: DetailItemProps) {
-  return (
-    <View style={styles.detailItem}>
-      <View style={styles.detailIcon}>
-        <Text style={styles.detailIconText}>{icon}</Text>
-      </View>
-      <View style={styles.detailContent}>
-        <Text style={styles.detailLabel}>{label}</Text>
-        <Text style={styles.detailValue}>{value}</Text>
-      </View>
-    </View>
-  );
-}
-
 export function JewishLife({
   jewishBackground,
   observanceLevel,
-  keepsShabbat,
-  keepsKosher,
-  synagogueAttendance,
-  wantsChildren,
-  partnerMustBeJewish,
-  raiseChildrenJewish,
 }: JewishLifeProps) {
-  const hasContent =
-    jewishBackground ||
-    observanceLevel ||
-    keepsShabbat ||
-    keepsKosher ||
-    wantsChildren;
+  const hasContent = jewishBackground || observanceLevel;
 
   if (!hasContent) {
     return null;
   }
+
+  const backgroundLabel = getBackgroundLabel(jewishBackground);
+  const observanceLabel = getObservanceLabel(observanceLevel);
+  const observanceDesc = getObservanceDescription(observanceLevel);
 
   return (
     <Animated.View entering={FadeInUp.delay(500)} style={styles.container}>
@@ -93,49 +69,35 @@ export function JewishLife({
         <Text style={styles.sectionTitle}>Jewish Life</Text>
       </View>
 
-      {/* Primary Chips */}
-      <View style={styles.chipsContainer}>
+      {/* Background & Observance Cards */}
+      <View style={styles.cardsContainer}>
         {jewishBackground && (
-          <ValueChip label={formatValue(jewishBackground)} isPrimary />
+          <View style={styles.card}>
+            <View style={styles.cardIcon}>
+              <Text style={styles.cardEmoji}>✡️</Text>
+            </View>
+            <View style={styles.cardContent}>
+              <Text style={styles.cardLabel}>Background</Text>
+              <Text style={styles.cardValue}>{backgroundLabel}</Text>
+            </View>
+          </View>
         )}
+
         {observanceLevel && (
-          <ValueChip label={formatValue(observanceLevel)} />
+          <View style={styles.card}>
+            <View style={styles.cardIcon}>
+              <Text style={styles.cardEmoji}>🕯️</Text>
+            </View>
+            <View style={styles.cardContent}>
+              <Text style={styles.cardLabel}>Observance</Text>
+              <Text style={styles.cardValue}>{observanceLabel}</Text>
+              {observanceDesc && (
+                <Text style={styles.cardDescription}>{observanceDesc}</Text>
+              )}
+            </View>
+          </View>
         )}
       </View>
-
-      {/* Detail Items */}
-      <View style={styles.detailsContainer}>
-        {keepsShabbat && (
-          <DetailItem icon="🕯️" label="Shabbat" value={formatValue(keepsShabbat)} />
-        )}
-        {keepsKosher && (
-          <DetailItem icon="🍽️" label="Kosher" value={formatValue(keepsKosher)} />
-        )}
-        {synagogueAttendance && (
-          <DetailItem icon="🏛️" label="Synagogue" value={formatValue(synagogueAttendance)} />
-        )}
-        {wantsChildren && (
-          <DetailItem icon="👶" label="Wants Kids" value={formatValue(wantsChildren)} />
-        )}
-      </View>
-
-      {/* Important Preferences */}
-      {(partnerMustBeJewish || raiseChildrenJewish) && (
-        <View style={styles.preferencesContainer}>
-          {partnerMustBeJewish && (
-            <View style={styles.preferenceItem}>
-              <Ionicons name="checkmark-circle" size={16} color={colors.primary.gold} />
-              <Text style={styles.preferenceText}>Partner must be Jewish</Text>
-            </View>
-          )}
-          {raiseChildrenJewish && (
-            <View style={styles.preferenceItem}>
-              <Ionicons name="checkmark-circle" size={16} color={colors.primary.gold} />
-              <Text style={styles.preferenceText}>Raise children Jewish</Text>
-            </View>
-          )}
-        </View>
-      )}
     </Animated.View>
   );
 }
@@ -156,74 +118,49 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.primary.white,
   },
-  chipsContainer: {
+  cardsContainer: {
+    gap: spacing[3],
+  },
+  card: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing[2],
-    marginBottom: spacing[4],
-  },
-  chip: {
+    alignItems: 'flex-start',
     backgroundColor: colors.transparent.white10,
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[2.5],
-    borderRadius: borderRadius.lg,
-  },
-  chipPrimary: {
-    backgroundColor: colors.transparent.gold20,
-    borderWidth: 1,
-    borderColor: colors.transparent.gold50,
-  },
-  chipText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.transparent.white80,
-  },
-  chipTextPrimary: {
-    color: colors.primary.gold,
-  },
-  detailsContainer: {
-    backgroundColor: colors.transparent.white10,
-    borderRadius: borderRadius.lg,
-    overflow: 'hidden',
-  },
-  detailItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderRadius: borderRadius.xl,
     padding: spacing[4],
-    borderBottomWidth: 1,
-    borderBottomColor: colors.transparent.white10,
+    gap: spacing[3],
+    borderWidth: 1,
+    borderColor: colors.transparent.white10,
   },
-  detailIcon: {
-    width: 32,
+  cardIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.transparent.gold20,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  detailIconText: {
-    fontSize: 18,
+  cardEmoji: {
+    fontSize: 20,
   },
-  detailContent: {
-    marginLeft: spacing[3],
+  cardContent: {
+    flex: 1,
   },
-  detailLabel: {
+  cardLabel: {
     fontSize: 12,
+    fontWeight: '600',
     color: colors.transparent.white50,
-    marginBottom: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing[1],
   },
-  detailValue: {
-    fontSize: 15,
-    fontWeight: '500',
+  cardValue: {
+    fontSize: 18,
+    fontWeight: '600',
     color: colors.primary.white,
   },
-  preferencesContainer: {
-    marginTop: spacing[4],
-    gap: spacing[2],
-  },
-  preferenceItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-  },
-  preferenceText: {
-    fontSize: 14,
-    color: colors.transparent.white80,
+  cardDescription: {
+    fontSize: 13,
+    color: colors.transparent.white60,
+    marginTop: spacing[1],
   },
 });

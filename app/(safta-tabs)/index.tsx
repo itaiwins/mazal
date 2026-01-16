@@ -38,9 +38,13 @@ import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius, shadows } from '@/theme/spacing';
 import { useAuthStore } from '@/stores/authStore';
+import { useUIStore } from '@/stores/uiStore';
 import { useSaftaPremiumStore } from '@/stores/saftaPremiumStore';
 import { SendToChatsModal } from '@/components/chat/SendToChatsModal';
 import { supabase } from '@/api/supabase/client';
+import { CardStack, ActionButtons, ProfileData } from '@/components/discovery';
+import { HapticPatterns } from '@/utils/haptics';
+import { DEMO_PROFILES } from '@/lib/demo/demoProfiles';
 
 // Safta mode uses gold accent (same as user mode)
 const SAFTA_ACCENT = colors.primary.gold;
@@ -150,6 +154,9 @@ export default function SaftaDiscoverScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
 
+  // Check if demo mode is enabled
+  const isDemoMode = useUIStore((s) => s.isDemoMode);
+
   // Premium store for daily limits
   const {
     isProSubscriber,
@@ -165,8 +172,7 @@ export default function SaftaDiscoverScreen() {
     checkAndResetLimits();
   }, []);
 
-  // Filter state - default to custom filters (not using grandchild's preferences)
-  const [useGrandchildFilters, setUseGrandchildFilters] = useState(false);
+  // Filter state
   const [showFilterModal, setShowFilterModal] = useState(false);
 
   // Custom filter state (when not using grandchild's preferences)
@@ -178,6 +184,11 @@ export default function SaftaDiscoverScreen() {
   // Profile browsing state
   const [currentIndex, setCurrentIndex] = useState(0);
 
+  // View mode - card stack vs story scroll
+  const [viewMode, setViewMode] = useState<'cards' | 'story'>('cards');
+  const [selectedProfileForModal, setSelectedProfileForModal] = useState<SaftaProfile | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+
   // Send to chats modal state
   const [showSendToChatsModal, setShowSendToChatsModal] = useState(false);
 
@@ -186,9 +197,45 @@ export default function SaftaDiscoverScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch profiles from Supabase
+  // Fetch profiles from Supabase (or use demo data)
   useEffect(() => {
     async function fetchProfiles() {
+      // In demo mode, use demo profiles instead of fetching
+      if (isDemoMode) {
+        const demoSaftaProfiles: SaftaProfile[] = DEMO_PROFILES.map((profile) => ({
+          id: profile.id,
+          first_name: profile.first_name,
+          age: profile.age,
+          occupation: profile.occupation ?? undefined,
+          company: undefined,
+          education: profile.education ?? undefined,
+          school: profile.education ?? undefined,
+          jewish_background: profile.jewish_background ?? undefined,
+          observance_level: (profile as any).observance_level ?? undefined,
+          keeps_shabbat: (profile as any).keeps_shabbat ? 'always' : 'sometimes',
+          keeps_kosher: (profile as any).keeps_kosher ?? undefined,
+          wants_children: 'yes',
+          current_city: profile.current_city ?? undefined,
+          current_state: 'NY',
+          height_cm: profile.height_cm ?? undefined,
+          bio: profile.bio ?? undefined,
+          is_verified: true,
+          photos: profile.photos.map((p) => ({
+            id: p.id,
+            photo_url: p.photo_url,
+            photo_order: p.photo_order,
+          })),
+          prompts: profile.prompts.map((p) => ({
+            prompt_id: p.prompt_id,
+            answer: p.answer,
+          })),
+          safta_approved_count: profile.safta_approved_count ?? 0,
+        }));
+        setProfiles(demoSaftaProfiles);
+        setIsLoading(false);
+        return;
+      }
+
       setIsLoading(true);
       setError(null);
 
@@ -315,7 +362,7 @@ export default function SaftaDiscoverScreen() {
     }
 
     fetchProfiles();
-  }, [customMinAge, customMaxAge, customBackgrounds]);
+  }, [customMinAge, customMaxAge, customBackgrounds, isDemoMode]);
 
   // Apply client-side filtering for backgrounds
   const filteredProfiles = useMemo(() => {
@@ -419,6 +466,89 @@ export default function SaftaDiscoverScreen() {
     return parts.join(', ') || 'Nearby';
   }, [currentProfile]);
 
+  // Convert SaftaProfile to ProfileData for CardStack
+  const cardStackProfiles: ProfileData[] = useMemo(() => {
+    return filteredProfiles.map((profile) => ({
+      id: profile.id,
+      first_name: profile.first_name,
+      age: profile.age,
+      occupation: profile.occupation,
+      jewish_background: profile.jewish_background,
+      current_city: profile.current_city,
+      current_state: profile.current_state,
+      distance: profile.distance,
+      is_verified: profile.is_verified,
+      photos: profile.photos,
+      prompts: profile.prompts,
+    }));
+  }, [filteredProfiles]);
+
+  // CardStack Handlers
+  const handleCardSwipeLeft = useCallback((profile: ProfileData) => {
+    HapticPatterns.pass();
+    // Skip this profile
+    if (currentIndex < filteredProfiles.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    }
+  }, [currentIndex, filteredProfiles.length]);
+
+  const handleCardSwipeRight = useCallback((profile: ProfileData) => {
+    // Check if user can recommend (daily limit check)
+    if (!canRecommend()) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      router.push('/(safta-auth)/paywall');
+      return;
+    }
+
+    // Use a recommendation from the daily limit
+    const success = useRecommendation();
+    if (!success) {
+      router.push('/(safta-auth)/paywall');
+      return;
+    }
+
+    HapticPatterns.saftaRecommend();
+    console.log('Recommending profile:', profile.id);
+
+    // Move to next profile
+    if (currentIndex < filteredProfiles.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    }
+  }, [currentIndex, filteredProfiles.length, canRecommend, useRecommendation]);
+
+  const handleCardSwipeUp = useCallback((profile: ProfileData) => {
+    // Open full profile modal
+    const fullProfile = filteredProfiles.find((p) => p.id === profile.id);
+    if (fullProfile) {
+      setSelectedProfileForModal(fullProfile);
+      setShowProfileModal(true);
+    }
+  }, [filteredProfiles]);
+
+  const handleCardTap = useCallback((profile: ProfileData) => {
+    // Open full profile modal on tap
+    const fullProfile = filteredProfiles.find((p) => p.id === profile.id);
+    if (fullProfile) {
+      setSelectedProfileForModal(fullProfile);
+      setShowProfileModal(true);
+    }
+  }, [filteredProfiles]);
+
+  const handleCardAdvance = useCallback(() => {
+    setCurrentIndex((prev) => prev + 1);
+  }, []);
+
+  const handleCloseProfileModal = useCallback(() => {
+    setShowProfileModal(false);
+    setSelectedProfileForModal(null);
+  }, []);
+
+  // Toggle view mode
+  const toggleViewMode = useCallback(() => {
+    setViewMode((prev) => prev === 'cards' ? 'story' : 'cards');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
+
   return (
     <View style={[styles.container, { backgroundColor: colors.dark.background }]}>
       {/* Header */}
@@ -432,9 +562,20 @@ export default function SaftaDiscoverScreen() {
             </View>
           </View>
         </View>
-        <Pressable style={styles.filterButton} onPress={handleOpenFilters}>
-          <Ionicons name="options-outline" size={24} color={colors.transparent.white70} />
-        </Pressable>
+        <View style={styles.headerActions}>
+          {/* View Mode Toggle */}
+          <Pressable style={styles.headerButton} onPress={toggleViewMode}>
+            <Ionicons
+              name={viewMode === 'cards' ? 'albums-outline' : 'layers-outline'}
+              size={22}
+              color={colors.transparent.white70}
+            />
+          </Pressable>
+          {/* Filters */}
+          <Pressable style={styles.headerButton} onPress={handleOpenFilters}>
+            <Ionicons name="options-outline" size={24} color={colors.transparent.white70} />
+          </Pressable>
+        </View>
       </View>
 
       {/* Daily Recommendations Limit Banner (for free users) */}
@@ -470,19 +611,47 @@ export default function SaftaDiscoverScreen() {
       {/* Filter Mode Indicator */}
       <View style={styles.filterIndicator}>
         <Ionicons
-          name={useGrandchildFilters ? 'person' : 'options'}
+          name="options"
           size={16}
           color={colors.primary.gold}
         />
         <Text style={styles.filterIndicatorText}>
-          {useGrandchildFilters ? "Using connected user's preferences" : 'Using your custom filters'}
+          Using your custom filters
         </Text>
         <Pressable onPress={handleOpenFilters}>
-          <Text style={styles.changeFilterText}>Change</Text>
+          <Text style={styles.changeFilterText}>Edit</Text>
         </Pressable>
       </View>
 
       {currentProfile ? (
+        viewMode === 'cards' ? (
+          // NEW: 3D Card Stack Mode for Safta
+          <View style={styles.cardStackContainer}>
+            <CardStack
+              profiles={cardStackProfiles}
+              currentIndex={currentIndex}
+              onSwipeLeft={handleCardSwipeLeft}
+              onSwipeRight={handleCardSwipeRight}
+              onSwipeUp={handleCardSwipeUp}
+              onTap={handleCardTap}
+              onCardAdvance={handleCardAdvance}
+            />
+            {/* Safta-specific Action Buttons - positioned above dot navigator */}
+            <View style={[styles.saftaActionFooter, { paddingBottom: insets.bottom + 80 }]}>
+              <Pressable style={styles.skipButton} onPress={handleSkip}>
+                <Ionicons name="close" size={28} color={colors.neutral[400]} />
+              </Pressable>
+              <Pressable style={styles.sendToChatsButton} onPress={handleShareToMessages}>
+                <Ionicons name="chatbubbles-outline" size={24} color={colors.primary.gold} />
+              </Pressable>
+              <Pressable style={styles.recommendButton} onPress={handleRecommend}>
+                <Ionicons name="heart" size={24} color={colors.primary.navy} />
+                <Text style={styles.recommendButtonText}>Recommend</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+        // Original: Story Scroll Mode
         <Animated.View
           key={currentProfile.id}
           entering={SlideInRight.duration(400)}
@@ -511,7 +680,7 @@ export default function SaftaDiscoverScreen() {
                     {currentProfile.first_name}, {currentProfile.age}
                   </Text>
                   {currentProfile.is_verified && (
-                    <Ionicons name="checkmark-circle" size={24} color={colors.primary.gold} />
+                    <Ionicons name="checkmark-circle" size={24} color={colors.semantic.info} />
                   )}
                 </View>
                 <View style={styles.heroLocationRow}>
@@ -657,8 +826,8 @@ export default function SaftaDiscoverScreen() {
             </View>
           </ScrollView>
 
-          {/* Sticky Action Footer */}
-          <View style={[styles.actionFooter, { paddingBottom: insets.bottom + spacing[2] }]}>
+          {/* Sticky Action Footer - positioned above dot navigator */}
+          <View style={[styles.actionFooter, { paddingBottom: insets.bottom + 80 }]}>
             <Pressable style={styles.skipButton} onPress={handleSkip}>
               <Ionicons name="close" size={28} color={colors.neutral[400]} />
             </Pressable>
@@ -671,6 +840,7 @@ export default function SaftaDiscoverScreen() {
             </Pressable>
           </View>
         </Animated.View>
+        )
       ) : isLoading ? (
         <View style={styles.emptyContainer}>
           <ActivityIndicator size="large" color={colors.primary.gold} />
@@ -708,6 +878,121 @@ export default function SaftaDiscoverScreen() {
         />
       )}
 
+      {/* Full Profile Modal (for Card Stack mode) */}
+      {showProfileModal && selectedProfileForModal && (
+        <Modal
+          visible={true}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={handleCloseProfileModal}
+        >
+          <View style={styles.profileModalContainer}>
+            {/* Close button */}
+            <Pressable style={styles.profileModalClose} onPress={handleCloseProfileModal}>
+              <Ionicons name="close" size={28} color={colors.primary.white} />
+            </Pressable>
+
+            {/* Full Profile Content */}
+            <ScrollView
+              style={styles.scrollView}
+              contentContainerStyle={{ paddingBottom: 180 + insets.bottom }}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Hero Photo */}
+              <View style={styles.heroContainer}>
+                <Image
+                  source={{ uri: selectedProfileForModal.photos[0]?.photo_url }}
+                  style={styles.heroImage}
+                  contentFit="cover"
+                />
+                <LinearGradient
+                  colors={['transparent', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.8)']}
+                  style={styles.heroGradient}
+                />
+                <View style={styles.heroInfo}>
+                  <View style={styles.heroNameRow}>
+                    <Text style={styles.heroName}>
+                      {selectedProfileForModal.first_name}, {selectedProfileForModal.age}
+                    </Text>
+                    {selectedProfileForModal.is_verified && (
+                      <Ionicons name="checkmark-circle" size={24} color={colors.semantic.info} />
+                    )}
+                  </View>
+                  <View style={styles.heroLocationRow}>
+                    <Ionicons name="location" size={16} color={colors.transparent.white70} />
+                    <Text style={styles.heroLocation}>
+                      {[selectedProfileForModal.current_city, selectedProfileForModal.current_state].filter(Boolean).join(', ') || 'Nearby'}
+                    </Text>
+                  </View>
+                  <View style={styles.heroBadge}>
+                    <Text style={styles.heroBadgeText}>{selectedProfileForModal.jewish_background}</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Photo Gallery */}
+              {selectedProfileForModal.photos.length > 1 && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.photoGallery}
+                >
+                  {selectedProfileForModal.photos.slice(1).map((photo: any, index: number) => (
+                    <Image
+                      key={photo.id || index}
+                      source={{ uri: photo.photo_url }}
+                      style={styles.galleryPhoto}
+                      contentFit="cover"
+                    />
+                  ))}
+                </ScrollView>
+              )}
+
+              {/* Prompts */}
+              {selectedProfileForModal.prompts.map((prompt: any, index: number) => (
+                <View key={prompt.prompt_id || index} style={styles.promptCard}>
+                  <Text style={styles.promptQuestion}>
+                    {PROMPT_QUESTIONS[prompt.prompt_id] || 'My answer:'}
+                  </Text>
+                  <Text style={styles.promptAnswer}>{prompt.answer}</Text>
+                </View>
+              ))}
+
+              {/* About Section */}
+              {selectedProfileForModal.bio && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>About</Text>
+                  <Text style={styles.bioText}>{selectedProfileForModal.bio}</Text>
+                </View>
+              )}
+            </ScrollView>
+
+            {/* Modal Action Footer - positioned above dot navigator */}
+            <View style={[styles.actionFooter, { paddingBottom: insets.bottom + 80 }]}>
+              <Pressable style={styles.skipButton} onPress={() => {
+                handleCloseProfileModal();
+                handleSkip();
+              }}>
+                <Ionicons name="close" size={28} color={colors.neutral[400]} />
+              </Pressable>
+              <Pressable style={styles.sendToChatsButton} onPress={() => {
+                handleCloseProfileModal();
+                handleShareToMessages();
+              }}>
+                <Ionicons name="chatbubbles-outline" size={24} color={colors.primary.gold} />
+              </Pressable>
+              <Pressable style={styles.recommendButton} onPress={() => {
+                handleCloseProfileModal();
+                handleRecommend();
+              }}>
+                <Ionicons name="heart" size={24} color={colors.primary.navy} />
+                <Text style={styles.recommendButtonText}>Recommend</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+      )}
+
       {/* Filter Modal */}
       <Modal
         visible={showFilterModal}
@@ -735,31 +1020,7 @@ export default function SaftaDiscoverScreen() {
             style={styles.modalContent}
             contentContainerStyle={{ paddingBottom: spacing[8] }}
           >
-            {/* Filter Mode Toggle */}
-            <View style={[styles.filterSection, { backgroundColor: theme.colors.surface }]}>
-              <View style={styles.filterToggleRow}>
-                <View style={styles.filterToggleInfo}>
-                  <Ionicons name="person" size={22} color={colors.primary.gold} />
-                  <View style={styles.filterToggleText}>
-                    <Text style={[styles.filterToggleLabel, { color: theme.colors.text }]}>
-                      Use Connected User's Preferences
-                    </Text>
-                    <Text style={[styles.filterToggleDesc, { color: theme.colors.textTertiary }]}>
-                      Search using the same filters as your connected family member
-                    </Text>
-                  </View>
-                </View>
-                <Switch
-                  value={useGrandchildFilters}
-                  onValueChange={setUseGrandchildFilters}
-                  trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
-                  thumbColor={colors.primary.white}
-                />
-              </View>
-            </View>
-
-            {!useGrandchildFilters && (
-              <Animated.View entering={FadeInDown.springify()}>
+            <View>
                 {/* Age Range */}
                 <View style={styles.filterGroup}>
                   <Text style={[styles.filterGroupTitle, { color: theme.colors.text }]}>
@@ -868,19 +1129,7 @@ export default function SaftaDiscoverScreen() {
                     ))}
                   </View>
                 </View>
-              </Animated.View>
-            )}
-
-            {useGrandchildFilters && (
-              <View style={[styles.preferencesPreview, { backgroundColor: colors.transparent.gold20 }]}>
-                <Text style={[styles.preferencesTitle, { color: theme.colors.text }]}>
-                  Connected User's Preferences
-                </Text>
-                <Text style={[styles.preferencesDetail, { color: theme.colors.textSecondary }]}>
-                  No connected users yet. Connect with a grandchild to use their preferences.
-                </Text>
-              </View>
-            )}
+            </View>
           </ScrollView>
 
           <View style={styles.modalFooter}>
@@ -937,9 +1186,54 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
+  },
+  headerButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   filterButton: {
     width: 44,
     height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cardStackContainer: {
+    flex: 1,
+  },
+  saftaActionFooter: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing[6],
+    paddingTop: spacing[4],
+    backgroundColor: colors.dark.background,
+    gap: spacing[3],
+    borderTopWidth: 1,
+    borderTopColor: colors.transparent.white10,
+  },
+  profileModalContainer: {
+    flex: 1,
+    backgroundColor: colors.dark.background,
+  },
+  profileModalClose: {
+    position: 'absolute',
+    top: spacing[6],
+    right: spacing[4],
+    zIndex: 100,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.transparent.black50,
     justifyContent: 'center',
     alignItems: 'center',
   },

@@ -4,7 +4,7 @@
  * View matches and conversations
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,11 +18,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import Animated, { FadeInUp } from 'react-native-reanimated';
+import Animated, { FadeInUp, FadeIn } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { supabase } from '@/api/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { NewMatchCarousel, ConversationCard } from '@/components/matches';
+import { StarOfDavid } from '@/components/icons/StarOfDavid';
 
 interface Match {
   id: string;
@@ -168,20 +171,72 @@ export default function OrthodoxMatchesScreen() {
             <ActivityIndicator size="large" color={colors.primary.gold} />
           </View>
         ) : matches.length > 0 ? (
-          <View style={styles.matchesList}>
-            {matches.map((match) => (
-              <MatchCard
-                key={match.id}
-                match={match}
-                onPress={() => {
-                  // Navigate to chat
+          <>
+            {/* New Matches Carousel */}
+            {matches.filter(m => !m.last_message).length > 0 && (
+              <NewMatchCarousel
+                matches={matches
+                  .filter(m => !m.last_message)
+                  .map((match, index) => ({
+                    id: match.id,
+                    name: match.other_user.first_name,
+                    photo: match.other_user.photo_url || 'https://via.placeholder.com/120',
+                    matchedAt: new Date(match.matched_at),
+                    isNew: index < 3,
+                  }))}
+                onMatchPress={(match) => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push(`/(orthodox-tabs)/messages/${match.id}`);
                 }}
               />
-            ))}
-          </View>
+            )}
+
+            {/* Conversations Section */}
+            <Animated.View entering={FadeIn.duration(400)} style={styles.conversationsHeader}>
+              <Ionicons name="chatbubbles" size={18} color={colors.primary.gold} />
+              <Text style={styles.conversationsTitle}>Conversations</Text>
+            </Animated.View>
+
+            {matches.filter(m => m.last_message).length > 0 ? (
+              <View style={styles.conversationsList}>
+                {matches
+                  .filter(m => m.last_message)
+                  .map((match, index) => (
+                    <ConversationCard
+                      key={match.id}
+                      conversation={{
+                        id: match.id,
+                        name: match.other_user.first_name,
+                        photo: match.other_user.photo_url || 'https://via.placeholder.com/120',
+                        lastMessage: match.last_message || '',
+                        lastMessageTime: new Date(match.matched_at),
+                        unread: match.unread_count,
+                        isOnline: false,
+                      }}
+                      index={index}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        router.push(`/(orthodox-tabs)/messages/${match.id}`);
+                      }}
+                      onArchive={() => {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                      }}
+                    />
+                  ))}
+              </View>
+            ) : (
+              <View style={styles.noConversations}>
+                <Text style={styles.noConversationsText}>
+                  Start a conversation with one of your matches above
+                </Text>
+              </View>
+            )}
+          </>
         ) : (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyStateIcon}>✡</Text>
+            <View style={styles.emptyIconContainer}>
+              <StarOfDavid size={48} color={colors.primary.gold} />
+            </View>
             <Text style={styles.emptyStateTitle}>No Matches Yet</Text>
             <Text style={styles.emptyStateText}>
               Keep swiping to find your bashert. When you match, they'll appear here.
@@ -317,9 +372,44 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.primary.navy,
   },
+  conversationsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    marginBottom: spacing[3],
+    marginTop: spacing[4],
+  },
+  conversationsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.transparent.white70,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  conversationsList: {
+    gap: spacing[2],
+  },
+  noConversations: {
+    paddingVertical: spacing[6],
+    alignItems: 'center',
+  },
+  noConversationsText: {
+    fontSize: 14,
+    color: colors.transparent.white50,
+    textAlign: 'center',
+  },
   emptyState: {
     alignItems: 'center',
     paddingVertical: spacing[8],
+  },
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(212, 175, 55, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing[4],
   },
   emptyStateIcon: {
     fontSize: 64,

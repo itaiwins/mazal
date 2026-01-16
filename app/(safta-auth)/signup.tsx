@@ -428,7 +428,7 @@ export default function SaftaSignupScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.primary.navy,
+    backgroundColor: colors.dark.background,
   },
   backButton: {
     position: 'absolute',

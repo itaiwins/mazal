@@ -1,7 +1,7 @@
 /**
  * Email & Phone Settings Screen
  *
- * Manage contact information
+ * Premium contact settings with dark theme
  */
 
 import { useState, useEffect } from 'react';
@@ -17,25 +17,23 @@ import {
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInUp } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { useAuthStore } from '@/stores/authStore';
 
 export default function ContactSettingsScreen() {
-  const theme = useTheme();
   const insets = useSafeAreaInsets();
   const authUser = useAuthStore((s) => s.authUser);
   const user = useAuthStore((s) => s.user);
 
-  // Get actual email from auth user, phone from user profile
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [emailVerified, setEmailVerified] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
 
-  // Initialize with actual user data
   useEffect(() => {
     if (authUser?.email) {
       setEmail(authUser.email);
@@ -46,10 +44,6 @@ export default function ContactSettingsScreen() {
       setPhoneVerified((user as any).phone_verified ?? false);
     }
   }, [authUser, user]);
-
-  const handleBack = () => {
-    router.back();
-  };
 
   const handleSave = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -92,27 +86,22 @@ export default function ContactSettingsScreen() {
   };
 
   return (
-    <View
-      style={[
-        styles.container,
-        {
-          backgroundColor: theme.colors.background,
-          paddingTop: insets.top + spacing[2],
-        },
-      ]}
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={handleBack}>
-          <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-          Email & Phone
-        </Text>
-        <Pressable style={styles.saveButton} onPress={handleSave}>
-          <Text style={styles.saveButtonText}>Save</Text>
-        </Pressable>
-      </View>
+    <View style={styles.container}>
+      {/* Premium Header with Gradient */}
+      <LinearGradient
+        colors={[colors.primary.navy, colors.dark.background]}
+        style={[styles.headerGradient, { paddingTop: insets.top }]}
+      >
+        <View style={styles.header}>
+          <Pressable style={styles.backButton} onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={28} color={colors.primary.white} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Email & Phone</Text>
+          <Pressable style={styles.saveButton} onPress={handleSave}>
+            <Text style={styles.saveButtonText}>Save</Text>
+          </Pressable>
+        </View>
+      </LinearGradient>
 
       <ScrollView
         style={styles.content}
@@ -120,73 +109,77 @@ export default function ContactSettingsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Email Section */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-            Email Address
-          </Text>
-          <View style={[styles.inputCard, { backgroundColor: theme.colors.surface }]}>
-            <TextInput
-              style={[styles.input, { color: theme.colors.text }]}
-              placeholder="Enter your email"
-              placeholderTextColor={theme.colors.textTertiary}
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            {emailVerified ? (
-              <View style={styles.verifiedBadge}>
-                <Ionicons name="checkmark-circle" size={20} color={colors.semantic.success} />
-                <Text style={styles.verifiedText}>Verified</Text>
+        <Animated.View entering={FadeInUp.delay(100).springify()} style={styles.section}>
+          <Text style={styles.sectionLabel}>Email Address</Text>
+          <View style={styles.inputCard}>
+            <View style={styles.inputRow}>
+              <View style={styles.inputIcon}>
+                <Ionicons name="mail-outline" size={20} color={colors.primary.gold} />
               </View>
-            ) : (
-              <Pressable style={styles.verifyButton} onPress={handleVerifyEmail}>
-                <Text style={styles.verifyButtonText}>Verify</Text>
-              </Pressable>
-            )}
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your email"
+                placeholderTextColor={colors.transparent.white30}
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+              {emailVerified ? (
+                <View style={styles.verifiedBadge}>
+                  <Ionicons name="checkmark-circle" size={20} color={colors.semantic.success} />
+                  <Text style={styles.verifiedText}>Verified</Text>
+                </View>
+              ) : (
+                <Pressable style={styles.verifyButton} onPress={handleVerifyEmail}>
+                  <Text style={styles.verifyButtonText}>Verify</Text>
+                </Pressable>
+              )}
+            </View>
           </View>
-          <Text style={[styles.hint, { color: theme.colors.textTertiary }]}>
-            Used for account recovery and notifications
-          </Text>
-        </View>
+          <Text style={styles.hint}>Used for account recovery and notifications</Text>
+        </Animated.View>
 
         {/* Phone Section */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-            Phone Number
-          </Text>
-          <View style={[styles.inputCard, { backgroundColor: theme.colors.surface }]}>
-            <TextInput
-              style={[styles.input, { color: theme.colors.text }]}
-              placeholder="Enter your phone number"
-              placeholderTextColor={theme.colors.textTertiary}
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-            />
-            {phoneVerified ? (
-              <View style={styles.verifiedBadge}>
-                <Ionicons name="checkmark-circle" size={20} color={colors.semantic.success} />
-                <Text style={styles.verifiedText}>Verified</Text>
+        <Animated.View entering={FadeInUp.delay(200).springify()} style={styles.section}>
+          <Text style={styles.sectionLabel}>Phone Number</Text>
+          <View style={styles.inputCard}>
+            <View style={styles.inputRow}>
+              <View style={styles.inputIcon}>
+                <Ionicons name="call-outline" size={20} color={colors.primary.gold} />
               </View>
-            ) : (
-              <Pressable style={styles.verifyButton} onPress={handleVerifyPhone}>
-                <Text style={styles.verifyButtonText}>Verify</Text>
-              </Pressable>
-            )}
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your phone number"
+                placeholderTextColor={colors.transparent.white30}
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+              />
+              {phoneVerified ? (
+                <View style={styles.verifiedBadge}>
+                  <Ionicons name="checkmark-circle" size={20} color={colors.semantic.success} />
+                  <Text style={styles.verifiedText}>Verified</Text>
+                </View>
+              ) : phone.length > 0 ? (
+                <Pressable style={styles.verifyButton} onPress={handleVerifyPhone}>
+                  <Text style={styles.verifyButtonText}>Verify</Text>
+                </Pressable>
+              ) : null}
+            </View>
           </View>
-          <Text style={[styles.hint, { color: theme.colors.textTertiary }]}>
-            Used for two-factor authentication
-          </Text>
-        </View>
+          <Text style={styles.hint}>Used for two-factor authentication</Text>
+        </Animated.View>
 
-        {/* Info */}
-        <View style={[styles.infoCard, { backgroundColor: colors.transparent.gold20 }]}>
-          <Ionicons name="information-circle" size={20} color={colors.primary.gold} />
-          <Text style={[styles.infoText, { color: theme.colors.text }]}>
+        {/* Info Card */}
+        <Animated.View entering={FadeInUp.delay(300).springify()} style={styles.infoCard}>
+          <View style={styles.infoIconContainer}>
+            <Ionicons name="shield-checkmark" size={20} color={colors.primary.gold} />
+          </View>
+          <Text style={styles.infoText}>
             Verifying your email and phone helps secure your account and allows us to help you recover access if needed.
           </Text>
-        </View>
+        </Animated.View>
       </ScrollView>
     </View>
   );
@@ -195,6 +188,10 @@ export default function ContactSettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.dark.background,
+  },
+  headerGradient: {
+    paddingBottom: spacing[4],
   },
   header: {
     flexDirection: 'row',
@@ -212,6 +209,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 17,
     fontWeight: '600',
+    color: colors.primary.white,
   },
   saveButton: {
     paddingHorizontal: spacing[3],
@@ -229,38 +227,60 @@ const styles = StyleSheet.create({
   section: {
     marginTop: spacing[6],
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    color: colors.transparent.white50,
     marginBottom: spacing[3],
+    marginLeft: spacing[2],
   },
   inputCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    backgroundColor: colors.transparent.white10,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.transparent.white10,
     paddingHorizontal: spacing[4],
     paddingVertical: spacing[3],
-    borderRadius: borderRadius.lg,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing[3],
+  },
+  inputIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.transparent.gold10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   input: {
     flex: 1,
     fontSize: 16,
+    color: colors.primary.white,
   },
   verifiedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[1],
+    backgroundColor: colors.transparent.success10,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[1.5],
+    borderRadius: borderRadius.full,
   },
   verifiedText: {
-    fontSize: 13,
-    fontWeight: '500',
+    fontSize: 12,
+    fontWeight: '600',
     color: colors.semantic.success,
   },
   verifyButton: {
-    paddingHorizontal: spacing[3],
+    paddingHorizontal: spacing[4],
     paddingVertical: spacing[2],
     backgroundColor: colors.primary.gold,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.lg,
   },
   verifyButtonText: {
     fontSize: 13,
@@ -269,19 +289,32 @@ const styles = StyleSheet.create({
   },
   hint: {
     fontSize: 13,
+    color: colors.transparent.white50,
     marginTop: spacing[2],
-    marginLeft: spacing[1],
+    marginLeft: spacing[2],
   },
   infoCard: {
     flexDirection: 'row',
     padding: spacing[4],
-    borderRadius: borderRadius.lg,
+    backgroundColor: colors.transparent.gold10,
+    borderRadius: borderRadius.xl,
     gap: spacing[3],
     marginTop: spacing[6],
+    borderWidth: 1,
+    borderColor: colors.transparent.gold20,
+  },
+  infoIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.transparent.gold20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   infoText: {
     flex: 1,
     fontSize: 14,
     lineHeight: 20,
+    color: colors.transparent.white70,
   },
 });

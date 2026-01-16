@@ -650,7 +650,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -4,
     right: -4,
-    backgroundColor: colors.primary.navy,
+    backgroundColor: colors.dark.background,
     borderRadius: 10,
     width: 18,
     height: 18,

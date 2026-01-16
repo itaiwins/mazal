@@ -1,7 +1,7 @@
 /**
  * Location Settings Screen
  *
- * Manage location preferences and permissions
+ * Premium location settings with dark theme
  */
 
 import { useState, useEffect } from 'react';
@@ -19,19 +19,18 @@ import {
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInUp } from 'react-native-reanimated';
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
-import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/api/supabase/client';
 
 export default function LocationSettingsScreen() {
-  const theme = useTheme();
   const insets = useSafeAreaInsets();
 
-  // Get user from auth store
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
 
@@ -40,16 +39,11 @@ export default function LocationSettingsScreen() {
   const [currentCity, setCurrentCity] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // Load user's current city from profile
   useEffect(() => {
     if (user?.current_city) {
       setCurrentCity(user.current_city);
     }
   }, [user?.current_city]);
-
-  const handleBack = () => {
-    router.back();
-  };
 
   const handleRequestPermission = async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -93,7 +87,6 @@ export default function LocationSettingsScreen() {
       if (place) {
         const city = `${place.city || place.district || 'Unknown'}, ${place.region || place.country || ''}`.trim();
 
-        // Update in database
         const { error } = await supabase
           .from('users')
           .update({
@@ -107,7 +100,6 @@ export default function LocationSettingsScreen() {
           throw error;
         }
 
-        // Update local state and auth store
         setCurrentCity(city);
         setUser({ ...user, current_city: city });
 
@@ -123,25 +115,20 @@ export default function LocationSettingsScreen() {
   };
 
   return (
-    <View
-      style={[
-        styles.container,
-        {
-          backgroundColor: theme.colors.background,
-          paddingTop: insets.top + spacing[2],
-        },
-      ]}
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={handleBack}>
-          <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-          Location
-        </Text>
-        <View style={styles.headerRight} />
-      </View>
+    <View style={styles.container}>
+      {/* Premium Header with Gradient */}
+      <LinearGradient
+        colors={[colors.primary.navy, colors.dark.background]}
+        style={[styles.headerGradient, { paddingTop: insets.top }]}
+      >
+        <View style={styles.header}>
+          <Pressable style={styles.backButton} onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={28} color={colors.primary.white} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Location</Text>
+          <View style={styles.headerRight} />
+        </View>
+      </LinearGradient>
 
       <ScrollView
         style={styles.content}
@@ -149,18 +136,18 @@ export default function LocationSettingsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Current Location */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-            Current Location
-          </Text>
-          <View style={[styles.locationCard, { backgroundColor: theme.colors.surface }]}>
+        <Animated.View entering={FadeInUp.delay(100).springify()} style={styles.section}>
+          <Text style={styles.sectionLabel}>Current Location</Text>
+          <View style={styles.locationCard}>
             <View style={styles.locationInfo}>
-              <Ionicons name="location" size={24} color={colors.primary.gold} />
+              <View style={styles.locationIconContainer}>
+                <Ionicons name="location" size={22} color={colors.primary.gold} />
+              </View>
               <View style={styles.locationText}>
-                <Text style={[styles.locationCity, { color: theme.colors.text }]}>
+                <Text style={styles.locationCity}>
                   {currentCity || 'Not set'}
                 </Text>
-                <Text style={[styles.locationHint, { color: theme.colors.textTertiary }]}>
+                <Text style={styles.locationHint}>
                   Used to find matches near you
                 </Text>
               </View>
@@ -173,76 +160,94 @@ export default function LocationSettingsScreen() {
               {isUpdating ? (
                 <ActivityIndicator size="small" color={colors.primary.navy} />
               ) : (
-                <Text style={styles.updateButtonText}>Update</Text>
+                <>
+                  <Ionicons name="refresh" size={16} color={colors.primary.navy} />
+                  <Text style={styles.updateButtonText}>Update</Text>
+                </>
               )}
             </Pressable>
           </View>
-        </View>
+        </Animated.View>
 
         {/* Location Settings */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-            Location Settings
-          </Text>
-          <View style={[styles.settingsCard, { backgroundColor: theme.colors.surface }]}>
+        <Animated.View entering={FadeInUp.delay(200).springify()} style={styles.section}>
+          <Text style={styles.sectionLabel}>Location Settings</Text>
+          <View style={styles.settingsCard}>
             <View style={styles.settingItem}>
               <View style={styles.settingInfo}>
-                <Ionicons name="navigate" size={22} color={colors.primary.gold} />
-                <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
-                  Use current location
-                </Text>
+                <View style={styles.settingIcon}>
+                  <Ionicons name="navigate" size={20} color={colors.primary.gold} />
+                </View>
+                <View>
+                  <Text style={styles.settingLabel}>Use current location</Text>
+                  <Text style={styles.settingDesc}>Automatically update your location</Text>
+                </View>
               </View>
               <Switch
                 value={useCurrentLocation}
-                onValueChange={setUseCurrentLocation}
-                trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
+                onValueChange={(value) => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setUseCurrentLocation(value);
+                }}
+                trackColor={{ false: colors.neutral[600], true: colors.primary.gold }}
                 thumbColor={colors.primary.white}
               />
             </View>
             <View style={styles.divider} />
             <View style={styles.settingItem}>
               <View style={styles.settingInfo}>
-                <Ionicons name="swap-horizontal" size={22} color={colors.primary.gold} />
-                <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
-                  Show distance on profile
-                </Text>
+                <View style={styles.settingIcon}>
+                  <Ionicons name="swap-horizontal" size={20} color={colors.primary.gold} />
+                </View>
+                <View>
+                  <Text style={styles.settingLabel}>Show distance on profile</Text>
+                  <Text style={styles.settingDesc}>Let others see how far you are</Text>
+                </View>
               </View>
               <Switch
                 value={showDistance}
-                onValueChange={setShowDistance}
-                trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
+                onValueChange={(value) => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowDistance(value);
+                }}
+                trackColor={{ false: colors.neutral[600], true: colors.primary.gold }}
                 thumbColor={colors.primary.white}
               />
             </View>
           </View>
-        </View>
+        </Animated.View>
 
         {/* Distance Preferences Link */}
-        <Pressable
-          style={[styles.linkCard, { backgroundColor: theme.colors.surface }]}
-          onPress={() => router.push('/settings/preferences')}
-        >
-          <View style={styles.linkInfo}>
-            <Ionicons name="options" size={22} color={theme.colors.icon} />
-            <Text style={[styles.linkLabel, { color: theme.colors.text }]}>
-              Maximum Distance
-            </Text>
-          </View>
-          <View style={styles.linkRight}>
-            <Text style={[styles.linkValue, { color: theme.colors.textSecondary }]}>
-              50 mi
-            </Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.neutral[400]} />
-          </View>
-        </Pressable>
+        <Animated.View entering={FadeInUp.delay(300).springify()}>
+          <Pressable
+            style={({ pressed }) => [styles.linkCard, pressed && styles.linkCardPressed]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push('/settings/preferences');
+            }}
+          >
+            <View style={styles.linkInfo}>
+              <View style={[styles.settingIcon, { backgroundColor: colors.transparent.white10 }]}>
+                <Ionicons name="options" size={20} color={colors.transparent.white60} />
+              </View>
+              <Text style={styles.linkLabel}>Maximum Distance</Text>
+            </View>
+            <View style={styles.linkRight}>
+              <Text style={styles.linkValue}>50 mi</Text>
+              <Ionicons name="chevron-forward" size={20} color={colors.neutral[500]} />
+            </View>
+          </Pressable>
+        </Animated.View>
 
-        {/* Info */}
-        <View style={[styles.infoCard, { backgroundColor: colors.transparent.gold20 }]}>
-          <Ionicons name="information-circle" size={20} color={colors.primary.gold} />
-          <Text style={[styles.infoText, { color: theme.colors.text }]}>
+        {/* Info Card */}
+        <Animated.View entering={FadeInUp.delay(400).springify()} style={styles.infoCard}>
+          <View style={styles.infoIconContainer}>
+            <Ionicons name="shield-checkmark" size={20} color={colors.primary.gold} />
+          </View>
+          <Text style={styles.infoText}>
             Your precise location is never shared with other users. Only your approximate distance is shown.
           </Text>
-        </View>
+        </Animated.View>
       </ScrollView>
     </View>
   );
@@ -251,6 +256,10 @@ export default function LocationSettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.dark.background,
+  },
+  headerGradient: {
+    paddingBottom: spacing[4],
   },
   header: {
     flexDirection: 'row',
@@ -268,6 +277,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 17,
     fontWeight: '600',
+    color: colors.primary.white,
   },
   headerRight: {
     width: 44,
@@ -279,17 +289,24 @@ const styles = StyleSheet.create({
   section: {
     marginTop: spacing[6],
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    color: colors.transparent.white50,
     marginBottom: spacing[3],
+    marginLeft: spacing[2],
   },
   locationCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    backgroundColor: colors.transparent.white10,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.transparent.white10,
     padding: spacing[4],
-    borderRadius: borderRadius.lg,
   },
   locationInfo: {
     flexDirection: 'row',
@@ -297,22 +314,35 @@ const styles = StyleSheet.create({
     gap: spacing[3],
     flex: 1,
   },
+  locationIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.transparent.gold10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   locationText: {
     flex: 1,
   },
   locationCity: {
     fontSize: 16,
     fontWeight: '600',
+    color: colors.primary.white,
   },
   locationHint: {
     fontSize: 13,
-    marginTop: spacing[1],
+    color: colors.transparent.white50,
+    marginTop: spacing[0.5],
   },
   updateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1.5],
     paddingHorizontal: spacing[4],
-    paddingVertical: spacing[2],
+    paddingVertical: spacing[2.5],
     backgroundColor: colors.primary.gold,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.lg,
   },
   updateButtonText: {
     fontSize: 14,
@@ -323,36 +353,61 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   settingsCard: {
-    borderRadius: borderRadius.lg,
+    backgroundColor: colors.transparent.white10,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.transparent.white10,
     overflow: 'hidden',
   },
   settingItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: spacing[4],
+    paddingVertical: spacing[3.5],
     paddingHorizontal: spacing[4],
   },
   settingInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[3],
+    flex: 1,
+  },
+  settingIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.transparent.gold10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   settingLabel: {
     fontSize: 16,
+    fontWeight: '500',
+    color: colors.primary.white,
+  },
+  settingDesc: {
+    fontSize: 12,
+    color: colors.transparent.white50,
+    marginTop: spacing[0.5],
   },
   divider: {
     height: 1,
-    backgroundColor: colors.neutral[100],
-    marginLeft: spacing[4],
+    backgroundColor: colors.transparent.white10,
+    marginLeft: spacing[4] + 36 + spacing[3],
   },
   linkCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    backgroundColor: colors.transparent.white10,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.transparent.white10,
     padding: spacing[4],
-    borderRadius: borderRadius.lg,
     marginTop: spacing[4],
+  },
+  linkCardPressed: {
+    backgroundColor: colors.transparent.white05,
   },
   linkInfo: {
     flexDirection: 'row',
@@ -361,6 +416,8 @@ const styles = StyleSheet.create({
   },
   linkLabel: {
     fontSize: 16,
+    fontWeight: '500',
+    color: colors.primary.white,
   },
   linkRight: {
     flexDirection: 'row',
@@ -369,17 +426,30 @@ const styles = StyleSheet.create({
   },
   linkValue: {
     fontSize: 15,
+    color: colors.transparent.white60,
   },
   infoCard: {
     flexDirection: 'row',
     padding: spacing[4],
-    borderRadius: borderRadius.lg,
+    backgroundColor: colors.transparent.gold10,
+    borderRadius: borderRadius.xl,
     gap: spacing[3],
     marginTop: spacing[6],
+    borderWidth: 1,
+    borderColor: colors.transparent.gold20,
+  },
+  infoIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.transparent.gold20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   infoText: {
     flex: 1,
     fontSize: 14,
     lineHeight: 20,
+    color: colors.transparent.white70,
   },
 });

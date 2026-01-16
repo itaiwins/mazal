@@ -49,7 +49,7 @@ function ShadchanCard({ shadchan, onConnect }: { shadchan: Shadchan; onConnect: 
             <Text style={styles.shadchanName}>{shadchan.display_name}</Text>
             {shadchan.is_verified && (
               <View style={styles.verifiedBadge}>
-                <Ionicons name="checkmark-circle" size={16} color={colors.primary.gold} />
+                <Ionicons name="checkmark-circle" size={16} color={colors.semantic.info} />
               </View>
             )}
           </View>

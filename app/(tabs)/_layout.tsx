@@ -1,159 +1,86 @@
 /**
  * Tabs Layout
  *
- * Main app navigation with bottom tabs
+ * Minimal dot navigation - clean and unobtrusive
  */
 
-import { Tabs } from 'expo-router';
-import { View, StyleSheet, Platform } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/theme';
+import { useCallback } from 'react';
+import { Tabs, usePathname, useRouter } from 'expo-router';
+import { View, StyleSheet } from 'react-native';
 import { colors } from '@/theme/colors';
 import { useMatchStore } from '@/stores/matchStore';
+import { DotNavigator } from '@/components/navigation/DotNavigator';
 
-type TabIconName = 'heart' | 'heart-outline' | 'map' | 'map-outline' | 'chatbubbles' | 'chatbubbles-outline' | 'person' | 'person-outline' | 'people' | 'people-outline';
+// Define visible tabs
+const TABS = [
+  { name: 'index', label: 'Discover' },
+  { name: 'mazal-map', label: 'Map' },
+  { name: 'matches', label: 'Matches' },
+  { name: 'safta', label: 'Safta' },
+  { name: 'profile', label: 'Profile' },
+];
 
-function TabBarIcon({
-  name,
-  color,
-  focused,
-}: {
-  name: TabIconName;
-  color: string;
-  focused: boolean;
-}) {
+export default function TabsLayout() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const unreadMatchesCount = useMatchStore((s) => s.unreadMatchesCount);
+
+  // Determine active tab from pathname
+  const getActiveTab = () => {
+    if (pathname === '/' || pathname === '/(tabs)' || pathname === '/(tabs)/index') {
+      return 'index';
+    }
+    const segments = pathname.split('/').filter(Boolean);
+    const tabSegment = segments.find(s => !s.startsWith('('));
+    return tabSegment || 'index';
+  };
+
+  const activeTab = getActiveTab();
+
+  // Add badges to tabs
+  const tabsWithBadges = TABS.map(tab => ({
+    ...tab,
+    badge: tab.name === 'matches' ? unreadMatchesCount : undefined,
+  }));
+
+  const handleTabPress = useCallback((tabName: string) => {
+    if (tabName === 'index') {
+      router.push('/(tabs)/');
+    } else {
+      router.push(`/(tabs)/${tabName}` as any);
+    }
+  }, [router]);
+
   return (
-    <View style={styles.iconContainer}>
-      <Ionicons name={name} size={26} color={color} />
-      {focused && <View style={[styles.activeIndicator, { backgroundColor: color }]} />}
+    <View style={styles.container}>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: { display: 'none' },
+        }}
+      >
+        <Tabs.Screen name="index" />
+        <Tabs.Screen name="mazal-map" />
+        <Tabs.Screen name="matches" />
+        <Tabs.Screen name="safta" />
+        <Tabs.Screen name="profile" />
+        <Tabs.Screen name="messages" options={{ href: null }} />
+        <Tabs.Screen name="safta-chat/[connectionId]" options={{ href: null }} />
+      </Tabs>
+
+      {/* Minimal Dot Navigator */}
+      <DotNavigator
+        tabs={tabsWithBadges}
+        activeTab={activeTab}
+        onTabPress={handleTabPress}
+      />
     </View>
   );
 }
 
-export default function TabsLayout() {
-  const theme = useTheme();
-  const insets = useSafeAreaInsets();
-  const unreadMatchesCount = useMatchStore((s) => s.unreadMatchesCount);
-
-  return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: colors.primary.gold,
-        tabBarInactiveTintColor: theme.colors.icon,
-        tabBarStyle: {
-          backgroundColor: theme.colors.tabBar,
-          borderTopColor: theme.colors.tabBarBorder,
-          borderTopWidth: 1,
-          height: 60 + insets.bottom,
-          paddingTop: 8,
-          paddingBottom: insets.bottom,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '500',
-        },
-        tabBarHideOnKeyboard: true,
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Discover',
-          tabBarIcon: ({ color, focused }) => (
-            <TabBarIcon
-              name={focused ? 'heart' : 'heart-outline'}
-              color={color}
-              focused={focused}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="mazal-map"
-        options={{
-          title: 'Map',
-          tabBarIcon: ({ color, focused }) => (
-            <TabBarIcon
-              name={focused ? 'map' : 'map-outline'}
-              color={color}
-              focused={focused}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="matches"
-        options={{
-          title: 'Matches',
-          tabBarIcon: ({ color, focused }) => (
-            <TabBarIcon
-              name={focused ? 'chatbubbles' : 'chatbubbles-outline'}
-              color={color}
-              focused={focused}
-            />
-          ),
-          tabBarBadge: unreadMatchesCount > 0 ? unreadMatchesCount : undefined,
-          tabBarBadgeStyle: {
-            backgroundColor: colors.primary.gold,
-            color: colors.primary.navy,
-            fontSize: 11,
-            fontWeight: '600',
-          },
-        }}
-      />
-      <Tabs.Screen
-        name="messages"
-        options={{
-          href: null, // Hide from tab bar (accessed through matches)
-        }}
-      />
-      <Tabs.Screen
-        name="safta"
-        options={{
-          title: 'Safta',
-          tabBarIcon: ({ color, focused }) => (
-            <TabBarIcon
-              name={focused ? 'people' : 'people-outline'}
-              color={color}
-              focused={focused}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: 'Profile',
-          tabBarIcon: ({ color, focused }) => (
-            <TabBarIcon
-              name={focused ? 'person' : 'person-outline'}
-              color={color}
-              focused={focused}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="safta-chat/[connectionId]"
-        options={{
-          href: null, // Hide from tab bar (accessed through matches)
-        }}
-      />
-    </Tabs>
-  );
-}
-
 const styles = StyleSheet.create({
-  iconContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  activeIndicator: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    marginTop: 4,
+  container: {
+    flex: 1,
+    backgroundColor: colors.dark.background,
   },
 });

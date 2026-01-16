@@ -1,54 +1,85 @@
 /**
  * Settings Index
  *
- * Main settings screen
+ * Premium settings screen with enhanced design
  */
 
 import { useState, useRef } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Alert, Linking, Switch, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, Alert, Linking, Switch, ActivityIndicator, Image } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import Animated, { FadeInDown, FadeInRight } from 'react-native-reanimated';
 import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useDeactivateAccount } from '@/api/mutations/useProfile';
+import { useUserProfile } from '@/api/queries';
 
 interface SettingItemProps {
   icon: string;
   label: string;
+  subtitle?: string;
   onPress?: () => void;
   rightElement?: React.ReactNode;
   danger?: boolean;
+  index?: number;
 }
 
-function SettingItem({ icon, label, onPress, rightElement, danger }: SettingItemProps) {
+function SettingItem({ icon, label, subtitle, onPress, rightElement, danger, index = 0 }: SettingItemProps) {
   const theme = useTheme();
 
   return (
-    <Pressable style={styles.settingItem} onPress={onPress}>
-      <View style={styles.settingItemLeft}>
-        <Ionicons
-          name={icon as any}
-          size={22}
-          color={danger ? colors.semantic.error : theme.colors.icon}
-        />
-        <Text
-          style={[
-            styles.settingItemLabel,
-            { color: danger ? colors.semantic.error : theme.colors.text },
-          ]}
-        >
-          {label}
-        </Text>
-      </View>
-      {rightElement || (
-        <Ionicons name="chevron-forward" size={20} color={colors.neutral[400]} />
-      )}
-    </Pressable>
+    <Animated.View entering={FadeInRight.delay(index * 50).springify()}>
+      <Pressable
+        style={({ pressed }) => [
+          styles.settingItem,
+          pressed && styles.settingItemPressed,
+        ]}
+        onPress={() => {
+          if (onPress) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            onPress();
+          }
+        }}
+      >
+        <View style={styles.settingItemLeft}>
+          <View style={[
+            styles.settingIconContainer,
+            { backgroundColor: danger ? colors.transparent.error10 : colors.transparent.gold10 }
+          ]}>
+            <Ionicons
+              name={icon as any}
+              size={20}
+              color={danger ? colors.semantic.error : colors.primary.gold}
+            />
+          </View>
+          <View>
+            <Text
+              style={[
+                styles.settingItemLabel,
+                { color: danger ? colors.semantic.error : theme.colors.text },
+              ]}
+            >
+              {label}
+            </Text>
+            {subtitle && (
+              <Text style={[styles.settingItemSubtitle, { color: theme.colors.textSecondary }]}>
+                {subtitle}
+              </Text>
+            )}
+          </View>
+        </View>
+        {rightElement || (
+          <Ionicons name="chevron-forward" size={18} color={colors.neutral[400]} />
+        )}
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -56,8 +87,14 @@ export default function SettingsScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const logout = useAuthStore((s) => s.logout);
+  const user = useAuthStore((s) => s.user);
   const setCurrentMode = useAuthStore((s) => s.setCurrentMode);
   const hasSaftaProfile = useAuthStore((s) => s.hasSaftaProfile);
+
+  // Fetch user profile for avatar
+  const { data: userProfile } = useUserProfile();
+  const primaryPhoto = userProfile?.photos?.find((p) => p.photo_order === 0)?.photo_url ||
+                       userProfile?.photos?.[0]?.photo_url || null;
 
   // Shabbat mode
   const isShabbatModeEnabled = useUIStore((s) => s.isShabbatModeEnabled);
@@ -179,25 +216,46 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View
-      style={[
-        styles.container,
-        {
-          backgroundColor: theme.colors.background,
-          paddingTop: insets.top + spacing[2],
-        },
-      ]}
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={handleBack}>
-          <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-          Settings
-        </Text>
-        <View style={styles.headerRight} />
-      </View>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      {/* Premium Header with Gradient */}
+      <LinearGradient
+        colors={[colors.primary.navy, colors.dark.background]}
+        style={[styles.headerGradient, { paddingTop: insets.top }]}
+      >
+        {/* Header Bar */}
+        <View style={styles.header}>
+          <Pressable style={styles.backButton} onPress={handleBack}>
+            <Ionicons name="chevron-back" size={28} color={colors.primary.white} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Settings</Text>
+          <View style={styles.headerRight} />
+        </View>
+
+        {/* Profile Card */}
+        <Animated.View entering={FadeInDown.springify()} style={styles.profileCard}>
+          <Pressable
+            style={styles.profileCardContent}
+            onPress={() => router.push('/profile/edit')}
+          >
+            {primaryPhoto ? (
+              <Image source={{ uri: primaryPhoto }} style={styles.profileAvatar} />
+            ) : (
+              <View style={[styles.profileAvatar, styles.profileAvatarPlaceholder]}>
+                <Ionicons name="person" size={28} color={colors.neutral[400]} />
+              </View>
+            )}
+            <View style={styles.profileInfo}>
+              <Text style={styles.profileName}>
+                {userProfile?.first_name || user?.first_name || 'User'}
+              </Text>
+              <Text style={styles.profileSubtitle}>View and edit profile</Text>
+            </View>
+            <View style={styles.profileArrow}>
+              <Ionicons name="chevron-forward" size={20} color={colors.primary.gold} />
+            </View>
+          </Pressable>
+        </Animated.View>
+      </LinearGradient>
 
       <ScrollView
         style={styles.content}
@@ -211,19 +269,18 @@ export default function SettingsScreen() {
           </Text>
           <View style={[styles.sectionCard, { backgroundColor: theme.colors.surface }]}>
             <SettingItem
-              icon="person-outline"
-              label="Edit Profile"
-              onPress={() => router.push('/profile/edit')}
-            />
-            <SettingItem
               icon="mail-outline"
               label="Email & Phone"
+              subtitle="Manage your contact info"
               onPress={() => router.push('/settings/contact')}
+              index={0}
             />
             <SettingItem
               icon="key-outline"
               label="Change Password"
+              subtitle="Update your password"
               onPress={() => router.push('/settings/password')}
+              index={1}
             />
           </View>
         </View>
@@ -237,21 +294,27 @@ export default function SettingsScreen() {
             <SettingItem
               icon="heart-outline"
               label="Discovery Preferences"
+              subtitle="Age, distance, and more"
               onPress={() => router.push('/settings/preferences')}
+              index={2}
             />
             <SettingItem
               icon="location-outline"
               label="Location"
+              subtitle="Update your location"
               onPress={() => router.push('/settings/location')}
+              index={3}
             />
             <SettingItem
               icon="eye-off-outline"
               label="Hide Profile"
+              subtitle="Pause your visibility"
+              index={4}
               rightElement={
                 <Switch
                   value={false}
                   onValueChange={() => {}}
-                  trackColor={{ false: colors.neutral[200], true: colors.primary.gold }}
+                  trackColor={{ false: colors.neutral[300], true: colors.primary.gold }}
                   thumbColor={colors.primary.white}
                 />
               }
@@ -322,17 +385,23 @@ export default function SettingsScreen() {
             <SettingItem
               icon="shield-outline"
               label="Privacy Settings"
+              subtitle="Control who sees your info"
               onPress={() => router.push('/settings/privacy')}
+              index={5}
             />
             <SettingItem
               icon="hand-left-outline"
               label="Blocked Users"
+              subtitle="Manage blocked profiles"
               onPress={() => router.push('/settings/blocked')}
+              index={6}
             />
             <SettingItem
               icon="notifications-outline"
               label="Notifications"
+              subtitle="Push and email alerts"
               onPress={() => router.push('/settings/notifications')}
+              index={7}
             />
           </View>
         </View>
@@ -346,40 +415,52 @@ export default function SettingsScreen() {
             <SettingItem
               icon="help-circle-outline"
               label="Help & FAQ"
+              subtitle="Common questions"
               onPress={() => router.push('/settings/help')}
+              index={8}
             />
             <SettingItem
               icon="chatbubble-outline"
               label="Contact Us"
-              onPress={() => Linking.openURL('mailto:support@mazal.app')}
+              subtitle="Get in touch"
+              onPress={() => Linking.openURL('mailto:support@mazaldating.com')}
+              index={9}
             />
             <SettingItem
               icon="document-text-outline"
               label="Terms of Service"
               onPress={() => router.push('/legal/terms')}
+              index={10}
             />
             <SettingItem
               icon="lock-closed-outline"
               label="Privacy Policy"
               onPress={() => router.push('/legal/privacy')}
+              index={11}
             />
           </View>
         </View>
 
         {/* Danger Zone */}
         <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.semantic.error }]}>
+            Danger Zone
+          </Text>
           <View style={[styles.sectionCard, { backgroundColor: theme.colors.surface }]}>
             <SettingItem
               icon="log-out-outline"
               label="Log Out"
               onPress={handleLogout}
               danger
+              index={12}
             />
             <SettingItem
               icon="trash-outline"
               label={deleteAccountMutation.isPending ? "Deleting..." : "Delete Account"}
+              subtitle="Permanently remove your account"
               onPress={deleteAccountMutation.isPending ? undefined : handleDeleteAccount}
               danger
+              index={13}
               rightElement={deleteAccountMutation.isPending ? (
                 <ActivityIndicator size="small" color={colors.semantic.error} />
               ) : undefined}
@@ -433,6 +514,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  headerGradient: {
+    paddingBottom: spacing[4],
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -449,9 +533,59 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 17,
     fontWeight: '600',
+    color: colors.primary.white,
   },
   headerRight: {
     width: 44,
+  },
+  // Profile card styles
+  profileCard: {
+    marginHorizontal: spacing[4],
+    marginTop: spacing[4],
+    backgroundColor: colors.transparent.white10,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.transparent.white20,
+    overflow: 'hidden',
+  },
+  profileCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing[4],
+  },
+  profileAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: colors.primary.gold,
+  },
+  profileAvatarPlaceholder: {
+    backgroundColor: colors.neutral[700],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileInfo: {
+    flex: 1,
+    marginLeft: spacing[3],
+  },
+  profileName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.primary.white,
+  },
+  profileSubtitle: {
+    fontSize: 13,
+    color: colors.transparent.white60,
+    marginTop: spacing[0.5],
+  },
+  profileArrow: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.transparent.white10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   content: {
     flex: 1,
@@ -461,12 +595,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4],
   },
   sectionTitle: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 1,
     marginBottom: spacing[2],
-    marginLeft: spacing[4],
+    marginLeft: spacing[2],
   },
   sectionCard: {
     borderRadius: borderRadius.xl,
@@ -476,18 +610,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: spacing[4],
+    paddingVertical: spacing[3.5],
     paddingHorizontal: spacing[4],
     borderBottomWidth: 1,
-    borderBottomColor: colors.neutral[200],
+    borderBottomColor: colors.transparent.white10,
+  },
+  settingItemPressed: {
+    backgroundColor: colors.transparent.white05,
   },
   settingItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[3],
+    flex: 1,
+  },
+  settingIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   settingItemLabel: {
     fontSize: 16,
+    fontWeight: '500',
+  },
+  settingItemSubtitle: {
+    fontSize: 12,
+    marginTop: spacing[0.5],
   },
   version: {
     fontSize: 12,
