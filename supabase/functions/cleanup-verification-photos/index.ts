@@ -11,24 +11,11 @@
  *
  * DEPLOYMENT:
  * 1. Deploy this function: supabase functions deploy cleanup-verification-photos
- * 2. Set up a cron job in Supabase to call this every hour:
- *    - Go to Database > Extensions > Enable pg_cron
- *    - Run the SQL below to schedule the job
- *
- * CRON SETUP SQL:
- * ```sql
- * SELECT cron.schedule(
- *   'cleanup-verification-photos',
- *   '0 * * * *', -- Every hour on the hour
- *   $$
- *   SELECT net.http_post(
- *     url := 'https://YOUR_PROJECT_REF.supabase.co/functions/v1/cleanup-verification-photos',
- *     headers := '{"Authorization": "Bearer YOUR_SERVICE_ROLE_KEY"}'::jsonb,
- *     body := '{}'::jsonb
- *   );
- *   $$
- * );
- * ```
+ * 2. Schedule it hourly with the SQL in
+ *    supabase/migrations/20250114120000_cleanup_verification_cron.sql. That SQL reads the
+ *    project URL and the service_role key from Supabase Vault, so no key is ever written
+ *    into a migration, into pg_settings or into a log line. Never paste a key into the
+ *    cron body.
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -64,6 +51,20 @@ serve(async (req) => {
       });
 
     if (listError) {
+      // A missing bucket is not a failure: verification uploads are not wired up on
+      // every build, and an hourly job that 500s forever is noise, not a signal.
+      if (/not found/i.test(listError.message)) {
+        console.warn('[Cleanup] verification-temp bucket does not exist; nothing to do');
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: 'verification-temp bucket does not exist; nothing to clean up.',
+            deletedCount: 0,
+            timestamp: new Date().toISOString(),
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+        );
+      }
       console.error('[Cleanup] Error listing folders:', listError);
       throw listError;
     }

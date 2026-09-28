@@ -1,0 +1,20 @@
+# Supabase CLI config for Mazal.
+#
+# project_id is the linked project ref. The live project is `tayiyczmacvhokdxfqvm`
+# (MEXA-246); the original `keossekxijwygksqsxel` no longer exists.
+#
+# Deploys from this box have no Docker, so bundle server-side:
+#   supabase functions deploy --project-ref tayiyczmacvhokdxfqvm --use-api
+project_id = "tayiyczmacvhokdxfqvm"
+
+# All three functions are called with a bearer token (a user JWT for delete-account,
+# the service_role key for the other two), so JWT verification stays on. Turning it off
+# would make delete-account and the push sender callable by anyone on the internet.
+[functions.delete-account]
+verify_jwt = true
+
+[functions.send-notification]
+verify_jwt = true
+
+[functions.cleanup-verification-photos]
+verify_jwt = true

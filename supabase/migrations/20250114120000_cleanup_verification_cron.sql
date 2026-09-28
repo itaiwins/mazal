@@ -1,43 +1,41 @@
 -- Hourly cleanup of identity-verification selfies.
 --
--- NOT APPLIED to the current database (project tayiyczmacvhokdxfqvm, MEXA-246), for two
--- reasons:
+-- APPLIED to project tayiyczmacvhokdxfqvm on 2026-09-28 (MEXA-249), once the
+-- `cleanup-verification-photos` Edge Function was deployed.
 --
---   1. It needs the `cleanup-verification-photos` Edge Function (supabase/functions/)
---      deployed. Nothing is deployed to the new project yet, so the job would fail on
---      the hour, every hour, forever.
---   2. As originally written it hardcoded the old project's URL and a service_role JWT
---      in the cron command. That secret is in this repo's public git history and must be
---      treated as burned; it is not repeated here, and no replacement key belongs in git.
+-- SECRETS: the project URL and the service_role key live in Supabase Vault, never in this
+-- file. They were created once, out of band:
 --
--- The URL and key are now read from database settings at run time, so scheduling this is
--- a deploy step rather than a code change. To turn it on, once the Edge Function exists:
+--   select vault.create_secret('https://<ref>.supabase.co', 'mazal_project_url', '...');
+--   select vault.create_secret('<service_role key>',        'mazal_service_role_key', '...');
 --
---   -- store the values out of band (psql as postgres, or the SQL editor):
---   ALTER DATABASE postgres SET app.settings.project_url  = 'https://<ref>.supabase.co';
---   ALTER DATABASE postgres SET app.settings.service_role_key = '<service_role key>';
---   -- then run the SELECT cron.schedule(...) below
+-- Reading them back through vault.decrypted_secrets keeps the key out of git, out of
+-- pg_settings, and out of the statement text an `ALTER DATABASE ... SET` would leave in a
+-- log line. An earlier version of this file hardcoded the *old* project's URL and
+-- service_role JWT; that key is in this repo's public history and is burned. Never put a
+-- key back here.
 --
--- Better still, put the key in Supabase Vault and read it with
--- vault.decrypted_secrets, so it never appears in pg_settings or in a log line.
---
--- This file is left in place, unapplied, so the intent is not lost. The privacy
--- behaviour it implements - verification selfies deleted within the hour - still needs
--- to exist before launch; that is tracked as a follow-up issue.
+-- The privacy behaviour this implements: verification selfies are deleted within the hour.
 
+CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
 
--- SELECT cron.schedule(
---   'cleanup-verification-photos',
---   '0 * * * *',
---   $$
---   SELECT net.http_post(
---     url := current_setting('app.settings.project_url') || '/functions/v1/cleanup-verification-photos',
---     headers := jsonb_build_object(
---       'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key'),
---       'Content-Type', 'application/json'
---     ),
---     body := '{}'::jsonb
---   );
---   $$
--- );
+SELECT cron.unschedule('cleanup-verification-photos')
+WHERE EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'cleanup-verification-photos');
+
+SELECT cron.schedule(
+  'cleanup-verification-photos',
+  '0 * * * *',
+  $job$
+  SELECT net.http_post(
+    url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'mazal_project_url')
+           || '/functions/v1/cleanup-verification-photos',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer ' ||
+        (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'mazal_service_role_key'),
+      'Content-Type', 'application/json'
+    ),
+    body := '{}'::jsonb
+  );
+  $job$
+);
