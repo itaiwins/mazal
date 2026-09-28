@@ -56,6 +56,11 @@
 --    one request before deleting - or to an innocent third party's address, framing
 --    them the moment MEXA-258 starts refusing signups.
 --
+--    Because auth.users.email is itself nullable, `email_hash` is nullable too and every
+--    tombstone records an `identifier_source` of 'auth' or 'profile'. Section 4 says why
+--    both matter: the alternative was a delete that fails on a NOT NULL, and a framing
+--    hole that reopens the day phone signup is switched on.
+--
 -- WHAT THIS MIGRATION DOES NOT DO
 --
 -- - It does not block a re-registration. Nothing reads `moderation_hold` yet; turning
@@ -151,8 +156,25 @@ CREATE TABLE IF NOT EXISTS public.deleted_accounts (
   auth_id UUID,
 
   -- Peppered SHA-256, see hash_account_identifier(). Never the address itself.
-  email_hash TEXT NOT NULL,
+  --
+  -- email_hash is nullable on purpose. Section 4 takes the identifiers from auth.users,
+  -- and auth.users.email is nullable: a phone-only signup has no email to hash. NOT NULL
+  -- here would not produce a better record, it would abort the DELETE - "delete my
+  -- account" would fail outright for those accounts (checked: 23502 on this column).
+  -- A tombstone with no email_hash is still worth writing: it carries the phone hash,
+  -- the report counts, the hold and the user_id the surviving reports join to.
+  email_hash TEXT,
   phone_hash TEXT,
+
+  -- Where those two hashes came from, because the two cases are not equally trustworthy:
+  --   'auth'    - from auth.users, which only a verified Supabase Auth flow can change.
+  --   'profile' - the auth row was already gone when the trigger ran (a delete that
+  --               starts at auth.users reaches public.users second), so the values came
+  --               from the profile row. A client picks that row's email at INSERT, so
+  --               treat it as a hint, not as evidence.
+  -- MEXA-258 must weigh the two differently before it refuses anybody a signup.
+  identifier_source TEXT NOT NULL DEFAULT 'auth'
+    CHECK (identifier_source IN ('auth', 'profile')),
 
   -- Kept so a moderator reading a surviving report can tell who it was about.
   display_name TEXT,
@@ -170,7 +192,8 @@ CREATE TABLE IF NOT EXISTS public.deleted_accounts (
   CHECK (moderation_hold = false OR hold_reason IS NOT NULL)
 );
 
-CREATE INDEX IF NOT EXISTS idx_deleted_accounts_email_hash ON public.deleted_accounts(email_hash);
+CREATE INDEX IF NOT EXISTS idx_deleted_accounts_email_hash ON public.deleted_accounts(email_hash)
+  WHERE email_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_deleted_accounts_phone_hash ON public.deleted_accounts(phone_hash)
   WHERE phone_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_deleted_accounts_hold ON public.deleted_accounts(email_hash)
@@ -199,6 +222,7 @@ DECLARE
   v_open INTEGER;
   v_email TEXT;
   v_phone TEXT;
+  v_source TEXT := 'auth';
 BEGIN
   SELECT pg_catalog.count(*),
          pg_catalog.count(*) FILTER (WHERE status IN ('pending', 'reviewed'))
@@ -223,19 +247,38 @@ BEGIN
   -- so on the real path this row is still here. On a cascade that starts at auth.users
   -- it is already gone, hence the fallback. Section 6 closes the rewrite hole as well,
   -- so the fallback is not a way back in.
+  --
+  -- The fallback is on the auth ROW being missing, not on a single column being NULL.
+  -- `coalesce(v_email, OLD.email)` would look equivalent and is not: auth.users.email is
+  -- nullable, so an account that signed up by phone has an auth row with no email, and
+  -- coalesce would reach for the profile email - the one column the framing case in
+  -- MEXA-259 needs, because a client picks it at INSERT ("Users can create own profile"
+  -- is WITH CHECK (auth.uid() = auth_id), no column limit, and section 6 guards UPDATE
+  -- only). Verified on the live DB: with coalesce, a phone-signup account that put a
+  -- third party's address on its profile produced a tombstone hashing that third party.
+  -- No email to hash is the honest answer, and email_hash is nullable for it. Phone
+  -- signup is switched off today (external_phone_enabled = false) but the screen is
+  -- built - app/(auth)/phone-verify.tsx - so this would open on the day it is enabled.
   SELECT email, phone INTO v_email, v_phone FROM auth.users WHERE id = OLD.auth_id;
-  v_email := coalesce(v_email, OLD.email);
-  v_phone := coalesce(v_phone, OLD.phone);
+
+  IF NOT FOUND THEN
+    v_email := OLD.email;
+    v_phone := OLD.phone;
+    v_source := 'profile';
+  END IF;
 
   INSERT INTO public.deleted_accounts (
-    user_id, auth_id, email_hash, phone_hash, display_name,
+    user_id, auth_id, email_hash, phone_hash, identifier_source, display_name,
     account_created_at, reports_against_count, open_reports_against_count
   )
   VALUES (
     OLD.id,
     OLD.auth_id,
+    -- Both return NULL for a blank identifier, which is what makes an account with no
+    -- email (or a profile row holding '') deletable instead of failing on NOT NULL.
     public.hash_account_identifier(v_email),
     public.hash_account_identifier(v_phone),
+    v_source,
     -- A hint for a moderator, not an identifier: the user can rename themselves right
     -- before deleting. user_id is the key (MEXA-259).
     OLD.display_name,

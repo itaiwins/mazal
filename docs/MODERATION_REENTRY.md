@@ -53,6 +53,19 @@ address and get a yes/no from is an oracle for "is this address banned".
 identifier and `phone_hash` will match nothing until that changes. Worth keeping the
 column; do not plan around it.
 
+Two things about the hashes that the signup check has to handle (00011, after Alucard's
+MEXA-259 review):
+
+- **`email_hash` is nullable.** The hashes come from `auth.users`, and `auth.users.email`
+  is nullable, so an account that signed up by phone leaves a tombstone with a
+  `phone_hash` and no `email_hash`. Match on whichever hash is present; never assume the
+  email one is there.
+- **`identifier_source` says how much the hashes are worth.** `'auth'` means they came
+  from the auth row, which only a verified Auth flow can change. `'profile'` means the
+  auth row was already gone when the trigger fired (a delete that starts at `auth.users`),
+  so they came from the profile row - and a client chooses that row's email at INSERT.
+  A `'profile'` row is a lead for a human, not grounds to refuse a signup on its own.
+
 Two limits that apply to every option below, and neither is fixable:
 
 - **Apple Hide My Email** hands out a fresh relay address per app install, so an Apple
