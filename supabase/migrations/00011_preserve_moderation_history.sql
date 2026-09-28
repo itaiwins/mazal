@@ -45,7 +45,16 @@
 --    The email and phone are stored as a peppered SHA-256, never in the clear - the
 --    hash is enough to recognise the same address coming back, and not enough to read
 --    the address back out or to mail it. `display_name` is kept because a moderator
---    reviewing a surviving report needs to know who it was about.
+--    reviewing a surviving report needs to know who it was about, though it is a hint
+--    and not an identifier: the user can rename themselves on the way out.
+--
+-- 4. Takes those identifiers from `auth.users`, not from `public.users`, and stops
+--    clients rewriting `public.users.email` / `.phone` at all. Both come out of
+--    Alucard's review, MEXA-259 M1: `authenticated` holds UPDATE on those columns and
+--    00002's "Users can update own profile" policy puts no column limit on it, so
+--    hashing the profile row would have let a reported user change their email to junk
+--    one request before deleting - or to an innocent third party's address, framing
+--    them the moment MEXA-258 starts refusing signups.
 --
 -- WHAT THIS MIGRATION DOES NOT DO
 --
@@ -95,17 +104,22 @@ COMMENT ON TABLE public.moderation_secrets IS
 -- 2. THE HASH HELPER
 -- =====================================================
 
+-- Every function below runs with `SET search_path = ''` (MEXA-259, Alucard's optional
+-- hardening), so every name has to say where it lives. Two exceptions, both deliberate:
+-- COALESCE is SQL syntax rather than a function, so `pg_catalog.coalesce(...)` is a
+-- 42883 at runtime and the bare form is already search_path-proof; and operators like
+-- `||` and `<>` resolve through pg_catalog regardless.
 CREATE OR REPLACE FUNCTION public.hash_account_identifier(p_value TEXT)
 RETURNS TEXT
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, extensions
+SET search_path = ''
 AS $$
 DECLARE
   v_pepper TEXT;
   v_normalized TEXT;
 BEGIN
-  v_normalized := lower(btrim(coalesce(p_value, '')));
+  v_normalized := pg_catalog.lower(pg_catalog.btrim(coalesce(p_value, '')));
   IF v_normalized = '' THEN
     RETURN NULL;
   END IF;
@@ -115,7 +129,7 @@ BEGIN
     RAISE EXCEPTION 'moderation pepper is missing' USING ERRCODE = 'internal_error';
   END IF;
 
-  RETURN encode(extensions.digest(v_pepper || ':' || v_normalized, 'sha256'), 'hex');
+  RETURN pg_catalog.encode(extensions.digest(v_pepper || ':' || v_normalized, 'sha256'), 'hex');
 END;
 $$;
 
@@ -178,13 +192,16 @@ CREATE OR REPLACE FUNCTION public.record_deleted_account()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, extensions
+SET search_path = ''
 AS $$
 DECLARE
   v_total INTEGER;
   v_open INTEGER;
+  v_email TEXT;
+  v_phone TEXT;
 BEGIN
-  SELECT count(*), count(*) FILTER (WHERE status IN ('pending', 'reviewed'))
+  SELECT pg_catalog.count(*),
+         pg_catalog.count(*) FILTER (WHERE status IN ('pending', 'reviewed'))
     INTO v_total, v_open
     FROM public.reports
    WHERE reported_id = OLD.id;
@@ -194,6 +211,22 @@ BEGIN
     RETURN OLD;
   END IF;
 
+  -- The identifiers come from `auth.users`, NOT from `public.users` (MEXA-259, M1).
+  -- `authenticated` holds UPDATE on public.users.email and .phone, and the 00002 policy
+  -- "Users can update own profile" puts no column limit on it. Hashing the profile
+  -- columns would let the reported user rewrite their own email to junk one request
+  -- before deleting - or, worse, to an innocent third party's address, framing them once
+  -- MEXA-258 starts refusing signups. The auth row is the identifier the account is
+  -- really reachable at, and only a verified Supabase Auth flow can change it.
+  --
+  -- The Edge Function deletes public.users first and calls auth.admin.deleteUser after,
+  -- so on the real path this row is still here. On a cascade that starts at auth.users
+  -- it is already gone, hence the fallback. Section 6 closes the rewrite hole as well,
+  -- so the fallback is not a way back in.
+  SELECT email, phone INTO v_email, v_phone FROM auth.users WHERE id = OLD.auth_id;
+  v_email := coalesce(v_email, OLD.email);
+  v_phone := coalesce(v_phone, OLD.phone);
+
   INSERT INTO public.deleted_accounts (
     user_id, auth_id, email_hash, phone_hash, display_name,
     account_created_at, reports_against_count, open_reports_against_count
@@ -201,8 +234,10 @@ BEGIN
   VALUES (
     OLD.id,
     OLD.auth_id,
-    public.hash_account_identifier(OLD.email),
-    public.hash_account_identifier(OLD.phone),
+    public.hash_account_identifier(v_email),
+    public.hash_account_identifier(v_phone),
+    -- A hint for a moderator, not an identifier: the user can rename themselves right
+    -- before deleting. user_id is the key (MEXA-259).
     OLD.display_name,
     OLD.created_at,
     v_total,
@@ -237,19 +272,37 @@ CREATE INDEX IF NOT EXISTS idx_reports_reporter ON public.reports(reporter_id);
 -- What the dropped FKs still owed us: you cannot file a report about someone who does
 -- not exist. SECURITY DEFINER because `users` has RLS and a reporter cannot see every
 -- row of it, so an invoker-rights check would reject legitimate reports.
+--
+-- `FOR KEY SHARE` is the part that is easy to leave out (MEXA-259, L1). A real foreign
+-- key takes that lock on the parent row; a bare EXISTS does not. Under READ COMMITTED,
+-- a report inserted while the reported user's DELETE is in flight would otherwise see
+-- the user, while the DELETE's own trigger counts reports without seeing the uncommitted
+-- insert - leaving a report pointing at a vanished user and no tombstone at all. Taking
+-- the lock makes the DELETE wait, so its trigger counts the report.
 CREATE OR REPLACE FUNCTION public.reports_check_participants()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = ''
 AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.users WHERE id = NEW.reporter_id) THEN
+  -- An UPDATE that lists these columns but does not change them (a full-row upsert from
+  -- some future admin tool) must not be rejected just because the people in an old
+  -- report are gone.
+  IF TG_OP = 'UPDATE'
+     AND NEW.reporter_id IS NOT DISTINCT FROM OLD.reporter_id
+     AND NEW.reported_id IS NOT DISTINCT FROM OLD.reported_id THEN
+    RETURN NEW;
+  END IF;
+
+  PERFORM 1 FROM public.users WHERE id = NEW.reporter_id FOR KEY SHARE;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'reporter_id % is not a user', NEW.reporter_id
       USING ERRCODE = 'foreign_key_violation';
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM public.users WHERE id = NEW.reported_id) THEN
+  PERFORM 1 FROM public.users WHERE id = NEW.reported_id FOR KEY SHARE;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'reported_id % is not a user', NEW.reported_id
       USING ERRCODE = 'foreign_key_violation';
   END IF;
@@ -271,3 +324,67 @@ COMMENT ON COLUMN public.reports.reported_id IS
   'Join public.deleted_accounts on user_id when the users row is gone.';
 COMMENT ON COLUMN public.reports.reporter_id IS
   'public.users.id. Intentionally NOT a foreign key (MEXA-256), same reason as reported_id.';
+
+-- =====================================================
+-- 6. THE PROFILE EMAIL AND PHONE STOP BEING FREE TEXT
+-- =====================================================
+
+-- MEXA-259, M1 part 2. `authenticated` holds UPDATE on public.users.email and .phone,
+-- and 00002's "Users can update own profile" policy puts no column limit on it. That is
+-- a problem beyond deletion: `users.email` is UNIQUE, so anyone could take any address
+-- that is not registered yet and squat it, and the profile email could drift away from
+-- the address the account is actually reachable at.
+--
+-- Section 4 no longer trusts these columns, so this is defence in depth rather than the
+-- fix. It is written to be the smallest change that is safe for the app:
+--   - an UPDATE that does not change the value passes, so a screen that spreads the
+--     whole profile object back (useUpdateProfile does exactly this) keeps working;
+--   - a change that matches the account's verified Supabase Auth address passes, so a
+--     legitimate email change made through Auth can still be mirrored here;
+--   - anything else from a client is refused. service_role is unaffected.
+-- I grepped the app for a write to either column and found none, INSERT included.
+CREATE OR REPLACE FUNCTION public.users_guard_identity_columns()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_auth_email TEXT;
+  v_auth_phone TEXT;
+BEGIN
+  -- Only clients are held to this. A NULL role is a direct postgres session (migrations,
+  -- the SQL editor, a service-role script that did not set a JWT).
+  IF coalesce(auth.role(), 'service_role') NOT IN ('authenticated', 'anon') THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.email IS DISTINCT FROM OLD.email THEN
+    SELECT email INTO v_auth_email FROM auth.users WHERE id = OLD.auth_id;
+    IF v_auth_email IS NULL
+       OR pg_catalog.lower(pg_catalog.btrim(NEW.email)) <> pg_catalog.lower(v_auth_email) THEN
+      RAISE EXCEPTION 'users.email can only be set to this account''s verified auth email'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+  END IF;
+
+  IF NEW.phone IS DISTINCT FROM OLD.phone THEN
+    SELECT phone INTO v_auth_phone FROM auth.users WHERE id = OLD.auth_id;
+    IF v_auth_phone IS NULL OR v_auth_phone = ''
+       OR pg_catalog.btrim(coalesce(NEW.phone, '')) <> v_auth_phone THEN
+      RAISE EXCEPTION 'users.phone can only be set to this account''s verified auth phone'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.users_guard_identity_columns() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS users_guard_identity_columns ON public.users;
+CREATE TRIGGER users_guard_identity_columns
+  BEFORE UPDATE OF email, phone ON public.users
+  FOR EACH ROW
+  EXECUTE FUNCTION public.users_guard_identity_columns();
