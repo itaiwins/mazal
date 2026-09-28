@@ -183,8 +183,17 @@ GRANT SELECT, INSERT ON TABLE public.my_table TO authenticated;
 GRANT ALL    ON TABLE public.my_table TO service_role;
 ```
 
-  Granting a verb with no matching policy is not neutral: it is silent until someone adds a
-  permissive policy later and does not think to check the grant.
+  Granting a verb with no matching policy is not neutral, and note which way round the risk
+  runs (Alucard, MEXA-275). **Revoking** a verb whose policy arrives later fails *loudly* —
+  the policy is never consulted and the caller gets `42501 permission denied`, which whoever
+  tests the new policy hits at once. **Granting** one with no policy is the quiet case: it
+  looks inert because RLS admits zero rows, right up until someone adds a permissive policy
+  for that verb and opens the standing grant with it. So err towards the narrow GRANT.
+
+  Sequences have the same default problem (`anon=rwU`, i.e. `nextval`/`setval`/`currval` on
+  every new sequence). None exist in `public` yet — every id is a `uuid` — and `setval` is
+  not reachable through PostgREST, but a future `bigserial` column would inherit it.
+  Tracked on MEXA-274.
 
 ## Still to do on the backend
 

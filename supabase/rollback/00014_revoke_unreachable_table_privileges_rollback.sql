@@ -22,20 +22,34 @@
 --   public.user_public_profiles  00013 - SELECT to authenticated only (a view)
 --   public.deleted_accounts      00011 - service_role only
 --   public.moderation_secrets    00011 - service_role only
+--   public.reports               00011/MEXA-256 - a report has to outlive both people in
+--                                it, so no client role may wipe the table. Added to this
+--                                list by Alucard's review, MEXA-275: the first draft of
+--                                this file made that argument in its own header and then
+--                                handed `TRUNCATE reports` straight back in the loop.
 --
--- So the loop below skips those five by name. If a later migration adds another table
--- that is meant to stay closed, add it to the list in the same breath as writing it.
+-- So the loop below skips those six by name. If a later migration adds another table that
+-- is meant to stay closed, add it to the list in the same breath as writing it.
 --
--- ONE DELIBERATE ASYMMETRY. Because the skip list is unconditional, running this file
--- while 00013 has NOT been applied leaves `public.users` without the TRUNCATE, TRIGGER,
--- REFERENCES and MAINTAIN grants it had before 00014, so this is not a bit-exact inverse
--- of the migration. That is the right trade: those four are the privileges nothing can
--- reach, `users` is the table a TRUNCATE ... CASCADE takes the whole database down
--- through (measured: it cascades to nine more tables), and re-granting them cannot fix
--- whatever this rollback is being run for. If you genuinely need the exact pre-00014
--- ACL back - to reproduce something, say - run the one statement by hand:
+-- DELIBERATE ASYMMETRIES. The skip list is unconditional, so this is not a bit-exact
+-- inverse of the migration, in two places:
 --
---   GRANT TRUNCATE, TRIGGER, REFERENCES, MAINTAIN ON TABLE public.users TO anon, authenticated;
+--   - `reports` never gets TRUNCATE, TRIGGER, REFERENCES or MAINTAIN back at all, for the
+--     reason above. It does get UPDATE and DELETE back, at the bottom of this file - those
+--     were already no-ops under RLS, so that restores an ACL and not a capability.
+--   - `users` and `user_integrations` keep the narrower ACL even if 00013 has NOT been
+--     applied, in which case they end up tighter than they were before 00014.
+--
+-- That is the right trade in every one of those cases: these four are the privileges
+-- nothing can reach, `users` is the table a `TRUNCATE ... CASCADE` takes the whole
+-- database down through (measured: it cascades to nine more tables), and re-granting them
+-- cannot fix whatever this rollback is being run for. If you genuinely need the exact
+-- pre-00014 ACL back - to reproduce something, say - run these by hand, and say on
+-- MEXA-268 that you did:
+--
+--   GRANT TRUNCATE, TRIGGER, REFERENCES, MAINTAIN ON TABLE public.users             TO anon, authenticated;
+--   GRANT TRUNCATE, TRIGGER, REFERENCES, MAINTAIN ON TABLE public.user_integrations TO anon, authenticated;
+--   GRANT TRUNCATE, TRIGGER, REFERENCES, MAINTAIN ON TABLE public.reports           TO anon, authenticated;
 
 DO $$
 DECLARE
@@ -44,7 +58,8 @@ DECLARE
     'user_integrations',
     'user_public_profiles',
     'deleted_accounts',
-    'moderation_secrets'
+    'moderation_secrets',
+    'reports'
   ];
   v_rel TEXT;
 BEGIN

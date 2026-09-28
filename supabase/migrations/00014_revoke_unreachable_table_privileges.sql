@@ -57,9 +57,10 @@
 -- Supabase issues no password for that role. These were standing privileges with no
 -- caller and no purpose, which is the reason to remove them rather than to panic.
 --
--- The project also had 0 rows in all 36 tables when this was written, so nothing was at
--- risk in practice. It is being fixed now precisely because that stops being true the
--- day Mazal has users.
+-- The project also held no user data when this was written - 35 of the 36 tables were
+-- empty, and the only rows anywhere were 6 config rows in `community_settings` - so
+-- nothing was at risk in practice. It is being fixed now precisely because that stops
+-- being true the day Mazal has users.
 --
 -- WHY THESE FOUR AND NOT MORE
 --
@@ -76,9 +77,17 @@
 --                not issue any of those statements.
 --
 -- `arwd` is left alone on the other 35 tables on purpose. That is what the 88 policies
--- are written against, and pulling a verb at table level silently disables any policy
--- for it, including one added later by someone who will not think to check the grant.
--- Narrowing it needs a table-by-table argument, which is MEXA-274, not this file.
+-- are written against, and narrowing it needs a table-by-table argument, which is
+-- MEXA-274, not this file.
+--
+-- Note which way round the risk runs (Alucard, MEXA-275 - the first draft of this comment
+-- had it backwards). Revoking a verb whose policy is added later fails **loudly**: the
+-- policy is simply never consulted and the caller gets `42501 permission denied`, which
+-- anyone testing the new policy hits immediately. The quiet case is the opposite one - a
+-- verb that stays granted with no policy to admit it. It looks inert, because RLS lets
+-- through zero rows, right up until someone adds a permissive policy for that verb and
+-- unknowingly opens the grant with it. That is the 48 (table, verb) pairs in MEXA-274,
+-- and it is why they are worth a pass rather than being left as harmless.
 --
 -- The one exception is `reports` UPDATE and DELETE, in section 3 - the single table where
 -- the absence of a policy is a documented decision rather than an oversight.
@@ -137,9 +146,11 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
 -- RLS already made both a no-op - as `authenticated`, `UPDATE public.reports` and
 -- `DELETE FROM public.reports` returned success affecting 0 rows, because no policy
 -- admits any row. So this changes the error, not the outcome: 42501 instead of a silent
--- zero. That is worth having. A table-level grant for a verb with no policy is a loaded
--- gun pointed at whoever writes the next policy on this table, and the failure is silent
--- if it is ever combined with a permissive one.
+-- zero. That is worth having anyway, for the reason in the header: a grant with no policy
+-- is the quiet half of the pair. It sits there looking inert, and the day someone adds a
+-- permissive UPDATE policy to `reports` - for a moderator tool, say - the grant is already
+-- there to make it work for every client at once. Taking it away now means that policy has
+-- to arrive with a deliberate GRANT beside it.
 --
 -- Checked before writing this: the only reference to `reports` in the app is
 -- `src/api/mutations/useMatch.ts:172`, `supabase.from('reports').insert({...})`. Nothing
