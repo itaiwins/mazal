@@ -37,6 +37,7 @@ Apply exactly this sequence:
 00010_secure_definer_rpcs.sql
 00011_preserve_moderation_history.sql
 00012_deleted_accounts_retention.sql
+00013_users_column_privacy.sql
 00014_revoke_unreachable_table_privileges.sql
 ```
 
@@ -54,16 +55,24 @@ Notes on the order:
 - Undo scripts live in `supabase/rollback/`, **never** in this directory. Anything
   dropped in here is a file some tool will eventually apply in name order, and an undo
   script is the last thing you want applied by accident — `00010_rollback.sql` sorted
-  *ahead* of the migration it undoes. The four that exist are
+  *ahead* of the migration it undoes. The five that exist are
   `00010_secure_definer_rpcs_rollback.sql`, `00011_preserve_moderation_history_rollback.sql`,
-  `00012_deleted_accounts_retention_rollback.sql` and
+  `00012_deleted_accounts_retention_rollback.sql`,
+  `00013_users_column_privacy_rollback.sql` and
   `00014_revoke_unreachable_table_privileges_rollback.sql`; read each one's header. `00014`'s
   is the only one that is not a bit-exact inverse, and it says exactly where it differs and
   why.
-- `00011` and `00012` are in the order above but are **not applied yet** to
-  `tayiyczmacvhokdxfqvm` — they are waiting on Guts's security review (MEXA-256) and, for
-  what reads the tombstones at signup, on a product decision (MEXA-258,
+- `00011`, `00012` and `00013` are in the order above but are **not applied yet** to
+  `tayiyczmacvhokdxfqvm` — they are waiting on Guts's security review (MEXA-256, MEXA-261)
+  and, for what reads the tombstones at signup, on a product decision (MEXA-258,
   `docs/MODERATION_REENTRY.md`). `00012` refuses to run if `00011` has not.
+- `00013` does not depend on `00011`/`00012` and can be applied without them. It is the one
+  migration here that the **app cannot run without**: it makes `public.users` own-row-only
+  and moves other people's profiles to a new `public.user_public_profiles` view, which
+  `src/api/queries/useDiscoveryProfiles.ts`, `src/api/queries/useMatches.ts` and
+  `app/(safta-tabs)/index.tsx` already read. Applying it and shipping the app go together —
+  old app against new database means an empty deck, new app against old database means a
+  404 from PostgREST for the view.
 - `00014` is **not applied yet** either — it is a privilege change on a live project, so it
   waits on Guts or Alucard (MEXA-275) and then on Lelouch for the apply (MEXA-33). It has no
   dependency on `00011`–`00013` and they have none on it: it is one `REVOKE` over every
@@ -146,6 +155,36 @@ GRANT  EXECUTE ON FUNCTION public.my_function(uuid) TO authenticated, service_ro
   PostgREST publishes every non-trigger function in `public` at `/rest/v1/rpc/<name>`, so
   a missed revoke is a live endpoint for anyone holding the anon key. Also add
   `SET search_path = public`.
+
+## Columns are not rows: reading someone else's profile
+
+RLS restricts rows and nothing else, so a policy can never stop a client asking for a
+column. That is what MEXA-261 was, and `00013_users_column_privacy.sql` is the shape to
+copy if another table ever has to serve both "mine" and "everyone's":
+
+- **`public.users` is own-row-only.** One SELECT policy, `auth.uid() = auth_id`. Anything in
+  the app that reads the signed-in user can keep saying `select('*')`.
+- **`public.user_public_profiles` is everyone else.** A view listing display columns, owned
+  by `postgres` and left at `security_invoker = false` so it is not subject to `users` RLS —
+  which means **the row rule has to be in the view's own `WHERE`**, because no policy is
+  going to supply it. Add `security_barrier = true`.
+- Do not reach for a column-level `REVOKE ... (col)` on SELECT. If a role lacks SELECT on
+  even one column, `select('*')` fails for that role with `permission denied for table`,
+  and this app's own-row reads are built on `select('*')`. Column-level `UPDATE` grants are
+  fine — they do not affect reads.
+- A policy on some *other* table that reaches into `users` with a correlated subquery is
+  subject to `users` RLS too, so it breaks the moment `users` stops answering cross-user
+  reads. `user_photos."Users can view other photos"` was exactly that, and 00013 had to
+  rewrite it through a SECURITY DEFINER helper. Grep `pg_policies` for the pattern before
+  changing a policy anything else leans on.
+
+**Types for a new view have to be written by hand.** `supabase gen types typescript` shells
+out to Docker, and there is no Docker on this box — it exits 1 after printing only
+`Connecting to ...`. So `src/types/supabase.generated.ts` is left alone and the view is
+declared in `src/types/database.types.ts`, which augments the generated `Database` with a
+`Views` entry and re-exports it (`src/api/supabase/client.ts` is the only consumer). Read
+the comment on `PublicProfile` there before regenerating anything: a real generator run
+emits every view column as nullable, because Postgres reports no NOT NULL through a view.
 
 ## Creating a new table
 

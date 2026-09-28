@@ -253,9 +253,13 @@ export default function SaftaDiscoverScreen() {
           today.getDate()
         );
 
-        // Build query for users
+        // Build query for users. Reads `user_public_profiles`, not `users`, for the reason
+        // in MEXA-261: the table is own-row-only now. A safta signs in against
+        // `safta_accounts` and so has no `users` row of her own, which the view handles -
+        // she sees every active profile, with a null distance because there is no location
+        // to measure from. Safta cards never showed a distance anyway.
         let query = supabase
-          .from('users')
+          .from('user_public_profiles')
           .select('*')
           .eq('is_active', true)
           .eq('onboarding_complete', true)

@@ -6,10 +6,97 @@
  */
 
 // Re-export all generated types
-export type { Database, Json } from './supabase.generated';
+export type { Json } from './supabase.generated';
 export { Constants } from './supabase.generated';
 
-import type { Database } from './supabase.generated';
+import type { Database as GeneratedDatabase } from './supabase.generated';
+
+// ============================================================================
+// Public Profile Type (everybody who is not the signed-in user)
+// ============================================================================
+
+type GeneratedUserRow = GeneratedDatabase['public']['Tables']['users']['Row'];
+
+/**
+ * A row from the `public.user_public_profiles` view.
+ *
+ * Since migration 00013 (MEXA-261), `public.users` is own-row-only: selecting from it
+ * returns exactly one row, yours. Anything about anybody else comes from this view, which
+ * carries display columns only - no `email`, `phone`, `auth_id`, `last_name` or
+ * coordinates - and computes `distance_miles` in the database so coordinates never reach a
+ * client.
+ *
+ * Spelled as a Pick of the generated `users` row on purpose: the view's columns are a
+ * subset of the table's, so this stays tied to src/types/supabase.generated.ts and stops
+ * compiling if one is renamed. Adding a field here means adding it to the view in a
+ * migration first.
+ */
+export type PublicProfile = Pick<
+  GeneratedUserRow,
+  | 'id'
+  | 'first_name'
+  | 'display_name'
+  | 'date_of_birth'
+  | 'gender'
+  | 'bio'
+  | 'height_cm'
+  | 'occupation'
+  | 'company'
+  | 'education'
+  | 'school'
+  | 'jewish_background'
+  | 'observance_level'
+  | 'keeps_shabbat'
+  | 'keeps_kosher'
+  | 'synagogue_attendance'
+  | 'jewish_education'
+  | 'looking_for'
+  | 'wants_children'
+  | 'partner_must_be_jewish'
+  | 'raise_children_jewish'
+  | 'willing_to_relocate'
+  | 'current_city'
+  | 'current_state'
+  | 'current_country'
+  | 'is_active'
+  | 'onboarding_complete'
+  | 'is_verified'
+  | 'is_photo_verified'
+  | 'is_orthodox_only'
+  | 'is_orthodox_user'
+  | 'elo_score'
+> & {
+  /**
+   * Great-circle distance in miles from the signed-in user, computed by the view.
+   * Null when either side has no location on file.
+   */
+  distance_miles: number | null;
+};
+
+/**
+ * The generated schema plus the `user_public_profiles` view added by migration 00013.
+ *
+ * The view is declared here by hand instead of being regenerated into
+ * src/types/supabase.generated.ts, because `supabase gen types` shells out to Docker and
+ * this machine has none - the same constraint that makes supabase/MIGRATIONS.md a runbook
+ * rather than a `db push`. Two things follow:
+ *
+ *  - Keep this in step with the view in supabase/migrations/00013_users_column_privacy.sql.
+ *  - If the generated file is ever rebuilt on a machine that does have Docker, the
+ *    generator will emit its own `Views` entry with every column nullable, because Postgres
+ *    reports no NOT NULL information through a view. The nullability in `PublicProfile` is
+ *    the truthful one, read off the base columns; prefer it and delete the generated entry.
+ */
+export type Database = Omit<GeneratedDatabase, 'public'> & {
+  public: Omit<GeneratedDatabase['public'], 'Views'> & {
+    Views: {
+      user_public_profiles: {
+        Row: PublicProfile;
+        Relationships: [];
+      };
+    };
+  };
+};
 
 // ============================================================================
 // Custom Type Aliases (more descriptive than generated enums)
@@ -138,7 +225,7 @@ export type UserUpdate = UpdateTables<'users'>;
 // Discovery Profile Type
 // ============================================================================
 
-export interface DiscoveryUser extends User {
+export interface DiscoveryUser extends PublicProfile {
   photos: UserPhoto[];
   prompts: UserPrompt[];
   badges?: UserBadge[];
@@ -156,7 +243,8 @@ export interface DiscoveryUser extends User {
 
 export interface MatchPreview {
   match: Match;
-  otherUser: User;
+  /** The person you matched with, so a public profile - never a full `users` row. */
+  otherUser: PublicProfile;
   primaryPhoto: UserPhoto | null;
   lastMessage: Message | null;
   unreadCount: number;
