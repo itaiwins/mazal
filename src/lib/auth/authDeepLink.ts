@@ -13,19 +13,28 @@
  * single star both links fell back to `mazal://`. Note that GoTrue caches this
  * config, so a change takes up to ~30s to take effect.
  *
- * The client runs the default `implicit` flow (see src/api/supabase/client.ts),
- * so GoTrue's `/auth/v1/verify` redirect puts the session in the URL *fragment*:
+ * The client runs `flowType: 'pkce'` (see src/api/supabase/client.ts), so
+ * GoTrue's `/auth/v1/verify` redirect carries an authorization *code* in the
+ * query string:
  *
- *   mazal://auth/reset-password#access_token=...&refresh_token=...&type=recovery
+ *   mazal://auth/reset-password?code=...&type=recovery
  *
- * and failures arrive the same way:
+ * while failures still arrive in the *fragment*:
  *
  *   mazal://auth/reset-password#error=access_denied&error_code=otp_expired&...
  *
  * `detectSessionInUrl` is off (it is a web-only mechanism), so the screen that
  * receives the link has to read those params and establish the session itself.
- * PKCE (`?code=...`) is handled too so that switching `flowType` later does not
- * silently break these screens.
+ *
+ * A code is only redeemable with the `code_verifier` that supabase-js wrote to
+ * its own storage when it asked for the link, so a code is useless to any other
+ * device — which is the point of the switch (MEXA-264). It also means a tokens-in-
+ * the-fragment link is now, by definition, not something this project issued:
+ * `establishSessionFromAuthLink` refuses those outright instead of calling
+ * `setSession` on whatever arrived. Before that, anyone could hand a user a
+ * `mazal://auth/confirm#access_token=<their own token>` link and sign the user
+ * into an account they control, which for a new sign-up meant the victim then
+ * uploaded photos, location and prompts into the attacker's account.
  */
 
 import { supabase } from '@/api/supabase/client';
@@ -138,11 +147,22 @@ export type AuthLinkResult =
 const EXPIRED_ERROR_CODES = new Set(['otp_expired', 'access_denied', 'invalid_request']);
 
 /**
+ * supabase-js reports a missing or mismatched `code_verifier` this way. It means
+ * the code did not come from a flow this install started — either another auth
+ * flow overwrote the verifier (they all share one storage slot), or the link
+ * belongs to a different device.
+ */
+function isVerifierFailure(message: string): boolean {
+  return /code[\s_]?verifier|code challenge|invalid request.*code/i.test(message);
+}
+
+/**
  * Turn the params from an auth email link into a real session.
  *
  * A single-use link that has already been opened, or one older than
  * `mailer_otp_exp` (1 hour), comes back as `expired: true` so the caller can
- * offer "send me a new link" instead of a dead end.
+ * offer "send me a new link" instead of a dead end. So does a code this device
+ * cannot redeem, which from the user's side is the same dead end.
  */
 export async function establishSessionFromAuthLink(
   link: AuthLinkParams
@@ -158,28 +178,36 @@ export async function establishSessionFromAuthLink(
     };
   }
 
-  if (link.accessToken && link.refreshToken) {
-    const { error } = await supabase.auth.setSession({
-      access_token: link.accessToken,
-      refresh_token: link.refreshToken,
-    });
+  // The code path is the only one we trust, and it is the only one GoTrue uses
+  // now that the client is on PKCE.
+  if (link.code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(link.code);
 
     if (error) {
+      if (isVerifierFailure(error.message)) {
+        return {
+          ok: false,
+          expired: true,
+          message: 'This link belongs to a different sign-in attempt.',
+        };
+      }
       return { ok: false, expired: false, message: error.message };
     }
 
     return { ok: true, type: link.type };
   }
 
-  // PKCE flow (only reachable if the client's `flowType` is switched to 'pkce').
-  if (link.code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(link.code);
-
-    if (error) {
-      return { ok: false, expired: false, message: error.message };
-    }
-
-    return { ok: true, type: link.type };
+  // Tokens in the link. Under PKCE this project never issues one, so it is either
+  // a link from before the switch or a forged one — and a forged one is the whole
+  // attack: `mazal://auth/confirm#access_token=<attacker's token>` would sign the
+  // user into the attacker's account, and `type` is just as attacker-supplied as
+  // the tokens are. Refuse rather than hand it to `setSession` (MEXA-264).
+  if (link.accessToken || link.refreshToken) {
+    return {
+      ok: false,
+      expired: true,
+      message: 'This link is no longer the kind of link we issue.',
+    };
   }
 
   return {
@@ -187,4 +215,29 @@ export async function establishSessionFromAuthLink(
     expired: false,
     message: 'This link is missing the information we need to continue.',
   };
+}
+
+/**
+ * Finish a `signInWithOAuth` round trip, given the callback URL that
+ * `WebBrowser.openAuthSessionAsync` hands back.
+ *
+ * Same trust rule as the email links, and the same reason it exists: all four
+ * sign-in screens used to pull `access_token` straight off the callback, which
+ * PKCE stopped producing — they would each have shown "Authentication failed"
+ * after the user had already cleared Google's consent screen (MEXA-264). No
+ * provider is enabled on the project today, so nothing was actually broken; it
+ * would have broken the day someone turned Google on.
+ */
+export async function completeOAuthCallback(callbackUrl: string): Promise<AuthLinkResult> {
+  const link = parseAuthLink(callbackUrl);
+
+  if (!link) {
+    return {
+      ok: false,
+      expired: false,
+      message: 'The sign-in came back without anything we could use.',
+    };
+  }
+
+  return establishSessionFromAuthLink(link);
 }

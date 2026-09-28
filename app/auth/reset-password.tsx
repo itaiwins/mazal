@@ -4,13 +4,19 @@
  * Landing screen for the `mazal://auth/reset-password` deep link in the password
  * reset email sent by app/(auth)/forgot-password.tsx.
  *
- * The link carries a one-time recovery session in the URL fragment. We turn that
- * into a real session, let the user choose a new password, then sign them out so
- * they prove the new password on the login screen — a recovery session should not
- * become a long-lived logged-in session.
+ * The link carries a one-time authorization code. We exchange it for a real
+ * session, let the user choose a new password, then sign them out so they prove
+ * the new password on the login screen — a recovery session should not become a
+ * long-lived logged-in session.
+ *
+ * That session is the reason for the `AppState` listener below. It is a full
+ * auto-refreshing session on the device, and before MEXA-264 it was only torn
+ * down on a *successful* save: background or kill the app on this screen and it
+ * stayed live indefinitely with the password never changed. So leaving the app
+ * before saving ends it, and the user has to request a fresh link.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -22,6 +28,7 @@ import {
   Platform,
   ScrollView,
   Alert,
+  AppState,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -44,6 +51,7 @@ export default function ResetPasswordScreen() {
   const [status, setStatus] = useState<Status>('verifying');
   const [linkExpired, setLinkExpired] = useState(false);
   const [linkMessage, setLinkMessage] = useState<string | null>(null);
+  const [abandoned, setAbandoned] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -51,6 +59,24 @@ export default function ResetPasswordScreen() {
 
   // The recovery link is single-use; never hand it to GoTrue twice.
   const consumed = useRef(false);
+
+  // Set once the recovery session has been given up on, so that an exchange still
+  // in flight when the app backgrounds cannot land a live session afterwards.
+  const abandonedRef = useRef(false);
+
+  // The AppState listener is subscribed once; this is how it reads the current
+  // status without re-subscribing on every keystroke-driven render.
+  const statusRef = useRef<Status>(status);
+  statusRef.current = status;
+
+  const abandonRecoverySession = useCallback(async () => {
+    abandonedRef.current = true;
+    await supabase.auth.signOut();
+    setAbandoned(true);
+    setLinkExpired(false);
+    setLinkMessage(null);
+    setStatus('invalid');
+  }, []);
 
   useEffect(() => {
     if (consumed.current || !resolved) return;
@@ -68,6 +94,13 @@ export default function ResetPasswordScreen() {
     (async () => {
       const result = await establishSessionFromAuthLink(link);
 
+      // Backgrounded mid-exchange: the listener's sign-out ran while there was
+      // still no session to end, so end this one instead of leaving it live.
+      if (abandonedRef.current) {
+        if (result.ok) await supabase.auth.signOut();
+        return;
+      }
+
       if (!result.ok) {
         setLinkExpired(result.expired);
         setLinkMessage(result.message);
@@ -78,6 +111,22 @@ export default function ResetPasswordScreen() {
       setStatus('ready');
     })();
   }, [link, resolved]);
+
+  // Bound the recovery session to this visit of this screen (MEXA-264). Only
+  // 'background' — iOS reports 'inactive' for the app switcher, an incoming call
+  // and the password autofill sheet, none of which mean the user left.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next !== 'background') return;
+      if (abandonedRef.current) return;
+      // 'saving' has an update in flight and 'invalid' has no session to end.
+      if (statusRef.current !== 'verifying' && statusRef.current !== 'ready') return;
+
+      void abandonRecoverySession();
+    });
+
+    return () => subscription.remove();
+  }, [abandonRecoverySession]);
 
   const handleSave = async () => {
     if (password.length < MIN_PASSWORD_LENGTH) {
@@ -138,14 +187,23 @@ export default function ResetPasswordScreen() {
     return (
       <View style={[styles.container, styles.centered, { paddingTop: insets.top }]}>
         <View style={styles.iconCircle}>
-          <Ionicons name="time-outline" size={32} color={colors.primary.gold} />
+          <Ionicons
+            name={abandoned ? 'lock-closed-outline' : 'time-outline'}
+            size={32}
+            color={colors.primary.gold}
+          />
         </View>
         <Text style={styles.title}>
-          {linkExpired ? 'This link has expired' : "This link didn't work"}
+          {abandoned
+            ? 'You left before saving'
+            : linkExpired
+              ? 'This link has expired'
+              : "This link didn't work"}
         </Text>
         <Text style={styles.centeredSubtitle}>
-          {linkMessage} Reset links can only be used once, and they expire an hour
-          after we send them.
+          {abandoned
+            ? "We closed your reset session when you left the app, so nobody else can finish it on this phone. Your password hasn't changed."
+            : `${linkMessage} Reset links can only be used once, and they expire an hour after we send them.`}
         </Text>
 
         <Pressable

@@ -26,6 +26,7 @@ import * as AuthSession from 'expo-auth-session';
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/api/supabase/client';
+import { completeOAuthCallback } from '@/lib/auth/authDeepLink';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { colors } from '@/theme/colors';
@@ -208,34 +209,12 @@ export default function LoginScreen() {
         console.log('[Login] Google OAuth result:', result.type);
 
         if (result.type === 'success' && result.url) {
-          console.log('[Login] Callback URL:', result.url);
+          // The client is on PKCE, so the callback carries a `?code=` and nothing
+          // else usable; the exchange is the same one the email links use.
+          const outcome = await completeOAuthCallback(result.url);
 
-          // Extract the tokens from the URL (could be in hash or query params)
-          const url = new URL(result.url);
-          let accessToken: string | null = null;
-          let refreshToken: string | null = null;
-
-          // Check hash fragment first (implicit flow)
-          if (url.hash) {
-            const hashParams = new URLSearchParams(url.hash.substring(1));
-            accessToken = hashParams.get('access_token');
-            refreshToken = hashParams.get('refresh_token');
-          }
-
-          // Check query params (PKCE flow)
-          if (!accessToken) {
-            accessToken = url.searchParams.get('access_token');
-            refreshToken = url.searchParams.get('refresh_token');
-          }
-
-          if (accessToken) {
-            console.log('[Login] Google Sign In successful, setting session...');
-
-            // Set session and get user data
-            const { data: sessionData } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken || '',
-            });
+          if (outcome.ok) {
+            console.log('[Login] Google Sign In successful');
 
             // Set mode and navigate after delay
             setCurrentMode('user'); // Explicitly set to user mode
@@ -246,11 +225,11 @@ export default function LoginScreen() {
               router.replace('/');
             }, 500);
             return; // Exit early, setTimeout will handle navigation
-          } else {
-            console.error('No access token in callback URL');
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            Alert.alert('Error', 'Authentication failed. Please try again.');
           }
+
+          console.error('[Login] Google callback not usable:', outcome.message);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          Alert.alert('Error', 'Authentication failed. Please try again.');
         } else if (result.type === 'cancel') {
           console.log('Google Sign In cancelled by user');
         }

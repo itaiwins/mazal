@@ -67,6 +67,16 @@ export const supabase = createClient<Database>(
   {
     auth: {
       storage: AsyncStorageAdapter,
+      // PKCE, not supabase-js's implicit default (MEXA-264). Both reasons come
+      // from `mazal://` being a custom scheme nobody owns: implicit puts a real
+      // access and refresh token in the deep-link fragment, where any app that
+      // also claims `mazal://` can read them; and an implicit link works on
+      // whatever device opens it, so a link forwarded to someone else signs
+      // *them* in. Under PKCE the link carries only a `?code=`, which is
+      // worthless without the `code_verifier` this client keeps in the storage
+      // above, on the device that started the flow. See
+      // src/lib/auth/authDeepLink.ts and docs/AUTH_DEEP_LINKS.md.
+      flowType: 'pkce',
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false, // Not needed for mobile

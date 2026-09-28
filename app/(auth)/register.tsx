@@ -25,6 +25,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import * as Crypto from 'expo-crypto';
 import { supabase } from '@/api/supabase/client';
+import { completeOAuthCallback } from '@/lib/auth/authDeepLink';
 import { EMAIL_CONFIRM_REDIRECT_URL } from '@/lib/auth/authDeepLink';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -217,46 +218,23 @@ export default function RegisterScreen() {
         console.log('[Register] Google OAuth result:', result.type);
 
         if (result.type === 'success' && result.url) {
-          console.log('[Register] Callback URL:', result.url);
+          // The client is on PKCE, so the callback carries a `?code=` and nothing
+          // else usable; the exchange is the same one the email links use.
+          const outcome = await completeOAuthCallback(result.url);
 
-          // Extract the tokens from the URL (could be in hash or query params)
-          const url = new URL(result.url);
-          let accessToken: string | null = null;
-          let refreshToken: string | null = null;
+          if (outcome.ok) {
+            console.log('[Register] Google Sign In successful');
 
-          // Check hash fragment first (implicit flow)
-          if (url.hash) {
-            const hashParams = new URLSearchParams(url.hash.substring(1));
-            accessToken = hashParams.get('access_token');
-            refreshToken = hashParams.get('refresh_token');
-          }
-
-          // Check query params (PKCE flow)
-          if (!accessToken) {
-            accessToken = url.searchParams.get('access_token');
-            refreshToken = url.searchParams.get('refresh_token');
-          }
-
-          if (accessToken) {
-            console.log('[Register] Google Sign In successful, setting session...');
-
-            // Fire setSession without awaiting
-            supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken || '',
-            });
-
-            // Wait 500ms for session to be set, then navigate
             setTimeout(() => {
               console.log('[Register] Navigating after delay...');
               setIsLoading(false);
               router.replace('/');
             }, 500);
             return;
-          } else {
-            console.error('No access token in callback URL');
-            Alert.alert('Error', 'Authentication failed. Please try again.');
           }
+
+          console.error('[Register] Google callback not usable:', outcome.message);
+          Alert.alert('Error', 'Authentication failed. Please try again.');
         } else if (result.type === 'cancel') {
           console.log('Google Sign In cancelled by user');
         }
