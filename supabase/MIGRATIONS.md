@@ -40,6 +40,7 @@ Apply exactly this sequence:
 00013_users_column_privacy.sql
 00014_revoke_unreachable_table_privileges.sql
 00015_scope_users_write_grants.sql
+00016_client_role_write_privileges.sql
 ```
 
 Notes on the order:
@@ -59,10 +60,13 @@ Notes on the order:
   *ahead* of the migration it undoes. The four that exist are
   `00010_secure_definer_rpcs_rollback.sql`, `00011_preserve_moderation_history_rollback.sql`,
   `00012_deleted_accounts_retention_rollback.sql`,
-  `00013_users_column_privacy_rollback.sql` and
-  `00014_revoke_unreachable_table_privileges_rollback.sql`; read each one's header. `00014`'s
-  is the only one that is not a bit-exact inverse, and it says exactly where it differs and
-  why. `00013`'s is exact except for column order, which its header explains.
+  `00013_users_column_privacy_rollback.sql`,
+  `00014_revoke_unreachable_table_privileges_rollback.sql` and
+  `00016_client_role_write_privileges_rollback.sql`; read each one's header. `00014`'s and
+  `00016`'s are the two that are not bit-exact inverses, and each says exactly where it
+  differs and why. `00013`'s is exact except for column order, which its header explains.
+  `00016`'s is also split into six independent sections, smallest first — run the one that
+  unblocks you, not the whole file.
 - `00011` is **APPLIED** to `tayiyczmacvhokdxfqvm`, 2026-09-28 23:31Z, from commit
   `1980e6a` (MEXA-256; Alucard reviewed it on MEXA-259 and MEXA-262, Lelouch approved the
   apply). Consequences anything written after this has to assume:
@@ -108,6 +112,17 @@ Notes on the order:
   adding a one-line `GRANT` in the same migration as the screen**, or the write returns
   42501. The migration header lists every granted column with the file:line that justifies
   it; keep that list true.
+- `00016` is **not applied yet** — same reason, waiting on Guts or Alucard (MEXA-274) and
+  then on Lelouch. It is written against the live post-`00014` state and **assumes `00014`
+  has been applied**: it does not repeat `00014`'s work and its rollback deliberately does
+  *not* undo it (`reports` comes back as `anon=ar`, never `arwd`). It is independent of
+  `00013` and `00015`: `00015` narrows what `authenticated` may write to `users` by column,
+  `00016` takes `users` DELETE away from `authenticated` and everything away from `anon`, so
+  the two touch disjoint verbs and any order works. Its rollback is split into six
+  independent sections — B (`authenticated`), C (`anon`), D (`notification_queue`),
+  E (sequences), F (comments), plus A as a template for one verb on one table. **Run the
+  smallest one that unblocks you.** Section C is the one to think hardest about: it hands
+  unauthenticated read access back to `colleges`, `user_badges` and `user_safta_stats`.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
 - `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values
@@ -228,10 +243,38 @@ GRANT ALL    ON TABLE public.my_table TO service_role;
   looks inert because RLS admits zero rows, right up until someone adds a permissive policy
   for that verb and opens the standing grant with it. So err towards the narrow GRANT.
 
-  Sequences have the same default problem (`anon=rwU`, i.e. `nextval`/`setval`/`currval` on
-  every new sequence). None exist in `public` yet — every id is a `uuid` — and `setval` is
-  not reachable through PostgREST, but a future `bigserial` column would inherit it.
-  Tracked on MEXA-274.
+  Sequences had the same default problem (`anon=rwU`, i.e. `nextval`/`setval`/`currval` on
+  every new sequence). `00016` closes it for `anon` — both on the sequences that exist (none;
+  every id is a `uuid`) and on the default, so a future `bigserial` does not inherit it.
+  `authenticated` deliberately keeps `rwU`, because a `serial` column's default `nextval()`
+  is evaluated with the **inserting** role's privileges, so revoking it would break INSERT
+  into the first `serial` table anyone adds. Use `GENERATED ALWAYS AS IDENTITY` instead —
+  its sequence is owned by the column and needs no caller-side grant at all — and then
+  `authenticated` can lose sequences too.
+
+  And since `00016`, `anon` holds **nothing at all** on any table in `public`, including
+  the default for new ones. A new table that genuinely needs unauthenticated reads has to
+  say so out loud with an explicit `GRANT SELECT ... TO anon` plus a policy — which is the
+  point: `USING (true)` on a `TO public` policy meant "the whole internet", since the anon
+  key ships in every app binary.
+
+## Three features are dead on the live database (MEXA-274)
+
+Found by walking the grants against `pg_policies`, not by running the app. All three are
+missing RLS policies, not missing grants, so `00016` deliberately leaves their grants in
+place and fixes nothing here — each has its own issue.
+
+| What is broken | Why |
+|---|---|
+| **Mutual matching** — nobody ever gets a match | `check_for_match` on `swipes` is SECURITY INVOKER, so its mutual-like `EXISTS` runs under the `swipes` SELECT policy (`swiper_id = me`) and can never see the other person's like. Measured: `mutual_like = FALSE` with the other swipe right there. And `matches` has no INSERT policy, so even a fixed trigger gets `42501`. Both halves need fixing. |
+| **Safta likes** — every like fails | `update_safta_stats` on `safta_likes`, same SECURITY INVOKER shape, inserts into `user_safta_stats`, which has no INSERT or UPDATE policy. `42501`, and the like is rolled back with it. |
+| **Shidduch suggestions** — cannot be created or answered | `shidduch_suggestions` has a SELECT policy and nothing else, while `matchingService.ts:602` inserts and `app/(shidduch-tabs)/index.tsx:483` updates. |
+
+The general shape to watch for: **a SECURITY INVOKER trigger function is subject to RLS,
+both for what it can read and for what it can write.** `update_match_last_message` is the
+one of the three that works, and only because `matches` does have an UPDATE policy that
+admits the sender. A trigger that maintains derived state on behalf of the system wants
+`SECURITY DEFINER` + `SET search_path = public`, the way the `notify_*` triggers already do.
 
 ## Columns are not rows: publishing someone else's profile
 
