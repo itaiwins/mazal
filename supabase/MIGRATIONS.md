@@ -60,10 +60,18 @@ Notes on the order:
   `00014_revoke_unreachable_table_privileges_rollback.sql`; read each one's header. `00014`'s
   is the only one that is not a bit-exact inverse, and it says exactly where it differs and
   why.
-- `00011` and `00012` are in the order above but are **not applied yet** to
-  `tayiyczmacvhokdxfqvm` — they are waiting on Guts's security review (MEXA-256) and, for
-  what reads the tombstones at signup, on a product decision (MEXA-258,
-  `docs/MODERATION_REENTRY.md`). `00012` refuses to run if `00011` has not.
+- `00011` is **APPLIED** to `tayiyczmacvhokdxfqvm`, 2026-09-28 23:31Z, from commit
+  `1980e6a` (MEXA-256; Alucard reviewed it on MEXA-259 and MEXA-262, Lelouch approved the
+  apply). Consequences anything written after this has to assume:
+  **`reports` has no foreign keys.** `reports_check_participants()` is what enforces that
+  both participants exist, and a report deliberately outlives the people in it, so a
+  `reported_id` pointing at no `users` row is correct rather than corrupt. `users` carries
+  a `BEFORE DELETE` tombstone trigger and an identity guard on `email`/`phone`, and
+  `deleted_accounts`, `moderation_secrets` and `hash_account_identifier()` exist, all
+  `service_role`-only.
+- `00012` is **not applied yet**: what reads the tombstones at signup still waits on a
+  product decision (MEXA-258, `docs/MODERATION_REENTRY.md`). It refuses to run if `00011`
+  has not — `00011` now has, so it is no longer blocked on that.
 - `00014` is **not applied yet** either — it is a privilege change on a live project, so it
   waits on Guts or Alucard (MEXA-275) and then on Lelouch for the apply (MEXA-33). It has no
   dependency on `00011`–`00013` and they have none on it: it is one `REVOKE` over every
