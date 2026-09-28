@@ -54,7 +54,10 @@
 --    00002's "Users can update own profile" policy puts no column limit on it, so
 --    hashing the profile row would have let a reported user change their email to junk
 --    one request before deleting - or to an innocent third party's address, framing
---    them the moment MEXA-258 starts refusing signups.
+--    them the moment MEXA-258 starts refusing signups. The guard covers INSERT as well
+--    as UPDATE (Alucard again, MEXA-262): the insert policy pins whose row it is and
+--    says nothing about what goes in it, so a client could otherwise have claimed a
+--    stranger's address on the way in.
 --
 --    Because auth.users.email is itself nullable, `email_hash` is nullable too and every
 --    tombstone records an `identifier_source` of 'auth' or 'profile'. Section 4 says why
@@ -378,14 +381,30 @@ COMMENT ON COLUMN public.reports.reporter_id IS
 -- that is not registered yet and squat it, and the profile email could drift away from
 -- the address the account is actually reachable at.
 --
+-- INSERT is the same hole and it was missed on the first pass (Alucard, MEXA-262): the
+-- 00002 insert policy is `WITH CHECK (auth.uid() = auth_id)`, which pins whose row it is
+-- and says nothing about what goes in it, so a client could create its own row carrying
+-- somebody else's address and take that address out of circulation for good. The
+-- tombstone was never exposed to this - section 4 reads auth.users - so this is squatting
+-- and drift, not a way past the moderation record. It is still cheaper to close than to
+-- explain, and a guard that covers UPDATE but not INSERT is one a reader will trust more
+-- than it deserves.
+--
 -- Section 4 no longer trusts these columns, so this is defence in depth rather than the
 -- fix. It is written to be the smallest change that is safe for the app:
---   - an UPDATE that does not change the value passes, so a screen that spreads the
+--   - an UPDATE that does not change either value passes, so a screen that spreads the
 --     whole profile object back (useUpdateProfile does exactly this) keeps working;
---   - a change that matches the account's verified Supabase Auth address passes, so a
---     legitimate email change made through Auth can still be mirrored here;
+--   - a value that matches the account's verified Supabase Auth address passes, so both
+--     onboarding INSERTs and a legitimate Auth email change mirrored here keep working;
+--   - an account with no verified address at all (phone-only signup: auth.users.email is
+--     nullable) may still claim `<its own auth id>@anything`, which is exactly what the
+--     two onboarding placeholders generate - `${verifiedAuthId}@mazal.app` in
+--     app/(onboarding)/complete.tsx and `${verifiedAuthId}@placeholder.com` in
+--     app/(shidduch-onboarding)/complete.tsx. An address keyed to your own uuid is not
+--     an address anybody else can ever want, so this leaves nothing squattable;
+--   - a phone may be cleared, or set to the account's verified auth phone. Neither
+--     onboarding INSERT writes `phone` at all;
 --   - anything else from a client is refused. service_role is unaffected.
--- I grepped the app for a write to either column and found none, INSERT included.
 CREATE OR REPLACE FUNCTION public.users_guard_identity_columns()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -393,8 +412,11 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
+  v_auth_id UUID;
   v_auth_email TEXT;
   v_auth_phone TEXT;
+  v_email TEXT;
+  v_phone TEXT;
 BEGIN
   -- Only clients are held to this. A NULL role is a direct postgres session (migrations,
   -- the SQL editor, a service-role script that did not set a JWT).
@@ -402,20 +424,38 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  IF NEW.email IS DISTINCT FROM OLD.email THEN
-    SELECT email INTO v_auth_email FROM auth.users WHERE id = OLD.auth_id;
-    IF v_auth_email IS NULL
-       OR pg_catalog.lower(pg_catalog.btrim(NEW.email)) <> pg_catalog.lower(v_auth_email) THEN
-      RAISE EXCEPTION 'users.email can only be set to this account''s verified auth email'
+  -- Nothing being claimed: an UPDATE that lists the columns without moving them.
+  IF TG_OP = 'UPDATE'
+     AND NEW.email IS NOT DISTINCT FROM OLD.email
+     AND NEW.phone IS NOT DISTINCT FROM OLD.phone THEN
+    RETURN NEW;
+  END IF;
+
+  -- On UPDATE, read the identity off the row as it already stands. The 00002 policy has
+  -- no WITH CHECK of its own, so it falls back to its USING clause and NEW.auth_id has to
+  -- end up being the caller's either way - but taking OLD here means this check does not
+  -- depend on that argument holding.
+  v_auth_id := CASE WHEN TG_OP = 'INSERT' THEN NEW.auth_id ELSE OLD.auth_id END;
+  SELECT email, phone INTO v_auth_email, v_auth_phone FROM auth.users WHERE id = v_auth_id;
+
+  IF TG_OP = 'INSERT' OR NEW.email IS DISTINCT FROM OLD.email THEN
+    v_email := pg_catalog.lower(pg_catalog.btrim(NEW.email));
+    IF coalesce(v_auth_email, '') <> '' THEN
+      IF v_email <> pg_catalog.lower(pg_catalog.btrim(v_auth_email)) THEN
+        RAISE EXCEPTION 'users.email can only be set to this account''s verified auth email'
+          USING ERRCODE = 'insufficient_privilege';
+      END IF;
+    ELSIF v_auth_id IS NULL
+          OR NOT pg_catalog.starts_with(v_email, pg_catalog.lower(v_auth_id::TEXT) || '@') THEN
+      RAISE EXCEPTION 'this account has no verified auth email, so users.email may only be <auth_id>@...'
         USING ERRCODE = 'insufficient_privilege';
     END IF;
   END IF;
 
-  IF NEW.phone IS DISTINCT FROM OLD.phone THEN
-    SELECT phone INTO v_auth_phone FROM auth.users WHERE id = OLD.auth_id;
-    IF v_auth_phone IS NULL OR v_auth_phone = ''
-       OR pg_catalog.btrim(coalesce(NEW.phone, '')) <> v_auth_phone THEN
-      RAISE EXCEPTION 'users.phone can only be set to this account''s verified auth phone'
+  IF TG_OP = 'INSERT' OR NEW.phone IS DISTINCT FROM OLD.phone THEN
+    v_phone := pg_catalog.btrim(coalesce(NEW.phone, ''));
+    IF v_phone <> '' AND v_phone IS DISTINCT FROM pg_catalog.btrim(coalesce(v_auth_phone, '')) THEN
+      RAISE EXCEPTION 'users.phone can only be cleared, or set to this account''s verified auth phone'
         USING ERRCODE = 'insufficient_privilege';
     END IF;
   END IF;
@@ -428,6 +468,6 @@ REVOKE ALL ON FUNCTION public.users_guard_identity_columns() FROM PUBLIC, anon, 
 
 DROP TRIGGER IF EXISTS users_guard_identity_columns ON public.users;
 CREATE TRIGGER users_guard_identity_columns
-  BEFORE UPDATE OF email, phone ON public.users
+  BEFORE INSERT OR UPDATE OF email, phone ON public.users
   FOR EACH ROW
   EXECUTE FUNCTION public.users_guard_identity_columns();
