@@ -329,7 +329,13 @@ export default function CompleteScreen() {
       if (userExists && existingUserId) {
         // Update existing user using direct REST API
         console.log('[Complete] Updating existing user:', existingUserId);
-        const updateResult = await updateUser(verifiedAuthId, profileData);
+        // auth_id is dropped on the update path. The PATCH already filters on it
+        // (directApi.ts:174) so re-sending it was a no-op, and since 00015 (MEXA-276)
+        // `authenticated` has no UPDATE privilege on auth_id - a row may not be
+        // re-pointed at another account once it exists. It is still sent on the INSERT
+        // below, where the policy's WITH CHECK (auth.uid() = auth_id) requires it.
+        const { auth_id: _authId, ...profileUpdate } = profileData;
+        const updateResult = await updateUser(verifiedAuthId, profileUpdate);
         userData = updateResult.data;
         userError = updateResult.error;
       } else {

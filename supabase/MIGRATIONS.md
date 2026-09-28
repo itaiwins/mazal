@@ -38,6 +38,7 @@ Apply exactly this sequence:
 00011_preserve_moderation_history.sql
 00012_deleted_accounts_retention.sql
 00014_revoke_unreachable_table_privileges.sql
+00015_scope_users_write_grants.sql
 ```
 
 Notes on the order:
@@ -85,6 +86,17 @@ Notes on the order:
   no-ops there, since `00011` had already revoked everything from the client roles. Its
   header counts 36 tables because that is what `public` held when the problem was measured;
   `00011` has since added two.
+- `00015` is **not applied yet** — it is a privilege change on a live project, so it waits
+  on Guts's review (MEXA-276) and then on Lelouch for the apply. It is independent of
+  `00013` and `00014` and they are independent of it: it names no column `00013` drops, and
+  `00014` revokes a disjoint set of verbs (`00014` takes `Dxtm`, `00015` takes `a` and `w`
+  and grants them back per column), so any order works. Its rollback is
+  `00015_scope_users_write_grants_rollback.sql`, a bit-exact inverse except that it does not
+  restore `anon`'s INSERT/UPDATE; the file says why.
+  **`00015` is column-level. Adding a screen that writes a new `users` column now means
+  adding a one-line `GRANT` in the same migration as the screen**, or the write returns
+  42501. The migration header lists every granted column with the file:line that justifies
+  it; keep that list true.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
 - `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values

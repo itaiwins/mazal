@@ -59,12 +59,12 @@ export function useUpdateProfile() {
         throw new Error('User not authenticated');
       }
 
+      // No updated_at here: the users_updated_at BEFORE UPDATE trigger sets it
+      // (00001_initial_schema.sql:377), and since 00015 the column is not in
+      // `authenticated`'s UPDATE grant, so sending it would fail with 42501.
       const { data, error } = await supabase
         .from('users')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updates)
         .eq('id', user.id)
         .select()
         .single();
@@ -204,6 +204,10 @@ export function useUpdateLocation() {
         throw new Error('User not authenticated');
       }
 
+      // No location_updated_at here: the users_location_update BEFORE trigger sets it,
+      // along with the PostGIS `location` point, whenever the coordinates change
+      // (00001_initial_schema.sql:383-397). Since 00015 it is not in `authenticated`'s
+      // UPDATE grant either.
       const { data, error } = await supabase
         .from('users')
         .update({
@@ -212,7 +216,6 @@ export function useUpdateLocation() {
           current_city: location.city,
           current_state: location.state,
           current_country: location.country,
-          location_updated_at: new Date().toISOString(),
         })
         .eq('id', user.id)
         .select()

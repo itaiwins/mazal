@@ -100,13 +100,19 @@ export default function OrthodoxPaywallScreen() {
       // 3. Verify the purchase on the backend
       // 4. Update the user's subscription status
 
-      // For development, simulate subscription
+      // For development, simulate subscription.
+      //
+      // This used to also set `orthodox_subscription_status: 'active'` - a client writing
+      // its own paid-subscription state, with no purchase behind it (steps 1-4 above are
+      // all still TODO). Since 00015 (MEXA-276) that column is not in `authenticated`'s
+      // UPDATE grant, and it stays that way: whatever verifies the RevenueCat receipt
+      // writes it as `service_role`. `is_orthodox_user` is a UI mode flag, not an
+      // entitlement, so it is still written here.
       if (user?.id) {
-        // Note: orthodox_subscription_status and is_orthodox_user columns added via migration
+        // Note: is_orthodox_user column added via migration
         const { error } = await (supabase as any)
           .from('users')
           .update({
-            orthodox_subscription_status: 'active',
             is_orthodox_user: true,
           })
           .eq('id', user.id);
