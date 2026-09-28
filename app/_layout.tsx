@@ -20,6 +20,7 @@ import { QueryProvider } from '@/lib/config/queryClient';
 
 // Environment
 import { validateEnv, env } from '@/lib/config/env';
+import { FEATURE_ORTHODOX_MODE } from '@/lib/config/features';
 
 // Stores
 import { useAuthStore } from '@/stores/authStore';
@@ -136,8 +137,9 @@ export default function RootLayout() {
               setUser(profile);
 
               // Also check if user has a shidduch profile in database
-              // (in case metadata wasn't saved correctly)
-              if (profile) {
+              // (in case metadata wasn't saved correctly). Skipped while Orthodox mode
+              // is hidden behind a flag (docs/ROADMAP.md).
+              if (profile && FEATURE_ORTHODOX_MODE) {
                 const { data: shidduchProfile } = await supabase
                   .from('shidduch_profiles')
                   .select('id')
@@ -204,8 +206,9 @@ export default function RootLayout() {
 
         setUser(profile);
 
-        // Also check if user has a shidduch profile in database
-        if (profile) {
+        // Also check if user has a shidduch profile in database (skipped while
+        // Orthodox mode is hidden behind a flag - docs/ROADMAP.md)
+        if (profile && FEATURE_ORTHODOX_MODE) {
           const { data: shidduchProfile } = await supabase
             .from('shidduch_profiles')
             .select('id')

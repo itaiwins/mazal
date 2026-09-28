@@ -20,6 +20,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useDeactivateAccount } from '@/api/mutations/useProfile';
 import { useUserProfile } from '@/api/queries';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 interface SettingItemProps {
   icon: string;
@@ -148,7 +149,8 @@ export default function SettingsScreen() {
   };
 
   const handleDeleteAccount = () => {
-    const hasMultipleAccounts = hasSaftaProfile;
+    // Only mention the Safta account while that feature is visible (docs/ROADMAP.md)
+    const hasMultipleAccounts = hasSaftaProfile && FEATURE_SAFTA_MODE;
     const message = hasMultipleAccounts
       ? 'This will permanently delete BOTH your dating profile AND your Safta account. All your data, matches, messages, and photos will be removed. This action cannot be undone.'
       : 'This action cannot be undone. All your data, matches, messages, and photos will be permanently deleted.';
@@ -350,31 +352,33 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Safta Mode */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
-            Safta Mode
-          </Text>
-          <Pressable
-            style={[styles.saftaModeCard, { backgroundColor: colors.transparent.gold10 }]}
-            onPress={handleSwitchToSafta}
-          >
-            <View style={styles.saftaModeContent}>
-              <View style={[styles.saftaModeIcon, { backgroundColor: colors.transparent.gold20 }]}>
-                <Text style={styles.saftaModeEmoji}>👵</Text>
+        {/* Safta Mode - hidden behind a flag (docs/ROADMAP.md) */}
+        {FEATURE_SAFTA_MODE && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
+              Safta Mode
+            </Text>
+            <Pressable
+              style={[styles.saftaModeCard, { backgroundColor: colors.transparent.gold10 }]}
+              onPress={handleSwitchToSafta}
+            >
+              <View style={styles.saftaModeContent}>
+                <View style={[styles.saftaModeIcon, { backgroundColor: colors.transparent.gold20 }]}>
+                  <Text style={styles.saftaModeEmoji}>👵</Text>
+                </View>
+                <View style={styles.saftaModeText}>
+                  <Text style={[styles.saftaModeTitle, { color: colors.primary.gold }]}>
+                    Switch to Safta Mode
+                  </Text>
+                  <Text style={[styles.saftaModeDesc, { color: theme.colors.textSecondary }]}>
+                    Help your loved ones find their match
+                  </Text>
+                </View>
               </View>
-              <View style={styles.saftaModeText}>
-                <Text style={[styles.saftaModeTitle, { color: colors.primary.gold }]}>
-                  Switch to Safta Mode
-                </Text>
-                <Text style={[styles.saftaModeDesc, { color: theme.colors.textSecondary }]}>
-                  Help your loved ones find their match
-                </Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.primary.gold} />
-          </Pressable>
-        </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.primary.gold} />
+            </Pressable>
+          </View>
+        )}
 
         {/* Privacy & Safety */}
         <View style={styles.section}>

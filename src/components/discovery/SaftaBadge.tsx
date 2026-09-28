@@ -9,6 +9,7 @@ import Animated, { FadeInUp } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 interface SaftaBadgeProps {
   approvalCount: number;
@@ -17,7 +18,8 @@ interface SaftaBadgeProps {
 }
 
 export function SaftaBadge({ approvalCount, recommendation, saftaName }: SaftaBadgeProps) {
-  if (approvalCount === 0) {
+  // Parents/grandparents mode is hidden behind a flag (docs/ROADMAP.md)
+  if (!FEATURE_SAFTA_MODE || approvalCount === 0) {
     return null;
   }
 

@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useDiscoveryStore } from '@/stores/discoveryStore';
 import { useUIStore } from '@/stores/uiStore';
 import { DEMO_PROFILES } from '@/lib/demo/demoProfiles';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 import type { DiscoveryUser } from '@/types/user.types';
 import type { UserPhoto, UserPrompt, UserBadge } from '@/types/database.types';
 
@@ -131,11 +132,15 @@ async function fetchDiscoveryProfiles(
 
   const likedByIds = new Set((incomingLikes || []).map((s) => s.swiper_id));
 
-  // Get safta approved counts for all users (users who have been liked by a safta for current user)
-  const { data: saftaLikes } = await supabase
-    .from('safta_likes')
-    .select('liked_user_id')
-    .eq('for_user_id', userId);
+  // Get safta approved counts for all users (users who have been liked by a safta for
+  // current user). Skipped while parents/grandparents mode is hidden (docs/ROADMAP.md),
+  // so the hidden feature never influences the ranking a user sees.
+  const { data: saftaLikes } = FEATURE_SAFTA_MODE
+    ? await supabase
+        .from('safta_likes')
+        .select('liked_user_id')
+        .eq('for_user_id', userId)
+    : { data: null };
 
   // Count how many saftas have approved each user
   const saftaApprovedCounts: Record<string, number> = {};

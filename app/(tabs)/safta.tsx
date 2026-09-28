@@ -16,7 +16,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -27,6 +27,7 @@ import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { useAuthStore } from '@/stores/authStore';
 import { LinearGradient } from 'expo-linear-gradient';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 // Type for connected Safta
 interface ConnectedSafta {
@@ -46,6 +47,15 @@ function generateInviteLink(userId: string): string {
 }
 
 export default function SaftaTabScreen() {
+  // Parents/grandparents mode is hidden behind a flag (docs/ROADMAP.md)
+  if (!FEATURE_SAFTA_MODE) {
+    return <Redirect href="/(tabs)/" />;
+  }
+
+  return <SaftaTabScreenContent />;
+}
+
+function SaftaTabScreenContent() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);

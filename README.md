@@ -4,7 +4,7 @@ A modern Jewish dating app built with React Native and Expo, featuring unique fa
 
 ## Overview
 
-Mazal connects Jewish singles through a thoughtful, community-driven approach to dating. What sets Mazal apart is the **Safta Matchmaking** feature, where family members can participate as matchmakers to help their loved ones find meaningful connections.
+Mazal connects Jewish singles through a thoughtful, community-driven approach to dating. Planned to set Mazal apart is **Safta Matchmaking**, where family members participate as matchmakers to help their loved ones find meaningful connections — built, but hidden behind a feature flag until it is finished (see [docs/ROADMAP.md](docs/ROADMAP.md)).
 
 ## Features
 
@@ -15,6 +15,9 @@ Mazal connects Jewish singles through a thoughtful, community-driven approach to
 - **Mazal Map** - Location-based discovery with saved locations
 
 ### Safta Matchmaking
+> **Not shipped yet.** Hidden behind the `EXPO_PUBLIC_FEATURE_SAFTA_MODE` flag, off by
+> default. See [docs/ROADMAP.md](docs/ROADMAP.md).
+
 Family members can join as "Saftas" (matchmakers) to:
 - Browse profiles on behalf of their family member
 - Send recommendations with personal notes
@@ -23,7 +26,9 @@ Family members can join as "Saftas" (matchmakers) to:
 
 ### Jewish Identity
 - Multiple observance levels supported
-- Orthodox mode (Coming Soon) - dedicated shidduch matchmaking
+- Orthodox mode - dedicated shidduch matchmaking. Not shipped yet: hidden behind the
+  `EXPO_PUBLIC_FEATURE_ORTHODOX_MODE` flag, off by default
+  (see [docs/ROADMAP.md](docs/ROADMAP.md))
 - Jewish background preferences
 - Hebrew language support
 

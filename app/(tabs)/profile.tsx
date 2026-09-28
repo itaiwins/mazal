@@ -27,6 +27,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { useUserProfile } from '@/api/queries';
 import { supabase } from '@/api/supabase/client';
 import { DEMO_PROFILES } from '@/lib/demo/demoProfiles';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const PHOTO_SIZE = 140;
@@ -144,8 +145,9 @@ export default function ProfileScreen() {
   const demoProfile = DEMO_PROFILES[0];
 
   // Fetch count of saftas who have liked/approved this user
+  // (skipped entirely while parents/grandparents mode is hidden - docs/ROADMAP.md)
   useEffect(() => {
-    if (user?.id && !isDemoMode) {
+    if (FEATURE_SAFTA_MODE && user?.id && !isDemoMode) {
       supabase
         .from('safta_likes')
         .select('id', { count: 'exact', head: true })
@@ -334,12 +336,15 @@ export default function ProfileScreen() {
 
         {/* Stats Section */}
         <View style={styles.statsContainer}>
-          <StatCard
-            value={profile.saftas_liked}
-            label="Safta Approvals"
-            icon="heart"
-            delay={500}
-          />
+          {/* Safta Approvals - hidden behind a flag (docs/ROADMAP.md) */}
+          {FEATURE_SAFTA_MODE && (
+            <StatCard
+              value={profile.saftas_liked}
+              label="Safta Approvals"
+              icon="heart"
+              delay={500}
+            />
+          )}
           <StatCard
             value={profile.matches_count}
             label="Matches"

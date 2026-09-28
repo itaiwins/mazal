@@ -5,12 +5,13 @@
  * No swiping - curated suggestions from shadchanim
  */
 
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { FEATURE_ORTHODOX_MODE } from '@/lib/config/features';
 
 const GOLD = '#d4af37';
 const DARK_BG = '#0a1628';
@@ -61,6 +62,12 @@ function TabBarBackground() {
 
 export default function ShidduchTabsLayout() {
   const insets = useSafeAreaInsets();
+
+  // The shidduch flow is only reachable from Orthodox mode, which is hidden
+  // behind a flag (docs/ROADMAP.md)
+  if (!FEATURE_ORTHODOX_MODE) {
+    return <Redirect href="/" />;
+  }
 
   return (
     <Tabs

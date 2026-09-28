@@ -5,10 +5,11 @@
  */
 
 import { useCallback } from 'react';
-import { Tabs, usePathname, useRouter } from 'expo-router';
+import { Redirect, Tabs, usePathname, useRouter } from 'expo-router';
 import { View, StyleSheet } from 'react-native';
 import { colors } from '@/theme/colors';
 import { DotNavigator } from '@/components/navigation/DotNavigator';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 // Define Safta tabs
 const SAFTA_TABS = [
@@ -39,6 +40,11 @@ export default function SaftaTabsLayout() {
       router.push(`/(safta-tabs)/${tabName}` as any);
     }
   }, [router]);
+
+  // Parents/grandparents mode is hidden behind a flag (docs/ROADMAP.md)
+  if (!FEATURE_SAFTA_MODE) {
+    return <Redirect href="/" />;
+  }
 
   return (
     <View style={styles.container}>

@@ -7,6 +7,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/api/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 // Note: safta_messages table needs to be created via migration before these work
 // Using 'as any' for table access until types are regenerated
@@ -61,7 +62,7 @@ export function useSaftaMessages(connectionId: string | undefined) {
       }
       return fetchSaftaMessages(connectionId);
     },
-    enabled: !!connectionId && !!user?.id,
+    enabled: !!connectionId && !!user?.id && FEATURE_SAFTA_MODE,
     staleTime: 0, // Always refetch for real-time feel
     refetchInterval: 5000, // Poll every 5 seconds as fallback
   });
@@ -112,7 +113,7 @@ export function useSaftaConnectionById(connectionId: string | undefined) {
         relationship: saftaAccount?.relationship || 'Family',
       };
     },
-    enabled: !!connectionId && !!user?.id,
+    enabled: !!connectionId && !!user?.id && FEATURE_SAFTA_MODE,
   });
 }
 
@@ -157,7 +158,7 @@ export function useSaftaUnreadCount() {
 
       return count || 0;
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && FEATURE_SAFTA_MODE,
     staleTime: 1000 * 30, // 30 seconds
     refetchInterval: 1000 * 60, // Refetch every minute
   });

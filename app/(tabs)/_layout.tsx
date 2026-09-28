@@ -10,13 +10,14 @@ import { View, StyleSheet } from 'react-native';
 import { colors } from '@/theme/colors';
 import { useMatchStore } from '@/stores/matchStore';
 import { DotNavigator } from '@/components/navigation/DotNavigator';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
-// Define visible tabs
+// Define visible tabs. The Safta tab is hidden behind a flag (docs/ROADMAP.md)
 const TABS = [
   { name: 'index', label: 'Discover' },
   { name: 'mazal-map', label: 'Map' },
   { name: 'matches', label: 'Matches' },
-  { name: 'safta', label: 'Safta' },
+  ...(FEATURE_SAFTA_MODE ? [{ name: 'safta', label: 'Safta' }] : []),
   { name: 'profile', label: 'Profile' },
 ];
 
@@ -62,7 +63,7 @@ export default function TabsLayout() {
         <Tabs.Screen name="index" />
         <Tabs.Screen name="mazal-map" />
         <Tabs.Screen name="matches" />
-        <Tabs.Screen name="safta" />
+        <Tabs.Screen name="safta" options={FEATURE_SAFTA_MODE ? undefined : { href: null }} />
         <Tabs.Screen name="profile" />
         <Tabs.Screen name="messages" options={{ href: null }} />
         <Tabs.Screen name="safta-chat/[connectionId]" options={{ href: null }} />

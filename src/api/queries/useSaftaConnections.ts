@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/api/supabase/client';
 import { queryKeys } from '@/lib/config/queryClient';
 import { useAuthStore } from '@/stores/authStore';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 /**
  * Safta connection with preview info
@@ -131,7 +132,7 @@ export function useSaftaConnections() {
       }
       return fetchSaftaConnections(user.id);
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && FEATURE_SAFTA_MODE,
     staleTime: 1000 * 60, // 1 minute
   });
 }
@@ -162,7 +163,7 @@ export function useSaftaLikesCount() {
 
       return count || 0;
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && FEATURE_SAFTA_MODE,
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 }

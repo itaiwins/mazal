@@ -14,6 +14,7 @@ import Animated, { FadeIn, FadeOut, FadeInUp, FadeInRight } from 'react-native-r
 import * as Haptics from 'expo-haptics';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 interface FAQItem {
   id: string;
@@ -21,17 +22,20 @@ interface FAQItem {
   answer: string;
 }
 
+const SAFTA_FAQ_ITEM: FAQItem = {
+  id: '2',
+  question: 'What is Safta Mode?',
+  answer: 'Safta Mode allows your grandparents or parents to browse potential matches for you. They can send you profiles they approve of, and you decide whether to connect.',
+};
+
 const FAQ_ITEMS: FAQItem[] = [
   {
     id: '1',
     question: 'How does Mazal work?',
     answer: 'Mazal connects Jewish singles looking for meaningful relationships. Browse profiles, swipe right on people you like, and when you both swipe right, it\'s a match! You can then message each other.',
   },
-  {
-    id: '2',
-    question: 'What is Safta Mode?',
-    answer: 'Safta Mode allows your grandparents or parents to browse potential matches for you. They can send you profiles they approve of, and you decide whether to connect.',
-  },
+  // Safta Mode FAQ is hidden behind a flag (docs/ROADMAP.md)
+  ...(FEATURE_SAFTA_MODE ? [SAFTA_FAQ_ITEM] : []),
   {
     id: '3',
     question: 'How do I verify my profile?',

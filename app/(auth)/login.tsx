@@ -30,6 +30,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { FEATURE_ORTHODOX_MODE } from '@/lib/config/features';
 
 // Required for web browser auth to close properly
 WebBrowser.maybeCompleteAuthSession();
@@ -140,8 +141,9 @@ export default function LoginScreen() {
 
           console.log('[Login] User profile:', userProfile, 'Error:', profileError);
 
-          // Check if they have a shidduch profile
-          if (userProfile) {
+          // Check if they have a shidduch profile (skipped while Orthodox mode is
+          // hidden behind a flag - docs/ROADMAP.md)
+          if (userProfile && FEATURE_ORTHODOX_MODE) {
             const { data: shidduchProfile } = await supabase
               .from('shidduch_profiles')
               .select('id')

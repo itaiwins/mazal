@@ -10,6 +10,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Session, User as AuthUser } from '@supabase/supabase-js';
 import type { User } from '@/types/database.types';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 // App mode - which view the user is currently in
 export type AppMode = 'user' | 'safta';
@@ -91,13 +92,21 @@ export const useAuthStore = create<AuthState>()(
         });
       },
 
-      setCurrentMode: (currentMode) =>
+      // Safta mode cannot be entered while the feature is flagged off
+      // (docs/ROADMAP.md)
+      setCurrentMode: (requestedMode) => {
+        const currentMode =
+          requestedMode === 'safta' && !FEATURE_SAFTA_MODE ? 'user' : requestedMode;
         set({
           currentMode,
           isSaftaMode: currentMode === 'safta',
-        }),
+        });
+      },
 
       toggleMode: () => {
+        if (!FEATURE_SAFTA_MODE) {
+          return;
+        }
         const current = get().currentMode;
         const newMode = current === 'user' ? 'safta' : 'user';
         set({

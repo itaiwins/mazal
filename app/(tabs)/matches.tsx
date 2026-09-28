@@ -35,6 +35,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { AnimatedHeader } from '@/components/ui/AnimatedHeader';
 import { NewMatchCarousel, ConversationCard } from '@/components/matches';
 import { DEMO_MATCHES, DEMO_MESSAGES, DEMO_SAFTA_CONNECTIONS, getDemoConversations } from '@/lib/demo/demoProfiles';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 // Message category types
 type MessageCategory = 'matches' | 'saftas' | 'others';
@@ -295,6 +296,11 @@ export default function MatchesScreen() {
 
   // Transform Safta connections to message format (use demo data if in demo mode)
   const saftaMessages: SaftaMessageItem[] = useMemo(() => {
+    // Parents/grandparents mode is hidden behind a flag (docs/ROADMAP.md)
+    if (!FEATURE_SAFTA_MODE) {
+      return [];
+    }
+
     // Use demo data if in demo mode
     if (isDemoMode) {
       return DEMO_SAFTA_CONNECTIONS.map((conn) => ({
@@ -498,33 +504,36 @@ export default function MatchesScreen() {
           )}
         </Pressable>
 
-        <Pressable
-          style={[
-            styles.tab,
-            activeTab === 'saftas' && styles.tabActive,
-          ]}
-          onPress={() => {
-            setActiveTab('saftas');
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          }}
-        >
-          <Text style={styles.tabEmoji}>👵</Text>
-          <Text
+        {/* Saftas tab - hidden behind a flag (docs/ROADMAP.md) */}
+        {FEATURE_SAFTA_MODE && (
+          <Pressable
             style={[
-              styles.tabText,
-              { color: activeTab === 'saftas' ? colors.primary.gold : theme.colors.textSecondary },
+              styles.tab,
+              activeTab === 'saftas' && styles.tabActive,
             ]}
+            onPress={() => {
+              setActiveTab('saftas');
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }}
           >
-            Saftas
-          </Text>
-          {saftasCount > 0 && (
-            <View style={[styles.tabBadge, activeTab === 'saftas' && styles.tabBadgeActive]}>
-              <Text style={[styles.tabBadgeText, activeTab === 'saftas' && styles.tabBadgeTextActive]}>
-                {saftasCount}
-              </Text>
-            </View>
-          )}
-        </Pressable>
+            <Text style={styles.tabEmoji}>👵</Text>
+            <Text
+              style={[
+                styles.tabText,
+                { color: activeTab === 'saftas' ? colors.primary.gold : theme.colors.textSecondary },
+              ]}
+            >
+              Saftas
+            </Text>
+            {saftasCount > 0 && (
+              <View style={[styles.tabBadge, activeTab === 'saftas' && styles.tabBadgeActive]}>
+                <Text style={[styles.tabBadgeText, activeTab === 'saftas' && styles.tabBadgeTextActive]}>
+                  {saftasCount}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+        )}
 
         <Pressable
           style={[
@@ -637,8 +646,8 @@ export default function MatchesScreen() {
           </>
         )}
 
-        {/* SAFTAS TAB */}
-        {activeTab === 'saftas' && (
+        {/* SAFTAS TAB - hidden behind a flag (docs/ROADMAP.md) */}
+        {FEATURE_SAFTA_MODE && activeTab === 'saftas' && (
           <>
             {saftaMessages.length > 0 ? (
               <View style={styles.section}>

@@ -41,6 +41,7 @@ import { StarOfDavid } from '@/components/icons/StarOfDavid';
 import { usePremiumStore } from '@/stores/premiumStore';
 import { useUIStore } from '@/stores/uiStore';
 import { FEATURE_LIMITS } from '@/lib/config/revenuecat';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 import { DEMO_NEARBY_USERS } from '@/lib/demo/demoProfiles';
 import Constants from 'expo-constants';
 
@@ -127,7 +128,8 @@ function UserMarker({ user, isSelected, onPress }: { user: UserType; isSelected:
             <Ionicons name="checkmark" size={8} color={colors.primary.navy} />
           </View>
         )}
-        {user.saftaApproved > 0 && (
+        {/* Safta approvals - hidden behind a flag (docs/ROADMAP.md) */}
+        {FEATURE_SAFTA_MODE && user.saftaApproved > 0 && (
           <View style={styles.saftaBadge}>
             <Text style={styles.saftaBadgeText}>👵{user.saftaApproved}</Text>
           </View>
@@ -185,7 +187,8 @@ function ProfilePreview({
               </View>
             </View>
 
-            {user.saftaApproved > 0 && (
+            {/* Safta approvals - hidden behind a flag (docs/ROADMAP.md) */}
+            {FEATURE_SAFTA_MODE && user.saftaApproved > 0 && (
               <View style={styles.saftaApprovedRow}>
                 <Text style={styles.saftaApprovedEmoji}>👵</Text>
                 <Text style={styles.saftaApprovedText}>

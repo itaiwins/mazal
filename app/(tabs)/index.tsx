@@ -39,6 +39,7 @@ import { ProfileStory, CardStack, ActionButtons } from '@/components/discovery';
 import { AdBanner, useInterstitialAd } from '@/components/ads';
 import { AnimatedHeader } from '@/components/ui/AnimatedHeader';
 import { MatchCelebration2 } from '@/components/celebrations';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -638,34 +639,39 @@ export default function DiscoveryScreen() {
       {/* Ad Banner - only shows for free users */}
       <AdBanner />
 
-      {/* Mode Tabs */}
-      <View style={styles.modeTabs}>
-        <Pressable
-          style={[styles.modeTab, discoveryMode === 'profiles' && styles.modeTabActive]}
-          onPress={() => setDiscoveryMode('profiles')}
-        >
-          <Ionicons
-            name="heart"
-            size={18}
-            color={discoveryMode === 'profiles' ? colors.primary.gold : colors.transparent.white50}
-          />
-          <Text style={[styles.modeTabText, discoveryMode === 'profiles' && styles.modeTabTextActive]}>
-            Discover
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.modeTab, discoveryMode === 'saftas' && styles.modeTabActive]}
-          onPress={() => setDiscoveryMode('saftas')}
-        >
-          <Text style={styles.modeTabEmoji}>👵</Text>
-          <Text style={[styles.modeTabText, discoveryMode === 'saftas' && styles.modeTabTextActive]}>
-            Saftas
-          </Text>
-        </Pressable>
-      </View>
+      {/*
+        Mode Tabs - the whole row only exists to switch between profiles and Saftas, so
+        it is hidden with the Safta feature flag (docs/ROADMAP.md)
+      */}
+      {FEATURE_SAFTA_MODE && (
+        <View style={styles.modeTabs}>
+          <Pressable
+            style={[styles.modeTab, discoveryMode === 'profiles' && styles.modeTabActive]}
+            onPress={() => setDiscoveryMode('profiles')}
+          >
+            <Ionicons
+              name="heart"
+              size={18}
+              color={discoveryMode === 'profiles' ? colors.primary.gold : colors.transparent.white50}
+            />
+            <Text style={[styles.modeTabText, discoveryMode === 'profiles' && styles.modeTabTextActive]}>
+              Discover
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.modeTab, discoveryMode === 'saftas' && styles.modeTabActive]}
+            onPress={() => setDiscoveryMode('saftas')}
+          >
+            <Text style={styles.modeTabEmoji}>👵</Text>
+            <Text style={[styles.modeTabText, discoveryMode === 'saftas' && styles.modeTabTextActive]}>
+              Saftas
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
-      {/* Content */}
-      {discoveryMode === 'profiles' ? (
+      {/* Content. The Saftas branch is unreachable while the flag is off (docs/ROADMAP.md) */}
+      {!FEATURE_SAFTA_MODE || discoveryMode === 'profiles' ? (
         <View style={styles.profileContainer}>
           {isLoading ? (
             <View style={styles.loadingContainer}>

@@ -24,6 +24,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { FEATURE_ORTHODOX_MODE, FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 const { width, height } = Dimensions.get('window');
 
@@ -659,44 +660,54 @@ export default function WelcomeScreen() {
           </Pressable>
         </Link>
 
-        {/* Safta Mode Divider */}
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>or</Text>
-          <View style={styles.dividerLine} />
-        </View>
+        {/* Parents/grandparents (Safta) mode entry - hidden behind a flag (docs/ROADMAP.md) */}
+        {FEATURE_SAFTA_MODE && (
+          <>
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
 
-        {/* Safta Mode Button */}
-        <Link href="/(safta-auth)/welcome" asChild>
-          <Pressable style={styles.saftaButton}>
-            <Text style={styles.saftaButtonEmoji}>👵👴</Text>
-            <View style={styles.saftaButtonContent}>
-              <Text style={styles.saftaButtonTitle}>I'm a Parent or Grandparent</Text>
-              <Text style={styles.saftaButtonSubtitle}>Help your family find love</Text>
+            <Link href="/(safta-auth)/welcome" asChild>
+              <Pressable style={styles.saftaButton}>
+                <Text style={styles.saftaButtonEmoji}>👵👴</Text>
+                <View style={styles.saftaButtonContent}>
+                  <Text style={styles.saftaButtonTitle}>I'm a Parent or Grandparent</Text>
+                  <Text style={styles.saftaButtonSubtitle}>Help your family find love</Text>
+                </View>
+              </Pressable>
+            </Link>
+          </>
+        )}
+
+        {/*
+          Orthodox Mode Entry - hidden behind a flag (docs/ROADMAP.md).
+          The "Coming Soon" lock from b1bcfc0 is preserved inside the flag: turning the
+          flag on restores exactly what main showed. Replace this block with a
+          <Link href="/(orthodox-auth)/welcome"> when the flow is actually ready.
+        */}
+        {FEATURE_ORTHODOX_MODE && (
+          <Pressable
+            style={[styles.orthodoxButton, styles.orthodoxButtonDisabled]}
+            onPress={() => Alert.alert(
+              'Coming Soon',
+              'Orthodox Shidduch mode is currently in development. Check back soon!',
+              [{ text: 'OK' }]
+            )}
+          >
+            <View style={[styles.orthodoxIconContainer, styles.orthodoxIconDisabled]}>
+              <Text style={styles.orthodoxIcon}>✡</Text>
+            </View>
+            <View style={styles.orthodoxButtonContent}>
+              <Text style={[styles.orthodoxButtonTitle, styles.orthodoxTitleDisabled]}>Orthodox Shidduch</Text>
+              <Text style={styles.orthodoxButtonSubtitle}>Dedicated matching for observant Jews</Text>
+            </View>
+            <View style={styles.orthodoxComingSoonBadge}>
+              <Text style={styles.orthodoxComingSoonText}>Coming Soon</Text>
             </View>
           </Pressable>
-        </Link>
-
-        {/* Orthodox Mode Entry - Coming Soon */}
-        <Pressable
-          style={[styles.orthodoxButton, styles.orthodoxButtonDisabled]}
-          onPress={() => Alert.alert(
-            'Coming Soon',
-            'Orthodox Shidduch mode is currently in development. Check back soon!',
-            [{ text: 'OK' }]
-          )}
-        >
-          <View style={[styles.orthodoxIconContainer, styles.orthodoxIconDisabled]}>
-            <Text style={styles.orthodoxIcon}>✡</Text>
-          </View>
-          <View style={styles.orthodoxButtonContent}>
-            <Text style={[styles.orthodoxButtonTitle, styles.orthodoxTitleDisabled]}>Orthodox Shidduch</Text>
-            <Text style={styles.orthodoxButtonSubtitle}>Dedicated matching for observant Jews</Text>
-          </View>
-          <View style={styles.orthodoxComingSoonBadge}>
-            <Text style={styles.orthodoxComingSoonText}>Coming Soon</Text>
-          </View>
-        </Pressable>
+        )}
 
         {/* Terms */}
         <Text style={styles.termsText}>

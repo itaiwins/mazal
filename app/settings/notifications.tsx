@@ -14,6 +14,7 @@ import Animated, { FadeInUp, FadeInRight } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 interface NotificationItemProps {
   icon: string;
@@ -134,15 +135,20 @@ export default function NotificationsScreen() {
               onValueChange={setSuperLikes}
               index={3}
             />
-            <View style={styles.divider} />
-            <NotificationItem
-              icon="people"
-              label="Safta approvals"
-              description="When your Safta sends you a match"
-              value={saftaLikes}
-              onValueChange={setSaftaLikes}
-              index={4}
-            />
+            {/* Safta approvals - hidden behind a flag (docs/ROADMAP.md) */}
+            {FEATURE_SAFTA_MODE && (
+              <>
+                <View style={styles.divider} />
+                <NotificationItem
+                  icon="people"
+                  label="Safta approvals"
+                  description="When your Safta sends you a match"
+                  value={saftaLikes}
+                  onValueChange={setSaftaLikes}
+                  index={4}
+                />
+              </>
+            )}
           </View>
         </Animated.View>
 

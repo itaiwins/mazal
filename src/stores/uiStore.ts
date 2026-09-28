@@ -8,6 +8,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DEV_BYPASS_PREMIUM } from '@/lib/config/revenuecat';
+import { FEATURE_ORTHODOX_MODE } from '@/lib/config/features';
 
 // Modal types
 export type ModalType =
@@ -194,7 +195,10 @@ export const useUIStore = create<UIState>()(
 
       setDarkMode: (isDarkMode) => set({ isDarkMode }),
 
-      setOrthodoxMode: (isOrthodoxMode) => set({ isOrthodoxMode }),
+      // Orthodox mode cannot be turned on while the feature is flagged off
+      // (docs/ROADMAP.md)
+      setOrthodoxMode: (isOrthodoxMode) =>
+        set({ isOrthodoxMode: isOrthodoxMode && FEATURE_ORTHODOX_MODE }),
 
       setOrthodoxSubscription: (hasOrthodoxSubscription) => set({ hasOrthodoxSubscription }),
 
@@ -217,6 +221,19 @@ export const useUIStore = create<UIState>()(
         hasOrthodoxSubscription: state.hasOrthodoxSubscription,
         isShabbatModeEnabled: state.isShabbatModeEnabled,
       }),
+      // A user who turned Orthodox mode on before it was hidden has `true` sitting in
+      // AsyncStorage. Drop it on rehydrate so no read site can ever see it while the
+      // feature is flagged off (docs/ROADMAP.md).
+      merge: (persistedState, currentState) => {
+        const persisted = (persistedState ?? {}) as Partial<UIState>;
+        return {
+          ...currentState,
+          ...persisted,
+          isOrthodoxMode: FEATURE_ORTHODOX_MODE
+            ? persisted.isOrthodoxMode ?? currentState.isOrthodoxMode
+            : false,
+        };
+      },
     }
   )
 );

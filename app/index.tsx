@@ -10,6 +10,7 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { colors } from '@/theme/colors';
+import { FEATURE_ORTHODOX_MODE, FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 export default function Index() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -19,8 +20,10 @@ export default function Index() {
   const hasShidduchProfile = useAuthStore((s) => s.hasShidduchProfile);
   const currentMode = useAuthStore((s) => s.currentMode);
 
-  // Orthodox mode from UI store
-  const isOrthodoxMode = useUIStore((s) => s.isOrthodoxMode);
+  // Orthodox mode from UI store. Forced off while the feature is flagged off, so a
+  // stale persisted `true` can never route a returning user into the hidden flow.
+  const isOrthodoxMode = useUIStore((s) => s.isOrthodoxMode) && FEATURE_ORTHODOX_MODE;
+  const isSaftaMode = currentMode === 'safta' && FEATURE_SAFTA_MODE;
 
   // Show loading while initializing
   if (!isInitialized) {
@@ -45,7 +48,7 @@ export default function Index() {
     hasSaftaProfile,
     hasShidduchProfile,
     isOrthodoxMode,
-    isSaftaMode: currentMode === 'safta',
+    isSaftaMode,
   });
 
   // Orthodox/Shidduch mode takes priority
@@ -59,7 +62,7 @@ export default function Index() {
     }
   }
 
-  if (currentMode === 'safta') {
+  if (isSaftaMode) {
     // Safta mode
     if (hasSaftaProfile) {
       console.log('[Router] Safta mode, has profile, going to safta-tabs');

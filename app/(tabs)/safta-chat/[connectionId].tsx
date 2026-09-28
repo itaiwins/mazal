@@ -22,7 +22,7 @@ import {
   ScrollView,
   Alert,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -41,6 +41,7 @@ import { spacing, borderRadius } from '@/theme/spacing';
 import { useSaftaMessages, useSaftaConnectionById, type SaftaMessage } from '@/api/queries';
 import { useSendSaftaMessage, useMarkSaftaMessagesAsRead } from '@/api/mutations';
 import { useAuthStore } from '@/stores/authStore';
+import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 // Available Jewish backgrounds for preferences
 const JEWISH_BACKGROUNDS = [
@@ -170,6 +171,15 @@ function formatDate(dateStr: string): string {
 }
 
 export default function SaftaChatScreen() {
+  // Parents/grandparents mode is hidden behind a flag (docs/ROADMAP.md)
+  if (!FEATURE_SAFTA_MODE) {
+    return <Redirect href="/(tabs)/" />;
+  }
+
+  return <SaftaChatScreenContent />;
+}
+
+function SaftaChatScreenContent() {
   const insets = useSafeAreaInsets();
   const { connectionId } = useLocalSearchParams<{ connectionId: string }>();
   const [message, setMessage] = useState('');

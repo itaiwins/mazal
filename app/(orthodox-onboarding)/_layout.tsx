@@ -4,10 +4,16 @@
  * Layout for Orthodox user onboarding screens
  */
 
-import { Stack } from 'expo-router';
+import { Redirect, Stack } from 'expo-router';
 import { colors } from '@/theme/colors';
+import { FEATURE_ORTHODOX_MODE } from '@/lib/config/features';
 
 export default function OrthodoxOnboardingLayout() {
+  // Orthodox mode is hidden behind a flag (docs/ROADMAP.md)
+  if (!FEATURE_ORTHODOX_MODE) {
+    return <Redirect href="/" />;
+  }
+
   return (
     <Stack
       screenOptions={{
