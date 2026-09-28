@@ -12,6 +12,12 @@ import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { usePremiumStore } from '@/stores/premiumStore';
 
+// Same env var as src/lib/config/ads.ts, read inline on purpose: Metro inlines
+// `process.env.EXPO_PUBLIC_*` as a literal per module, so reading it here lets the
+// minifier fold the ternary below and strip the real unit IDs out of the bundle
+// entirely. An imported const would leave them in as reachable-looking strings.
+const USE_TEST_ADS = process.env.EXPO_PUBLIC_USE_TEST_ADS === 'true';
+
 // Check if we're running in Expo Go (ads don't work there)
 const isExpoGo = Constants.appOwnership === 'expo';
 
@@ -32,10 +38,11 @@ if (!isExpoGo) {
   }
 }
 
-// Interstitial Ad Unit IDs
+// Interstitial Ad Unit IDs. Test units everywhere except a public App Store
+// release, so our own testers never generate real impressions (src/lib/config/ads.ts).
 const AD_UNIT_IDS = {
-  ios: __DEV__ ? TestIds?.INTERSTITIAL : 'ca-app-pub-3550432802315468/6025855781',
-  android: __DEV__ ? TestIds?.INTERSTITIAL : 'ca-app-pub-3550432802315468/8564389211',
+  ios: (__DEV__ || USE_TEST_ADS) ? TestIds?.INTERSTITIAL : 'ca-app-pub-3550432802315468/6025855781',
+  android: (__DEV__ || USE_TEST_ADS) ? TestIds?.INTERSTITIAL : 'ca-app-pub-3550432802315468/8564389211',
 };
 
 const getInterstitialAdUnitId = () => {

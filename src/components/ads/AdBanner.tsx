@@ -13,6 +13,12 @@ import Constants from 'expo-constants';
 import { usePremiumStore } from '@/stores/premiumStore';
 import { useUIStore } from '@/stores/uiStore';
 
+// Same env var as src/lib/config/ads.ts, read inline on purpose: Metro inlines
+// `process.env.EXPO_PUBLIC_*` as a literal per module, so reading it here lets the
+// minifier fold the ternary below and strip the real unit IDs out of the bundle
+// entirely. An imported const would leave them in as reachable-looking strings.
+const USE_TEST_ADS = process.env.EXPO_PUBLIC_USE_TEST_ADS === 'true';
+
 // Check if we're running in Expo Go (ads don't work there)
 const isExpoGo = Constants.appOwnership === 'expo';
 
@@ -32,13 +38,14 @@ if (!isExpoGo) {
   }
 }
 
-// Ad Unit IDs
+// Ad Unit IDs. Test units everywhere except a public App Store release, so our
+// own testers never generate real impressions (see src/lib/config/ads.ts).
 const AD_UNIT_IDS = {
   ios: {
-    banner: __DEV__ ? TestIds?.BANNER : 'ca-app-pub-3550432802315468/2502393800',
+    banner: (__DEV__ || USE_TEST_ADS) ? TestIds?.BANNER : 'ca-app-pub-3550432802315468/2502393800',
   },
   android: {
-    banner: __DEV__ ? TestIds?.BANNER : 'ca-app-pub-3550432802315468/8876230461',
+    banner: (__DEV__ || USE_TEST_ADS) ? TestIds?.BANNER : 'ca-app-pub-3550432802315468/8876230461',
   },
 };
 

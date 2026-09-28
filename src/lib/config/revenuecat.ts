@@ -4,8 +4,14 @@
  * Setup and configuration for in-app purchases
  */
 
-// DEV MODE: Set to true to bypass all premium restrictions for testing
-export const DEV_BYPASS_PREMIUM = true;
+/**
+ * Bypass every premium restriction so local development doesn't need a purchase.
+ *
+ * Tied to `__DEV__`, which Metro inlines as `false` in any release bundle, so
+ * TestFlight and App Store builds get real free-tier gating (swipe limits, ads,
+ * locked features) and this branch is dead code there.
+ */
+export const DEV_BYPASS_PREMIUM = __DEV__;
 
 import Purchases, {
   PurchasesPackage,

@@ -275,16 +275,11 @@ export function ProfileStory({ profile, onPass, onLike, onSuperLike }: ProfileSt
           school={profile.school}
         />
 
-        {/* Jewish Life */}
+        {/* Jewish Life. Only the two fields onboarding actually asks for;
+            JewishLife dropped the rest when onboarding was trimmed. */}
         <JewishLife
           jewishBackground={profile.jewish_background}
           observanceLevel={profile.observance_level}
-          keepsShabbat={profile.keeps_shabbat}
-          keepsKosher={profile.keeps_kosher}
-          synagogueAttendance={profile.synagogue_attendance}
-          wantsChildren={profile.wants_children}
-          partnerMustBeJewish={profile.partner_must_be_jewish}
-          raiseChildrenJewish={profile.raise_children_jewish}
         />
 
         {/* Safta Badge */}

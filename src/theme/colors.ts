@@ -120,6 +120,8 @@ export const colors = {
     // Error transparents (for danger zones)
     error10: 'rgba(229, 57, 53, 0.1)',
     error20: 'rgba(229, 57, 53, 0.2)',
+    // Success transparents (verified badges, stat tiles) — semantic.success #4CAF50
+    success10: 'rgba(76, 175, 80, 0.1)',
     // White very light
     white05: 'rgba(255, 255, 255, 0.05)',
   },

@@ -237,6 +237,38 @@ export const usePremiumStore = create<PremiumState>()(
         weekStartDate: state.weekStartDate,
         lastBoostTime: state.lastBoostTime,
       }),
+      // A build with DEV_BYPASS_PREMIUM on persists unlimited counters, and JSON turns
+      // Infinity into null. Rehydrating those into a build that gates for real would
+      // either hand out premium limits (999 Super Likes) or, for null, lock the user out
+      // at zero swipes, since `null > 0` is false. Clamp anything persisted to this
+      // build's free-tier limits. `entitlements` is not persisted, so a real subscriber
+      // is unaffected: RevenueCat reports on launch and setEntitlements raises the caps.
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as Partial<PremiumState>;
+        const merged = { ...current, ...saved };
+
+        if (DEV_BYPASS_PREMIUM) {
+          return merged;
+        }
+
+        const clamp = (value: unknown, max: number) =>
+          typeof value === 'number' && Number.isFinite(value) && value >= 0
+            ? Math.min(value, max)
+            : max;
+
+        return {
+          ...merged,
+          superLikesRemaining: clamp(
+            saved.superLikesRemaining,
+            FEATURE_LIMITS.free.superLikesPerWeek
+          ),
+          boostsRemaining: clamp(saved.boostsRemaining, FEATURE_LIMITS.free.boostsPerWeek),
+          dailySwipesRemaining: clamp(
+            saved.dailySwipesRemaining,
+            FEATURE_LIMITS.free.dailySwipes
+          ),
+        };
+      },
     }
   )
 );

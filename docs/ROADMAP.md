@@ -1,6 +1,6 @@
 # Mazal Roadmap
 
-Last updated: 2026-09-28 (MEXA-246)
+Last updated: 2026-09-28 (MEXA-250)
 
 ## Now
 
@@ -49,6 +49,65 @@ EXPO_PUBLIC_FEATURE_SAFTA_MODE=true npx expo start --clear
 
 `--clear` matters: Metro's transform cache does not invalidate on an env-var change, so
 a warm cache will silently reuse the old (flag-off) bundle.
+
+## Premium gating and ads
+
+Two switches decide whether a build behaves like the real product. Both are set so that
+the TestFlight build a tester installs gates premium for real and shows only test ads.
+
+| Switch | Where | TestFlight / release value | Effect |
+|---|---|---|---|
+| `DEV_BYPASS_PREMIUM` | [`src/lib/config/revenuecat.ts`](../src/lib/config/revenuecat.ts) | `__DEV__` → `false` | Real free-tier gating: 25 swipes/day, 1 Super Like/week, no Boost, likes/rewind/read-receipts/advanced-filters locked, banner + interstitial ads shown |
+| `USE_TEST_ADS` | [`src/lib/config/ads.ts`](../src/lib/config/ads.ts), env `EXPO_PUBLIC_USE_TEST_ADS` | `"true"` | Serves Google's reserved test ad units instead of Mazal's real AdMob units |
+
+`DEV_BYPASS_PREMIUM` is tied to `__DEV__`, which Metro inlines as `false` in any release
+bundle, so there is nothing to remember to flip before a build. Local `expo start` still
+gets everything unlocked.
+
+`EXPO_PUBLIC_USE_TEST_ADS` is pinned to `"true"` in the `env` block of **all three**
+profiles in [`eas.json`](../eas.json) — `development`, `preview` and `production` — so a
+stray shell variable cannot flip it in an EAS build.
+
+### Flipping `USE_TEST_ADS` to `false`
+
+**Only for the public App Store release, and only with Itai's sign-off.** Serving real ads
+to our own testers is invalid traffic under AdMob policy and can get the account
+suspended, so every internal or TestFlight build keeps test ads. When the flip happens,
+change only the `production` profile in `eas.json` and re-verify the bundle (below).
+
+`AdBanner.tsx` and `useInterstitialAd.ts` read `process.env.EXPO_PUBLIC_USE_TEST_ADS`
+inline rather than importing `USE_TEST_ADS`. That is deliberate: Metro inlines
+`EXPO_PUBLIC_*` as a literal per module, so an inline read lets the minifier fold the
+`(__DEV__ || USE_TEST_ADS) ? TestIds : real` ternary and strip the real unit IDs out of
+the bundle entirely. Importing the const leaves them in (measured, MEXA-250). Verified on
+the iOS export:
+
+```bash
+CI=1 EXPO_PUBLIC_USE_TEST_ADS=true npx expo export --platform ios --clear
+strings -a dist/_expo/static/js/ios/*.hbc | grep -c 'ca-app-pub-3550432802315468/'   # 0
+CI=1 EXPO_PUBLIC_USE_TEST_ADS=false npx expo export --platform ios --clear
+strings -a dist/_expo/static/js/ios/*.hbc | grep -c 'ca-app-pub-3550432802315468/'   # 4
+```
+
+The AdMob **app** IDs in [`app.json`](../app.json) (`ca-app-pub-...~9124654238` and
+`~7292697810`, tilde not slash) stay as they are in every build. The SDK needs the real
+app ID to initialise, and test ad units serve fine under it.
+
+### Purchases do not work yet
+
+There is no RevenueCat iOS key, so `EXPO_PUBLIC_REVENUECAT_IOS_KEY` is empty and
+`initializeRevenueCat()` returns without calling `Purchases.configure()`. Every later SDK
+call throws `UninitializedPurchasesError`, which the wrappers in `revenuecat.ts` catch.
+Nothing crashes: the paywall renders in full, `getOfferings()` returns `[]`, tapping
+subscribe shows a "Demo Mode" alert naming the plan and price, and "Restore purchases"
+shows "Restore Failed". **Expected for the TestFlight round** (MEXA-250).
+
+To make purchases real: create the RevenueCat iOS app and the `mazal_gold` / `mazal_platinum`
+entitlements with their four products, create the matching App Store subscriptions, and
+set `EXPO_PUBLIC_REVENUECAT_IOS_KEY` as an Expo project environment variable. The "Demo
+Mode" fallback in [`app/premium/index.tsx`](../app/premium/index.tsx) should go at the
+same time, and the Gold/Platinum prices ($14.99/$29.99 monthly) need Itai's review before
+anyone outside the team sees them.
 
 ---
 
