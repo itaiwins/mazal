@@ -117,9 +117,10 @@ export function parseAuthLinkParams(source: Record<string, unknown>): AuthLinkPa
 }
 
 /**
- * Parse a full deep-link URL. Fragment params win over query params, because the
- * implicit flow puts the real tokens in the fragment while `redirectTo` may carry
- * unrelated query params of our own (e.g. `?flow=safta`).
+ * Parse a full deep-link URL. Both segments are read: under PKCE the `code` comes
+ * back in the query, alongside any `redirectTo` params of our own (e.g.
+ * `?flow=safta`), while GoTrue still reports failures in the fragment. Fragment
+ * wins on a collision, so an `#error=...` is never masked by a stale query param.
  */
 export function parseAuthLink(url: string | null | undefined): AuthLinkParams | null {
   if (!url) return null;
@@ -147,13 +148,32 @@ export type AuthLinkResult =
 const EXPIRED_ERROR_CODES = new Set(['otp_expired', 'access_denied', 'invalid_request']);
 
 /**
- * supabase-js reports a missing or mismatched `code_verifier` this way. It means
- * the code did not come from a flow this install started — either another auth
- * flow overwrote the verifier (they all share one storage slot), or the link
- * belongs to a different device.
+ * A code this install cannot redeem: it came from a flow this device never
+ * started, or the flow it belongs to is gone. Measured against the live project
+ * with supabase-js 2.90.1:
+ *
+ *   no verifier in storage      400 pkce_code_verifier_not_found   (client-side)
+ *   verifier present, no flow   404 flow_state_not_found           (from GoTrue)
+ *
+ * The second is the one that catches the shared-slot problem: every PKCE flow
+ * writes the same `${storageKey}-code-verifier`, so starting a second one before
+ * finishing the first leaves a verifier that no longer matches. Prefer the error
+ * `code` over the message, which is prose and changes between releases.
+ *
+ * Note supabase-js clears the verifier even on a failed exchange, so opening the
+ * same link twice always lands here. Sending the user to "request a new link" is
+ * therefore the only useful answer, not a nicety.
  */
-function isVerifierFailure(message: string): boolean {
-  return /code[\s_]?verifier|code challenge|invalid request.*code/i.test(message);
+const UNREDEEMABLE_CODE_ERRORS = new Set([
+  'pkce_code_verifier_not_found',
+  'flow_state_not_found',
+  'flow_state_expired',
+]);
+
+function isUnredeemableCode(error: { code?: string; message: string }): boolean {
+  if (error.code && UNREDEEMABLE_CODE_ERRORS.has(error.code)) return true;
+  // Older builds, and the challenge-mismatch case, only say it in the message.
+  return /code[\s_]?verifier|code challenge|flow state/i.test(error.message);
 }
 
 /**
@@ -184,7 +204,7 @@ export async function establishSessionFromAuthLink(
     const { error } = await supabase.auth.exchangeCodeForSession(link.code);
 
     if (error) {
-      if (isVerifierFailure(error.message)) {
+      if (isUnredeemableCode(error)) {
         return {
           ok: false,
           expired: true,
