@@ -73,10 +73,11 @@ an authorization **code in the query string**:
 mazal://auth/reset-password?code=...&type=recovery
 ```
 
-while failures still arrive in the **fragment**:
+while a failure arrives in the query **and** the fragment, the same params in both
+(the implicit flow used only the fragment):
 
 ```
-mazal://auth/reset-password#error=access_denied&error_code=otp_expired&error_description=...
+mazal://auth/reset-password?error=access_denied&error_code=otp_expired&error_description=...#error=...
 ```
 
 expo-router drops the fragment before it reaches `useLocalSearchParams()`
@@ -115,19 +116,42 @@ link" rather than a bare error.
 
 ### Verifying PKCE
 
-`scripts/verify-pkce-auth-links.mjs` does it end to end against the live project.
-Run it after any change to the client's auth options.
+`scripts/verify-pkce-auth-links.mjs` does it against the live project. Run it after
+any change to the client's auth options. It creates and deletes its own throwaway
+users, and passes 5/5 whether or not it can send an email.
 
-Do **not** try to verify PKCE with the `generate_link` trick above. GoTrue picks
-implicit vs PKCE at `/auth/v1/verify` time by looking for a *flow state* row for
-the user, and only the public endpoints (`/recover`, `/signup`, `/authorize`)
-create one — `generate_link` accepts `code_challenge` and silently ignores it.
-Measured: two `generate_link` recovery links for the same redirect, one with
-`code_challenge` and one without, both redirected `#access_token=...`. So that
-test reports "not PKCE" whatever the client is set to.
+Do **not** try to verify PKCE with the `generate_link` trick above. How GoTrue
+actually decides, all of it measured here:
 
-There is also **no project-side PKCE setting** to turn on. The auth config has no
-flow-type key at all; GoTrue supports PKCE unconditionally.
+- It marks a link as PKCE by writing `auth.users.recovery_token` with a literal
+  **`pkce_` prefix**, and `/verify` keys off that prefix.
+- `generate_link` writes an *unprefixed* token, so its link is always implicit. It
+  accepts `code_challenge` / `code_challenge_method` and **silently ignores** them —
+  two links for the same user, one with and one without, redirect identically.
+  Prepending `pkce_` to the hash it hands back does not help either: the lookup
+  includes the prefix, so it 404s as `otp_expired`.
+- Only `/recover`, `/signup` and `/authorize` write a prefixed token, and
+  `/recover` only reaches that point **if the email actually sends**. With
+  `rate_limit_email_sent` at 2/hour there is often no budget, so the script skips
+  that one assertion rather than failing.
+
+The security property does not need an email, because `/recover` writes the
+`auth.flow_state` row *before* it tries to send. A 429 therefore leaves a row with
+`auth_code` and `code_challenge` set but `recovery_token` empty — orphaned and
+unreachable by any link, but its `auth_code` is byte-for-byte the `?code=` a real
+link would have carried. The script takes it from there and shows that a second
+device holding that code gets `400 pkce_code_verifier_not_found` while the device
+that started the flow exchanges it into a session.
+
+Two smaller things that measurement settled:
+
+- **There is no project-side PKCE setting.** The auth config has no flow-type key
+  at all; GoTrue supports PKCE unconditionally.
+- **supabase-js deletes the `code_verifier` whenever `/recover` errors** (see the
+  catch in `resetPasswordForEmail`), including on a mailer 429. So a
+  rate-limited reset request leaves that orphaned flow state behind and the user
+  has to start over — which is what they were going to do anyway, having received
+  no email.
 
 ## Open items
 

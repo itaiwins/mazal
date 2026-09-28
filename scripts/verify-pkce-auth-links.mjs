@@ -1,39 +1,58 @@
 /**
- * Verify PKCE on the live Supabase project (MEXA-264, fix 1).
+ * Verify PKCE on the live Supabase project (MEXA-264).
+ *
+ * Run after any change to the client's auth options in src/api/supabase/client.ts.
+ * Creates and deletes its own throwaway users. Tries to send one email and works
+ * fine when it can't.
+ *
+ * ## Do not try to prove this with `generate_link`
  *
  * `docs/AUTH_DEEP_LINKS.md` verifies the `uri_allow_list` with the admin
- * `generate_link` trick. That trick CANNOT prove PKCE. GoTrue decides
- * implicit-vs-PKCE at `/auth/v1/verify` time by looking for a *flow state* row
- * for the user, and only the public endpoints (`/recover`, `/signup`,
- * `/authorize`) create one. `generate_link` accepts `code_challenge` and
- * silently ignores it, so an admin-minted link always redirects implicit —
- * measured: two `generate_link` calls for the same recovery, one with
- * `code_challenge` and one without, both came back `#access_token=...`.
+ * `generate_link` trick. That trick cannot prove the flow type, and the reason is
+ * worth writing down because it is not guessable (all of this measured against
+ * `tayiyczmacvhokdxfqvm`):
  *
- * So this drives the real client path end to end, through a real mailbox:
+ *  - `generate_link` accepts `code_challenge` / `code_challenge_method` and
+ *    **silently ignores** them. Two recovery links for the same user, one with and
+ *    one without, redirect identically.
+ *  - GoTrue marks a link as PKCE by writing `auth.users.recovery_token` with a
+ *    literal **`pkce_` prefix**, and `/verify` keys off that. `generate_link`
+ *    writes an unprefixed token, so its link is always implicit. Prepending
+ *    `pkce_` to the hash it returns does not work either — the lookup includes the
+ *    prefix, so it just 404s as `otp_expired`.
+ *  - Only `/recover`, `/signup` and `/authorize` write a prefixed token, and
+ *    `/recover` only gets that far if the **email actually sends**.
  *
- *   1. admin-create a throwaway confirmed user at MAZAL_TEST_EMAIL (a mailbox we
- *      can read; `email_confirm` means no confirmation mail is sent)
- *   2. client A (`flowType: 'pkce'`, its own storage) calls
- *      resetPasswordForEmail(), which POSTs `/recover` with a `code_challenge`
- *      and stashes the `code_verifier` in A's storage. That call is what creates
- *      the flow state.
- *   3. read the delivered email, take the ConfirmationURL out of it, and follow
- *      it with redirects off: the `location:` must be `?code=`, not
- *      `#access_token=`.
- *   4. client B (fresh storage — "another device") exchanges that code: must
- *      FAIL, because the verifier only exists on A.
- *   5. client A exchanges the same code: must SUCCEED.
+ * `smtp_host` is null on this project, which pins `rate_limit_email_sent` to 2 per
+ * hour for the whole project (MEXA-249), so `/recover` 429s much of the time. Two
+ * consequences:
  *
- * Steps 4 then 5 in that order are the whole point — the code alone is worthless,
- * the verifier is what redeems it.
+ *  - The `?code=` assertion below is skipped when there is no email budget. It is
+ *    the *shape* check; it is not the security property.
+ *  - `/recover` creates the `auth.flow_state` row **before** it tries to send, so a
+ *    429 leaves a flow state with `auth_code` and `code_challenge` set but
+ *    `recovery_token` empty — orphaned, unreachable by any link. That is what lets
+ *    the binding checks below run with no email at all: they take `auth_code`
+ *    straight out of `auth.flow_state`, which is byte-for-byte the `?code=` a real
+ *    link would have carried.
  *
- * Usage (creds live outside the repo):
+ * ## What it asserts
+ *
+ *   binding   a code has no value without the verifier (the security property)
+ *             - device B, holding the code, cannot exchange it
+ *             - device A, which started the flow, can
+ *   control   no flow state -> /verify redirects `#access_token=` (implicit)
+ *   shape     with a real emailed link -> /verify redirects `?code=`
+ *             (skipped when the email budget is spent)
+ *
+ * ## Usage
+ *
  *   set -a && . <workspace>/archive/credentials/mazal-supabase.env
- *          && . <workspace>/archive/credentials/mexant-agentmail.env && set +a
- *   MAZAL_TEST_EMAIL='<an agentmail inbox>' node scripts/verify-pkce-auth-links.mjs
+ *          && . <workspace>/archive/credentials/mexant-supabase.env && set +a
+ *   node scripts/verify-pkce-auth-links.mjs
  *
- * It sends one real recovery email and deletes the user it made.
+ * `mexant-supabase.env` is only for `SUPABASE_ACCESS_TOKEN`, used to read
+ * `auth.flow_state` (there is no REST route to it).
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -41,16 +60,16 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const ANON = process.env.SUPABASE_ANON_KEY;
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const TEST_EMAIL = process.env.MAZAL_TEST_EMAIL;
-const AGENTMAIL_KEY = process.env.AGENTMAIL_API_KEY;
+const MGMT = process.env.SUPABASE_ACCESS_TOKEN;
+const REF = process.env.SUPABASE_PROJECT_REF;
 const REDIRECT = 'mazal://auth/reset-password';
 
 for (const [name, value] of Object.entries({
   SUPABASE_URL,
   SUPABASE_ANON_KEY: ANON,
   SUPABASE_SERVICE_ROLE_KEY: SERVICE,
-  MAZAL_TEST_EMAIL: TEST_EMAIL,
-  AGENTMAIL_API_KEY: AGENTMAIL_KEY,
+  SUPABASE_ACCESS_TOKEN: MGMT,
+  SUPABASE_PROJECT_REF: REF,
 })) {
   if (!value) {
     console.error(`missing ${name}`);
@@ -58,22 +77,33 @@ for (const [name, value] of Object.entries({
   }
 }
 
-/** `user+tag@host` all lands in inbox `user@host`. */
-const INBOX = TEST_EMAIL.replace(/\+[^@]*(?=@)/, '');
+/** supabase-js derives this from the project ref. */
+const VERIFIER_KEY = `sb-${REF}-auth-token-code-verifier`;
 
-/** In-memory storage, one per "device". */
+/**
+ * In-memory storage for one "device". `written` also keeps values that were later
+ * removed: supabase-js deletes the verifier when `/recover` errors
+ * (GoTrueClient `resetPasswordForEmail`, the catch block), and a 429 from the
+ * mailer is such an error even though the flow state survives server-side. Putting
+ * it back is what a device whose email *did* send would have had.
+ */
 function memoryStorage() {
-  const map = new Map();
+  const live = new Map();
+  const written = new Map();
   return {
-    map,
-    getItem: async (k) => (map.has(k) ? map.get(k) : null),
-    setItem: async (k, v) => void map.set(k, v),
-    removeItem: async (k) => void map.delete(k),
+    live,
+    written,
+    getItem: async (k) => (live.has(k) ? live.get(k) : null),
+    setItem: async (k, v) => {
+      live.set(k, v);
+      written.set(k, v);
+    },
+    removeItem: async (k) => void live.delete(k),
   };
 }
 
 /** The auth options from src/api/supabase/client.ts, minus the RN-only bits. */
-function pkceClient(storage) {
+function appClient(storage) {
   return createClient(SUPABASE_URL, ANON, {
     auth: {
       storage,
@@ -96,135 +126,173 @@ const admin = (path, init = {}) =>
     },
   });
 
-const agentmail = (path) =>
-  fetch(`https://api.agentmail.to/v0${path}`, {
-    headers: { Authorization: `Bearer ${AGENTMAIL_KEY}`, 'User-Agent': 'mazal-auth-verify/1.0' },
-  }).then((r) => r.json());
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sql = async (query) =>
+  (
+    await fetch(`https://api.supabase.com/v1/projects/${REF}/database/query`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${MGMT}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    })
+  ).json();
 
 const results = [];
 function check(name, pass, detail) {
   results.push({ name, pass });
-  console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
+  console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? `\n        ${detail}` : ''}`);
+}
+function skip(name, why) {
+  console.log(`SKIP  ${name}\n        ${why}`);
 }
 
-/** Wait for a recovery email newer than `since` and return its verify URL. */
-async function waitForRecoveryLink(since, timeoutMs = 120_000) {
-  const deadline = Date.now() + timeoutMs;
+const createdUsers = [];
 
-  while (Date.now() < deadline) {
-    const { messages = [] } = await agentmail(
-      `/inboxes/${encodeURIComponent(INBOX)}/messages?limit=10`
-    );
+async function throwawayUser(tag) {
+  // example.com is fine for admin-created users — the admin API skips the
+  // deliverability check that `/recover` applies (it 400s on an MX-less domain).
+  const email = `violet-pkce-${tag}-${Date.now()}@example.com`;
+  const user = await admin('/admin/users', {
+    method: 'POST',
+    body: JSON.stringify({ email, password: `pk-${Math.random().toString(36).slice(2)}-Aa1!`, email_confirm: true }),
+  }).then((r) => r.json());
 
-    for (const summary of messages) {
-      if (new Date(summary.timestamp).getTime() < since) continue;
-      if (!/reset your password/i.test(summary.subject ?? '')) continue;
-
-      const full = await agentmail(
-        `/inboxes/${encodeURIComponent(INBOX)}/messages/${encodeURIComponent(summary.message_id)}`
-      );
-      const body = [full.html, full.text, full.extracted_text].filter(Boolean).join('\n');
-      const match = body.match(/https:\/\/[^\s"'<>]*\/auth\/v1\/verify[^\s"'<>]*/);
-      if (match) return match[0].replace(/&amp;/g, '&');
-    }
-
-    await sleep(5_000);
-  }
-
-  return null;
+  if (!user.id) throw new Error(`could not create user: ${JSON.stringify(user)}`);
+  createdUsers.push(user.id);
+  return { id: user.id, email };
 }
 
-let userId = null;
+/** `mazal://` is not hierarchical, so swap the scheme before parsing. */
+function paramsOf(location) {
+  const url = new URL(location.replace('mazal://', 'https://mazal.invalid/'));
+  const params = new URLSearchParams(url.search);
+  // Under PKCE, GoTrue reports errors in the query AND the fragment; implicit puts
+  // everything in the fragment. Read both.
+  for (const [k, v] of new URLSearchParams(url.hash.replace(/^#/, ''))) params.set(k, v);
+  return params;
+}
+
+function shapeOf(location) {
+  if (location.includes('#access_token=')) return 'implicit';
+  if (/[?&]code=/.test(location)) return 'pkce';
+  if (/error/.test(location)) return 'error';
+  return 'neither';
+}
 
 try {
-  // 1. Throwaway confirmed user. `email_confirm` skips the confirmation email.
-  const created = await admin('/admin/users', {
-    method: 'POST',
-    body: JSON.stringify({
-      email: TEST_EMAIL,
-      password: `pk-${Math.random().toString(36).slice(2)}-Aa1!`,
-      email_confirm: true,
-    }),
-  }).then((r) => r.json());
-  userId = created.id;
-  if (!userId) throw new Error(`could not create user: ${JSON.stringify(created)}`);
-  console.log(`\nuser ${TEST_EMAIL} (${userId}), inbox ${INBOX}\n`);
-
-  // 2. Device A asks for the reset. `/recover` is rate limited per address, so
-  //    retry on 429 rather than failing the run.
+  // ---------------------------------------------------------------- binding
+  const subject = await throwawayUser('binding');
   const storageA = memoryStorage();
-  const clientA = pkceClient(storageA);
-  const sentAfter = Date.now() - 60_000; // clock skew between us and SES
+  const clientA = appClient(storageA);
 
-  // The project has no custom SMTP, so the built-in sender allows
-  // `rate_limit_email_sent` = 2 auth emails an hour for the whole project. That
-  // is easily already spent, and the window is rolling, so be patient rather than
-  // failing the run.
-  const MAX_ATTEMPTS = 12;
-  for (let attempt = 1; ; attempt += 1) {
-    const { error } = await clientA.auth.resetPasswordForEmail(TEST_EMAIL, {
-      redirectTo: REDIRECT,
-    });
-    if (!error) break;
+  const { error: recoverError } = await clientA.auth.resetPasswordForEmail(subject.email, {
+    redirectTo: REDIRECT,
+  });
+  const mailerRefused =
+    !!recoverError && (recoverError.status === 429 || /rate limit/i.test(recoverError.message));
+
+  check(
+    'resetPasswordForEmail generated a code_verifier on device A',
+    storageA.written.has(VERIFIER_KEY),
+    VERIFIER_KEY
+  );
+
+  if (recoverError) {
     console.log(
-      `  [${new Date().toISOString()}] /recover attempt ${attempt}: ${error.status} ${error.message}`
+      `  note: /recover returned ${recoverError.status} "${recoverError.message}"` +
+        (mailerRefused
+          ? ' — the mailer, not the flow state; see the header'
+          : ' — NOT the mailer, the flow state may be missing')
     );
-    const retryable = error.status === 429 || /rate limit/i.test(error.message);
-    if (!retryable || attempt === MAX_ATTEMPTS) throw new Error(`/recover failed: ${error.message}`);
-    await sleep(/rate limit exceeded/i.test(error.message) ? 300_000 : 35_000);
+    // Undo supabase-js's cleanup: the flow state is still there server-side.
+    if (storageA.written.has(VERIFIER_KEY)) {
+      await storageA.setItem(VERIFIER_KEY, storageA.written.get(VERIFIER_KEY));
+    }
   }
 
-  const verifierKeys = [...storageA.map.keys()].filter((k) => k.endsWith('-code-verifier'));
-  check(
-    'resetPasswordForEmail stored a code_verifier on device A',
-    verifierKeys.length === 1,
-    verifierKeys[0] ?? `keys=${[...storageA.map.keys()].join(',') || 'none'}`
+  const [flow] = await sql(
+    `select auth_code, code_challenge_method, authentication_method
+       from auth.flow_state where user_id = '${subject.id}'`
   );
-
-  // 3. The link as the user actually receives it.
-  const verifyUrl = await waitForRecoveryLink(sentAfter);
-  if (!verifyUrl) throw new Error('no recovery email arrived within 120s');
-
-  const res = await fetch(verifyUrl, { redirect: 'manual' });
-  const location = res.headers.get('location') ?? '';
-  const shape = location.includes('#access_token=')
-    ? 'implicit (#access_token)'
-    : /[?&]code=/.test(location)
-      ? 'pkce (?code)'
-      : `neither (${res.status})`;
   check(
-    'the emailed link redirects with ?code=, not #access_token',
-    shape === 'pkce (?code)',
-    `${shape}: ${location.slice(0, 120)}`
+    'the client created a PKCE flow state server-side',
+    flow?.authentication_method === 'recovery' && flow?.code_challenge_method === 's256',
+    flow ? `${flow.authentication_method} / ${flow.code_challenge_method}` : 'no flow_state row'
   );
+  if (!flow?.auth_code) throw new Error('no auth_code to exchange');
 
-  const code = new URL(location.replace('mazal://', 'https://mazal.invalid/')).searchParams.get(
-    'code'
-  );
-  if (!code) throw new Error('no ?code in the redirect; cannot test the exchange');
-
-  // 4. Another device has the code but not the verifier.
-  const clientB = pkceClient(memoryStorage());
-  const b = await clientB.auth.exchangeCodeForSession(code);
+  // This code is byte-for-byte what a real link's `?code=` carries.
+  const b = await appClient(memoryStorage()).auth.exchangeCodeForSession(flow.auth_code);
   check(
-    'a code copied to another device does NOT exchange',
+    'device B, holding the code but not the verifier, canNOT exchange it',
     !!b.error && !b.data?.session,
-    b.error ? `${b.error.status} ${b.error.message}` : 'it exchanged — PKCE is not binding'
+    b.error
+      ? `${b.error.status} ${b.error.code ?? ''} — ${b.error.message.split('.')[0]}`
+      : 'it exchanged — PKCE is not binding'
   );
 
-  // 5. The originating device still redeems it.
-  const a = await clientA.auth.exchangeCodeForSession(code);
+  const a = await clientA.auth.exchangeCodeForSession(flow.auth_code);
   check(
-    'the originating device DOES exchange the same code',
+    'device A, which started the flow, DOES exchange the same code',
     !a.error && !!a.data?.session,
     a.error ? `${a.error.status} ${a.error.message}` : `session for ${a.data.user?.email}`
   );
+
+  // ---------------------------------------------------------------- control
+  const control = await throwawayUser('control');
+  const controlLink = await admin('/admin/generate_link', {
+    method: 'POST',
+    body: JSON.stringify({
+      type: 'recovery',
+      email: control.email,
+      redirect_to: REDIRECT,
+      // Supplied on purpose, expected to make no difference.
+      code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+      code_challenge_method: 's256',
+    }),
+  }).then((r) => r.json());
+  const controlLocation =
+    (await fetch(controlLink.action_link, { redirect: 'manual' })).headers.get('location') ?? '';
+  check(
+    'control: no flow state -> implicit, even with generate_link given a code_challenge',
+    shapeOf(controlLocation) === 'implicit',
+    `${shapeOf(controlLocation)}: ${controlLocation.slice(0, 80)}…`
+  );
+
+  // ------------------------------------------------------------------ shape
+  // Only a `/recover` whose email really sent writes the `pkce_`-prefixed
+  // recovery token that makes `/verify` take the PKCE branch, so this needs a
+  // budget slot. Ask for the token straight out of auth.users rather than
+  // scraping a mailbox — same value the email's ConfirmationURL carries.
+  if (mailerRefused) {
+    skip(
+      'the link redirects with ?code=, not #access_token',
+      'no email budget: `/recover` 429d, so no pkce_-prefixed recovery token exists to follow. ' +
+        'Re-run when rate_limit_email_sent has room, or after custom SMTP lands (MEXA-249).'
+    );
+  } else {
+    const [row] = await sql(
+      `select recovery_token from auth.users where id = '${subject.id}'`
+    );
+    const token = row?.recovery_token ?? '';
+    const location =
+      (
+        await fetch(
+          `${SUPABASE_URL}/auth/v1/verify?token=${encodeURIComponent(token)}` +
+            `&type=recovery&redirect_to=${encodeURIComponent(REDIRECT)}`,
+          { redirect: 'manual' }
+        )
+      ).headers.get('location') ?? '';
+    check(
+      'the link redirects with ?code=, not #access_token',
+      shapeOf(location) === 'pkce',
+      `token prefix "${token.slice(0, 5)}" -> ${shapeOf(location)}: ${location.slice(0, 100)}`
+    );
+    // app/auth/confirm.tsx reads `type` off the link, so record whether it survives.
+    console.log(`  link params: ${[...paramsOf(location).keys()].join(', ') || 'none'}`);
+  }
 } finally {
-  if (userId) {
-    const del = await admin(`/admin/users/${userId}`, { method: 'DELETE' });
-    console.log(`\ncleanup: deleted ${userId} -> ${del.status}`);
+  for (const id of createdUsers) {
+    const res = await admin(`/admin/users/${id}`, { method: 'DELETE' });
+    console.log(`cleanup: deleted ${id} -> ${res.status}`);
   }
 }
 

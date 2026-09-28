@@ -19,9 +19,10 @@
  *
  *   mazal://auth/reset-password?code=...&type=recovery
  *
- * while failures still arrive in the *fragment*:
+ * while a failure arrives in the query *and* the fragment, the same params in both
+ * (measured — the implicit flow used only the fragment):
  *
- *   mazal://auth/reset-password#error=access_denied&error_code=otp_expired&...
+ *   mazal://auth/reset-password?error=access_denied&error_code=otp_expired&...#error=...
  *
  * `detectSessionInUrl` is off (it is a web-only mechanism), so the screen that
  * receives the link has to read those params and establish the session itself.
