@@ -52,35 +52,16 @@ async function uriToBase64(uri: string): Promise<string> {
   });
 }
 
-// Upload image to temporary storage and get URL
-async function uploadToTempStorage(
-  userId: string,
-  imageUri: string,
-  type: 'id' | 'selfie'
-): Promise<string> {
-  const fileName = `verification/${userId}/${type}-${Date.now()}.jpg`;
-
-  const response = await fetch(imageUri);
-  const blob = await response.blob();
-
-  const { data, error } = await supabase.storage
-    .from('verification-temp')
-    .upload(fileName, blob, {
-      contentType: 'image/jpeg',
-      upsert: true,
-    });
-
-  if (error) {
-    throw new Error(`Failed to upload ${type} image: ${error.message}`);
-  }
-
-  // Get public URL
-  const { data: urlData } = supabase.storage
-    .from('verification-temp')
-    .getPublicUrl(fileName);
-
-  return urlData.publicUrl;
-}
+// There used to be an uploadToTempStorage() here. It was dead code - nothing ever called
+// it - and it uploaded the ID document and the selfie to a `verification-temp` bucket and
+// then handed back getPublicUrl(), i.e. a permanent unauthenticated URL to someone's
+// passport photo. Removed on MEXA-249 rather than left lying around, because the obvious
+// way to "fix" verification later is to call the function that is already written.
+//
+// verifyIdentity() below sends both images straight to the provider and keeps nothing.
+// If images ever do need to be staged in Supabase, the bucket must be PRIVATE and reads
+// must go through short-lived signed URLs. The hourly `cleanup-verification-photos` cron
+// (MEXA-249) is already scheduled to delete anything that lands under verification/.
 
 // Delete temporary verification images
 async function cleanupTempImages(userId: string): Promise<void> {

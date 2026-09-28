@@ -179,6 +179,11 @@ serve(async (req: Request) => {
           supabaseAdmin.from('users').update({ shadchan_id: null }).eq('shadchan_id', userId),
         ],
         [
+          // Not the same thing `messages` does, despite the resemblance (MEXA-253): a
+          // dater's whole conversation disappears because the `matches` row cascades and
+          // takes every message with it, sender or not. A shidduch thread has no such
+          // container, so it survives for the other side and only this user's own
+          // messages come out of it. Narrower on purpose.
           'shidduch_messages',
           supabaseAdmin.from('shidduch_messages').delete().eq('sender_user_id', userId),
         ],
