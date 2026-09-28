@@ -1,10 +1,18 @@
 /**
  * Change Password Screen
  *
- * Premium password settings with dark theme
+ * Settings → Change Password. Reauthenticates against the current password,
+ * then changes it for real.
+ *
+ * Why the reauthentication step: `supabase.auth.updateUser({ password })` only
+ * needs a valid session, not the old password, and this project has
+ * `security_update_password_require_reauthentication` off. Without a check,
+ * anyone holding an unlocked phone could take the account over from this
+ * screen, so we sign in once with the entered current password first. That call
+ * also mints a fresh session, which is what the update then runs against.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,6 +20,7 @@ import {
   Pressable,
   ScrollView,
   TextInput,
+  ActivityIndicator,
   Alert,
 } from 'react-native';
 import { router } from 'expo-router';
@@ -20,11 +29,26 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import { supabase } from '@/api/supabase/client';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 
+/**
+ * The app asks for 8 everywhere it sets a password (register, reset-password).
+ * The project's own minimum is 6, so accounts created before that can have a
+ * shorter current password — which is why only the *new* password is held to
+ * this, and the current one just has to be non-empty.
+ */
+const MIN_PASSWORD_LENGTH = 8;
+
+type Status = 'loading' | 'ready' | 'saving' | 'unavailable';
+
 export default function PasswordSettingsScreen() {
   const insets = useSafeAreaInsets();
+
+  const [status, setStatus] = useState<Status>('loading');
+  const [unavailableMessage, setUnavailableMessage] = useState('');
+  const [email, setEmail] = useState('');
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -32,46 +56,180 @@ export default function PasswordSettingsScreen() {
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // We reauthenticate with email + password, so the screen only works for
+  // accounts that actually sign in that way (not phone-only accounts).
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const { data, error: userError } = await supabase.auth.getUser();
+
+      if (cancelled) return;
+
+      if (userError || !data.user) {
+        setUnavailableMessage("We couldn't load your account. Sign in again and retry.");
+        setStatus('unavailable');
+        return;
+      }
+
+      const identities = data.user.identities;
+      const hasPasswordLogin = identities
+        ? identities.some((identity) => identity.provider === 'email')
+        : Boolean(data.user.email);
+
+      if (!data.user.email || !hasPasswordLogin) {
+        setUnavailableMessage(
+          "This account doesn't sign in with an email and password, so there's no password to change."
+        );
+        setStatus('unavailable');
+        return;
+      }
+
+      setEmail(data.user.email);
+      setStatus('ready');
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const isSaving = status === 'saving';
 
   const isValid =
-    currentPassword.length >= 8 &&
-    newPassword.length >= 8 &&
+    status !== 'loading' &&
+    status !== 'unavailable' &&
+    currentPassword.length > 0 &&
+    newPassword.length >= MIN_PASSWORD_LENGTH &&
     newPassword === confirmPassword;
 
-  const handleChangePassword = () => {
-    if (!isValid) {
-      Alert.alert('Error', 'Please fill in all fields correctly.');
+  const handleChangePassword = async () => {
+    if (isSaving) return;
+
+    if (currentPassword.length === 0) {
+      setError('Enter your current password.');
+      return;
+    }
+
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      setError(`Your new password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      Alert.alert('Error', 'New passwords do not match.');
+      setError('New passwords do not match.');
       return;
     }
 
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert(
-      'Password Changed',
-      'Your password has been updated successfully.',
-      [{ text: 'OK', onPress: () => router.back() }]
-    );
+    setStatus('saving');
+    setError(null);
+
+    try {
+      // 1. Prove the person at the keyboard knows the current password.
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password: currentPassword,
+      });
+
+      if (signInError) {
+        setError(
+          signInError.code === 'invalid_credentials'
+            ? 'That current password is incorrect.'
+            : signInError.message
+        );
+        setStatus('ready');
+        return;
+      }
+
+      // 2. Now actually change it.
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) {
+        setError(
+          updateError.code === 'same_password'
+            ? 'Your new password must be different from your current one.'
+            : updateError.message
+        );
+        setStatus('ready');
+        return;
+      }
+
+      // 3. Drop every other session. Someone changing their password because
+      //    they think the account is compromised expects the other device to
+      //    lose access. `others` leaves this device signed in and fires no
+      //    SIGNED_OUT event, so it can't bounce us to the login screen. Best
+      //    effort: the password did change either way, so a failure here must
+      //    not be reported as a failed password change.
+      const { error: signOutError } = await supabase.auth.signOut({ scope: 'others' });
+      if (signOutError) {
+        console.warn('[password] could not revoke other sessions:', signOutError.message);
+      }
+
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setStatus('ready');
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert(
+        'Password changed',
+        'Your password has been updated. Any other devices signed in to this account have been signed out.',
+        [{ text: 'OK', onPress: () => router.back() }]
+      );
+    } catch {
+      setError('Something went wrong. Please try again.');
+      setStatus('ready');
+    }
   };
+
+  /* Premium Header with Gradient */
+  const header = (
+    <LinearGradient
+      colors={[colors.primary.navy, colors.dark.background]}
+      style={[styles.headerGradient, { paddingTop: insets.top }]}
+    >
+      <View style={styles.header}>
+        <Pressable style={styles.backButton} onPress={() => router.back()}>
+          <Ionicons name="chevron-back" size={28} color={colors.primary.white} />
+        </Pressable>
+        <Text style={styles.headerTitle}>Change Password</Text>
+        <View style={styles.headerRight} />
+      </View>
+    </LinearGradient>
+  );
+
+  if (status === 'loading') {
+    return (
+      <View style={styles.container}>
+        {header}
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color={colors.primary.gold} />
+        </View>
+      </View>
+    );
+  }
+
+  if (status === 'unavailable') {
+    return (
+      <View style={styles.container}>
+        {header}
+        <View style={styles.centered}>
+          <View style={styles.infoIconContainer}>
+            <Ionicons name="information-circle-outline" size={20} color={colors.primary.gold} />
+          </View>
+          <Text style={styles.centeredText}>{unavailableMessage}</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      {/* Premium Header with Gradient */}
-      <LinearGradient
-        colors={[colors.primary.navy, colors.dark.background]}
-        style={[styles.headerGradient, { paddingTop: insets.top }]}
-      >
-        <View style={styles.header}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons name="chevron-back" size={28} color={colors.primary.white} />
-          </Pressable>
-          <Text style={styles.headerTitle}>Change Password</Text>
-          <View style={styles.headerRight} />
-        </View>
-      </LinearGradient>
+      {header}
 
       <ScrollView
         style={styles.content}
@@ -93,6 +251,10 @@ export default function PasswordSettingsScreen() {
               value={currentPassword}
               onChangeText={setCurrentPassword}
               secureTextEntry={!showCurrent}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!isSaving}
+              textContentType="password"
             />
             <Pressable
               style={styles.eyeButton}
@@ -121,6 +283,10 @@ export default function PasswordSettingsScreen() {
               value={newPassword}
               onChangeText={setNewPassword}
               secureTextEntry={!showNew}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!isSaving}
+              textContentType="newPassword"
             />
             <Pressable
               style={styles.eyeButton}
@@ -133,7 +299,7 @@ export default function PasswordSettingsScreen() {
               />
             </Pressable>
           </View>
-          <Text style={styles.hint}>At least 8 characters</Text>
+          <Text style={styles.hint}>At least {MIN_PASSWORD_LENGTH} characters</Text>
         </Animated.View>
 
         {/* Confirm Password */}
@@ -153,6 +319,10 @@ export default function PasswordSettingsScreen() {
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               secureTextEntry={!showConfirm}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!isSaving}
+              textContentType="newPassword"
             />
             <Pressable
               style={styles.eyeButton}
@@ -170,23 +340,36 @@ export default function PasswordSettingsScreen() {
           )}
         </Animated.View>
 
+        {/* Server / submit errors */}
+        {error && (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorBannerText}>{error}</Text>
+          </View>
+        )}
+
         {/* Change Button */}
         <Animated.View entering={FadeInUp.delay(400).springify()}>
           <Pressable
-            style={[styles.changeButton, !isValid && styles.changeButtonDisabled]}
+            style={[styles.changeButton, (!isValid || isSaving) && styles.changeButtonDisabled]}
             onPress={handleChangePassword}
-            disabled={!isValid}
+            disabled={!isValid || isSaving}
           >
             <LinearGradient
-              colors={isValid ? [colors.primary.gold, '#b8922a'] : [colors.neutral[600], colors.neutral[700]]}
+              colors={isValid && !isSaving ? [colors.primary.gold, '#b8922a'] : [colors.neutral[600], colors.neutral[700]]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.changeButtonGradient}
             >
-              <Ionicons name="shield-checkmark" size={20} color={isValid ? colors.primary.navy : colors.neutral[400]} />
-              <Text style={[styles.changeButtonText, !isValid && styles.changeButtonTextDisabled]}>
-                Update Password
-              </Text>
+              {isSaving ? (
+                <ActivityIndicator color={colors.neutral[400]} />
+              ) : (
+                <>
+                  <Ionicons name="shield-checkmark" size={20} color={isValid ? colors.primary.navy : colors.neutral[400]} />
+                  <Text style={[styles.changeButtonText, !isValid && styles.changeButtonTextDisabled]}>
+                    Update Password
+                  </Text>
+                </>
+              )}
             </LinearGradient>
           </Pressable>
         </Animated.View>
@@ -195,9 +378,10 @@ export default function PasswordSettingsScreen() {
         <Animated.View entering={FadeInUp.delay(500).springify()}>
           <Pressable
             style={styles.forgotButton}
+            disabled={isSaving}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              Alert.alert('Forgot Password', 'A password reset link will be sent to your email.');
+              router.push('/(auth)/forgot-password');
             }}
           >
             <Text style={styles.forgotButtonText}>Forgot your current password?</Text>
@@ -251,6 +435,31 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: spacing[4],
     paddingTop: spacing[4],
+  },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing[6],
+    gap: spacing[4],
+  },
+  centeredText: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: colors.transparent.white70,
+    textAlign: 'center',
+  },
+  errorBanner: {
+    backgroundColor: colors.transparent.white10,
+    padding: spacing[3],
+    borderRadius: borderRadius.md,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.semantic.error,
+    marginTop: spacing[2],
+  },
+  errorBannerText: {
+    fontSize: 14,
+    color: colors.semantic.error,
   },
   field: {
     marginBottom: spacing[5],
