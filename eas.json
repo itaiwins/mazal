@@ -14,6 +14,7 @@
         "buildType": "apk"
       },
       "env": {
+        "EXPO_PUBLIC_APP_ENV": "development",
         "EXPO_PUBLIC_ENVIRONMENT": "development",
         "EXPO_PUBLIC_FEATURE_ORTHODOX_MODE": "false",
         "EXPO_PUBLIC_FEATURE_SAFTA_MODE": "false"
@@ -28,6 +29,7 @@
         "buildType": "apk"
       },
       "env": {
+        "EXPO_PUBLIC_APP_ENV": "staging",
         "EXPO_PUBLIC_ENVIRONMENT": "preview",
         "EXPO_PUBLIC_FEATURE_ORTHODOX_MODE": "false",
         "EXPO_PUBLIC_FEATURE_SAFTA_MODE": "false"
@@ -42,6 +44,7 @@
         "buildType": "app-bundle"
       },
       "env": {
+        "EXPO_PUBLIC_APP_ENV": "production",
         "EXPO_PUBLIC_ENVIRONMENT": "production",
         "EXPO_PUBLIC_FEATURE_ORTHODOX_MODE": "false",
         "EXPO_PUBLIC_FEATURE_SAFTA_MODE": "false"

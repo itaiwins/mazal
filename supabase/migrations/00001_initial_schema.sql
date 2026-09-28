@@ -291,8 +291,10 @@ CREATE TABLE colleges (
 );
 
 CREATE INDEX idx_colleges_name ON colleges(name);
+-- An index on an expression needs its own pair of parentheses; without them Postgres
+-- rejects the cast with `syntax error at or near "::"` and the whole file fails to parse.
 CREATE INDEX idx_colleges_location ON colleges USING GIST(
-  ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography
+  (ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography)
 );
 
 -- User college affiliations

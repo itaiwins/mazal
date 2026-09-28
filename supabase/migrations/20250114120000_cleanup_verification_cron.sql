@@ -1,16 +1,43 @@
--- Enable pg_net extension for HTTP requests (pg_cron should already be enabled)
+-- Hourly cleanup of identity-verification selfies.
+--
+-- NOT APPLIED to the current database (project tayiyczmacvhokdxfqvm, MEXA-246), for two
+-- reasons:
+--
+--   1. It needs the `cleanup-verification-photos` Edge Function (supabase/functions/)
+--      deployed. Nothing is deployed to the new project yet, so the job would fail on
+--      the hour, every hour, forever.
+--   2. As originally written it hardcoded the old project's URL and a service_role JWT
+--      in the cron command. That secret is in this repo's public git history and must be
+--      treated as burned; it is not repeated here, and no replacement key belongs in git.
+--
+-- The URL and key are now read from database settings at run time, so scheduling this is
+-- a deploy step rather than a code change. To turn it on, once the Edge Function exists:
+--
+--   -- store the values out of band (psql as postgres, or the SQL editor):
+--   ALTER DATABASE postgres SET app.settings.project_url  = 'https://<ref>.supabase.co';
+--   ALTER DATABASE postgres SET app.settings.service_role_key = '<service_role key>';
+--   -- then run the SELECT cron.schedule(...) below
+--
+-- Better still, put the key in Supabase Vault and read it with
+-- vault.decrypted_secrets, so it never appears in pg_settings or in a log line.
+--
+-- This file is left in place, unapplied, so the intent is not lost. The privacy
+-- behaviour it implements - verification selfies deleted within the hour - still needs
+-- to exist before launch; that is tracked as a follow-up issue.
+
 CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
 
--- Schedule cleanup job to run every hour
--- This calls our Edge Function to delete verification photos older than 1 hour
-SELECT cron.schedule(
-  'cleanup-verification-photos',
-  '0 * * * *',
-  $$
-  SELECT net.http_post(
-    url := 'https://keossekxijwygksqsxel.supabase.co/functions/v1/cleanup-verification-photos',
-    headers := '{"Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtlb3NzZWt4aWp3eWdrc3FzeGVsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2ODExMDY5NCwiZXhwIjoyMDgzNjg2Njk0fQ.f2spdM29wAPqXleXAg71TXJp2ig-S_wL0wFwU3lBD-4", "Content-Type": "application/json"}'::jsonb,
-    body := '{}'::jsonb
-  );
-  $$
-);
+-- SELECT cron.schedule(
+--   'cleanup-verification-photos',
+--   '0 * * * *',
+--   $$
+--   SELECT net.http_post(
+--     url := current_setting('app.settings.project_url') || '/functions/v1/cleanup-verification-photos',
+--     headers := jsonb_build_object(
+--       'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key'),
+--       'Content-Type', 'application/json'
+--     ),
+--     body := '{}'::jsonb
+--   );
+--   $$
+-- );

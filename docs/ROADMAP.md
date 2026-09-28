@@ -6,9 +6,26 @@ Last updated: 2026-09-28 (MEXA-246)
 
 Ship the core dating app — sign up, onboarding, discovery, matches, messages, Mazal Map,
 profile, premium — to TestFlight. Two large side-features are built but not finished, so
-they are hidden behind build-time feature flags instead of being deleted. No code was
-removed and no migration was written: every file, table and migration listed below is
-still in the repo and still in the schema.
+they are hidden behind build-time feature flags instead of being deleted. Nothing was
+removed and nothing was dropped: every file, table and migration listed below is still in
+the repo and still in the schema.
+
+Migrations *were* added, after the flag work, to make the schema apply to an empty
+database at all — `00000_extensions.sql`, `00007`, `00008`, `00009`. They add an extension
+and repair RLS; they drop no tables and hide no features. See
+[`supabase/MIGRATIONS.md`](../supabase/MIGRATIONS.md).
+
+## Backend
+
+Live project: `tayiyczmacvhokdxfqvm` (Supabase Pro, us-east-1), created 2026-09-28 to
+replace the deleted `keossekxijwygksqsxel`. Schema and storage buckets applied; no Edge
+Functions deployed yet.
+
+The app reads `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` from the
+environment in `src/lib/config/env.ts`, `src/api/supabase/client.ts` and
+`src/api/supabase/directApi.ts`. No key is committed. Local development uses a gitignored
+`.env`; EAS builds read project-level environment variables stored on the Expo project for
+all three environments.
 
 ## Feature flags
 
@@ -99,8 +116,9 @@ Tables / migrations (untouched, nothing dropped): `safta_accounts`, `safta_conne
 ### What turning it back on needs
 
 1. Set `EXPO_PUBLIC_FEATURE_SAFTA_MODE=true` (eas.json profile env and/or `.env`).
-2. The `safta_*` tables must exist in the live Supabase project with RLS policies —
-   re-run `00004_safta_messages.sql` and `00006_safta_pro.sql` against the new backend.
+2. Nothing to do for the schema: the `safta_*` tables and their RLS policies are already
+   applied to the live project (`supabase/MIGRATIONS.md`). Their policies were checked for
+   the recursion problems found elsewhere and are clean.
 3. A real invite/deep-link flow. `app/(tabs)/safta.tsx` currently fabricates a link
    (`https://mazal.app/invite/<first 8 chars of user id>`) that nothing resolves.
 4. `src/components/chat/SendToChatsModal.tsx` still has a hardcoded mock chat
@@ -175,8 +193,17 @@ points.
 
 1. Set `EXPO_PUBLIC_FEATURE_ORTHODOX_MODE=true`.
 2. Replace the "Coming Soon" lock in `app/(auth)/welcome.tsx` with the real link.
-3. `shidduch_profiles` and friends must exist in the live Supabase project with RLS —
-   re-run `00005_orthodox_mode.sql` and `20250114_shidduch_system_fixed.sql`.
+3. The schema is already applied to the live project (`supabase/MIGRATIONS.md`), but the
+   shidduch RLS needs a proper security review before any real profile is stored:
+   - `00009_fix_shidduch_profiles_policy_recursion.sql` repaired three policy cycles that
+     made every read of `shidduch_profiles` fail with 42P17, and closed an anonymous read
+     of every `profile_visible = true` profile. Those rewrites have never been exercised
+     against real data, because the feature is off.
+   - `20250114_add_creator_tracking.sql` compares `shidduch_profiles.user_id` and
+     `created_by_user_id` against `auth.uid()`. Those columns hold `public.users` ids,
+     while `auth.uid()` is an `auth.users` id — two different id spaces, so those branches
+     can never match. Left alone deliberately: guessing at the intent of an ownership
+     rule is how you write a hole. Decide what it should mean, then fix it.
 4. RevenueCat: `mazal_orthodox` entitlement + `mazal_orthodox_monthly` / `_yearly`
    products and the App Store subscriptions. The $49.99/mo price is unreviewed.
 5. Real shadchan data — the directory has no backing content.
