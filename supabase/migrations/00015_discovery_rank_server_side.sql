@@ -55,7 +55,7 @@
 -- `useSwipe.ts`'s reciprocal-like check and `useMatchesSubscription.ts`'s realtime filter,
 -- so the "It's a Match!" screen and the incoming-like notification never fire. The match
 -- row itself is still created, by the `swipes_check_match` trigger from 00001, which runs
--- as its owner. Filed as MEXA-280.
+-- as its owner. Filed as MEXA-294.
 --
 -- ORDER
 --

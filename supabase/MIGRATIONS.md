@@ -194,7 +194,7 @@ copy if another table ever has to serve both "mine" and "everyone's":
 and have always returned nothing: the incoming-likes query in `useDiscoveryProfiles.ts`
 (fixed in 00015 by moving it into a SECURITY DEFINER RPC, MEXA-278), the reciprocal-like
 check in `useSwipe.ts`, and the realtime filter in `useMatchesSubscription.ts` (both
-MEXA-280). The match itself still gets made — the `swipes_check_match` trigger from 00001
+MEXA-294). The match itself still gets made — the `swipes_check_match` trigger from 00001
 runs as its owner and is not subject to the policy — so what breaks is the "It's a Match!"
 screen and the incoming-like notification, not the data.
 None of them errored; they just came back empty, which is why it went unnoticed for months.
