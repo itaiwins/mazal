@@ -62,7 +62,9 @@ We use industry-standard security measures to protect your data, but no method o
     title: '6. Content Ownership',
     content: `You retain ownership of content you post on Mazal. However, by posting content, you grant us a non-exclusive, royalty-free license to use, display, and distribute that content within the App.
 
-We do not claim ownership of your photos or personal information. You can delete your content at any time by removing it from your profile or deleting your account.`,
+We do not claim ownership of your photos or personal information. You can delete your content at any time by removing it from your profile or deleting your account.
+
+Reports made about your conduct, and reports you have made about others, are an exception: they are kept after deletion so that we can protect other users. Section 6 of our Privacy Policy explains exactly what is kept and for how long.`,
   },
   {
     title: '7. Disclaimers',

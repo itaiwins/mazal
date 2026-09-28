@@ -61,7 +61,7 @@ Our service providers are bound by confidentiality agreements and can only use d
 • Location Sharing: Control when and how your location is used
 • Notifications: Manage email and push notification preferences
 • Data Access: Request a copy of your personal data
-• Deletion: Delete your account and associated data
+• Deletion: Delete your account and associated data. If another user reported you, we keep a limited safety record afterwards — see Section 6
 • Corrections: Update your profile information anytime
 
 Access these controls in Settings > Privacy & Safety.`,
@@ -80,14 +80,37 @@ While we strive to protect your data, no system is 100% secure. Report any secur
   },
   {
     title: '6. Data Retention',
-    content: `We retain your data for as long as your account is active. After account deletion:
+    content: `We retain your data for as long as your account is active. After you delete your account:
 
-• Profile data is deleted within 30 days
+• Profile data — your photos, bio, preferences, matches and messages — is deleted within 30 days
 • Backup copies are removed within 90 days
-• Some data may be retained longer for legal compliance
 • Anonymized/aggregated data may be kept for analytics
+• Limited safety records may be kept for longer, as described below
+• Some data may be kept longer where the law requires it
 
-You can request immediate deletion by contacting support.`,
+Safety records kept after deletion
+
+Deleting your account does not erase a complaint another user made about you. If someone reported your account, we keep a small safety record after the rest of your data is gone. We keep it to protect other users: without it, anyone could delete their account to wipe a report against them and sign up again a minute later.
+
+That record holds only:
+
+• A one-way, salted hash of your email address and phone number. It is not your email or phone number and cannot be turned back into them. We cannot read it, contact you with it, or pass it to anyone else. It only lets us recognize the same address if it is used to sign up again.
+• Your display name, when your account was created, when it was deleted, and how many reports were made
+• The reports themselves and how they were resolved
+
+How long we keep it:
+
+• 12 months, if every report about you was reviewed and dismissed
+• 24 months, if a report led us to take action on your account
+• Longer only while a report about you is still under review, or while it is needed for an ongoing safety investigation or legal matter
+
+After that, the record and the reports attached to it are deleted automatically. If nobody ever reported your account, no safety record is created and nothing about you is kept.
+
+Reports that you filed about other users are also kept after you delete your account. They are part of the safety history of the person you reported, and are not ours to erase on your behalf. Once your account is gone they are no longer linked to a profile, but the report and its outcome remain.
+
+Requesting earlier deletion
+
+You can ask us to delete your data sooner by contacting privacy@mazal.app. We will do that for everything above, with one exception: a safety record that is still within the period described here. That record exists to protect other people, so we cannot remove it on request. If this applies to you, we will tell you.`,
   },
   {
     title: '7. Children\'s Privacy',
@@ -162,7 +185,7 @@ export default function PrivacyScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={[styles.lastUpdated, { color: theme.colors.textTertiary }]}>
-          Last updated: January 2025
+          Last updated: September 2026
         </Text>
 
         <Text style={[styles.intro, { color: theme.colors.textSecondary }]}>
