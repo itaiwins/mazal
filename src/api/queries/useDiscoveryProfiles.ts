@@ -57,36 +57,27 @@ async function fetchDiscoveryProfiles(
     today.getDate()
   );
 
-  // Fetch users who haven't been swiped and match basic criteria.
+  // One RPC instead of three round trips: it reads `user_public_profiles` (the view that
+  // publishes other people since 00013/MEXA-261 - `users` only ever returns the signed-in
+  // user's own row), drops anyone this user has already swiped, and hands back the page
+  // already ranked, with `has_liked_me` filled in.
   //
-  // `user_public_profiles`, not `users`: since 00013 (MEXA-261) the table only ever returns
-  // the signed-in user's own row, and the view is what publishes other people. It also
-  // excludes the caller and inactive users itself and hands back a precomputed
-  // `distance_miles` instead of coordinates. The filters below are kept anyway, so the
-  // deck is still correct if the view's own rules are ever loosened.
-  let query = supabase
-    .from('user_public_profiles')
-    .select('*')
-    .neq('id', userId)
-    .eq('is_active', true)
-    .eq('onboarding_complete', true)
-    .gte('date_of_birth', minBirthDate.toISOString().split('T')[0])
-    .lte('date_of_birth', maxBirthDate.toISOString().split('T')[0]);
-
-  // Add gender filter if specified
-  if (filters.gender_preference.length > 0) {
-    query = query.in('gender', filters.gender_preference);
-  }
-
-  // Add Jewish background filter if specified
-  if (filters.jewish_backgrounds && filters.jewish_backgrounds.length > 0) {
-    query = query.in('jewish_background', filters.jewish_backgrounds);
-  }
-
-  // Limit results for performance
-  query = query.limit(50);
-
-  const { data: users, error } = await query;
+  // Since MEXA-278 it is the deck's only ordering. `elo_score` is no longer in the view, so
+  // there is nothing to sort by here; the database ranks by incoming like first and then by
+  // elo, which is what the sort at the bottom of this function used to do. The age window
+  // is still computed here, from the device clock, so the boundary does not move.
+  const { data: users, error } = await supabase.rpc('get_discovery_deck', {
+    p_min_birth_date: minBirthDate.toISOString().split('T')[0],
+    p_max_birth_date: maxBirthDate.toISOString().split('T')[0],
+    p_distance_max_miles: filters.distance_max_miles,
+    p_gender_preference:
+      filters.gender_preference.length > 0 ? filters.gender_preference : null,
+    p_jewish_backgrounds:
+      filters.jewish_backgrounds && filters.jewish_backgrounds.length > 0
+        ? filters.jewish_backgrounds
+        : null,
+    p_limit: 50,
+  });
 
   if (error) {
     console.error('Error fetching discovery profiles:', error);
@@ -96,23 +87,6 @@ async function fetchDiscoveryProfiles(
   if (!users || users.length === 0) {
     return [];
   }
-
-  // Get already swiped users
-  const { data: swipes } = await supabase
-    .from('swipes')
-    .select('swiped_id')
-    .eq('swiper_id', userId);
-
-  const swipedIds = new Set((swipes || []).map((s) => s.swiped_id));
-
-  // Get users who have liked current user
-  const { data: incomingLikes } = await supabase
-    .from('swipes')
-    .select('swiper_id')
-    .eq('swiped_id', userId)
-    .in('action', ['like', 'super_like']);
-
-  const likedByIds = new Set((incomingLikes || []).map((s) => s.swiper_id));
 
   // Get safta approved counts for all users (users who have been liked by a safta for
   // current user). Skipped while parents/grandparents mode is hidden (docs/ROADMAP.md),
@@ -130,8 +104,10 @@ async function fetchDiscoveryProfiles(
     saftaApprovedCounts[like.liked_user_id] = (saftaApprovedCounts[like.liked_user_id] || 0) + 1;
   });
 
-  // Filter out already swiped users
-  const availableUsers = users.filter((u) => !swipedIds.has(u.id));
+  // Already-swiped users were dropped by the RPC, in the same place the client used to drop
+  // them: after the page limit, so a user who has swiped a lot can still get a short deck.
+  // That is unchanged behaviour, and changing it is a product decision (MEXA-278).
+  const availableUsers = users;
 
   // Fetch photos, prompts, and badges for available users in parallel
   const userIds = availableUsers.map((u) => u.id);
@@ -181,7 +157,9 @@ async function fetchDiscoveryProfiles(
       const distance =
         user.distance_miles === null ? undefined : Math.round(user.distance_miles);
 
-      // Filter by distance if specified
+      // Filter by distance if specified. The RPC applies the same rounded comparison, so
+      // this is now belt-and-braces; it stays so the deck is still correct if the filter
+      // ever stops being passed down.
       if (
         filters.distance_max_miles > 0 &&
         distance !== undefined &&
@@ -227,18 +205,18 @@ async function fetchDiscoveryProfiles(
         age,
         distance,
         compatibility_score: compatibilityScore,
-        has_liked_me: likedByIds.has(user.id),
+        // The caller's own inbox, so the RPC is free to return it. It used to be computed
+        // from a `swipes` query here that RLS made return nothing - see MEXA-278.
+        has_liked_me: user.has_liked_me,
         safta_approved_count: saftaCount,
       };
     })
     .filter((p) => p !== null) as DiscoveryUser[];
 
-  // Sort: Users who liked you first, then by ELO score
-  return profiles.sort((a, b) => {
-    if (a.has_liked_me && !b.has_liked_me) return -1;
-    if (!a.has_liked_me && b.has_liked_me) return 1;
-    return (b.elo_score ?? 0) - (a.elo_score ?? 0);
-  });
+  // No sort. The RPC returns the deck ranked (incoming likes first, then elo_score
+  // descending) and .map()/.filter() above preserve that order. elo_score is no longer
+  // published to clients, so this side could not sort by it anyway (MEXA-278).
+  return profiles;
 }
 
 /**

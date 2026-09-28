@@ -26,6 +26,9 @@ type GeneratedUserRow = GeneratedDatabase['public']['Tables']['users']['Row'];
  * coordinates - and computes `distance_miles` in the database so coordinates never reach a
  * client.
  *
+ * No `elo_score` either, since 00015 (MEXA-278): the deck is ranked by
+ * `public.get_discovery_deck()` and the ranking number stays in the database.
+ *
  * Spelled as a Pick of the generated `users` row on purpose: the view's columns are a
  * subset of the table's, so this stays tied to src/types/supabase.generated.ts and stops
  * compiling if one is renamed. Adding a field here means adding it to the view in a
@@ -64,7 +67,6 @@ export type PublicProfile = Pick<
   | 'is_photo_verified'
   | 'is_orthodox_only'
   | 'is_orthodox_user'
-  | 'elo_score'
 > & {
   /**
    * Great-circle distance in miles from the signed-in user, computed by the view.
@@ -74,25 +76,57 @@ export type PublicProfile = Pick<
 };
 
 /**
- * The generated schema plus the `user_public_profiles` view added by migration 00013.
+ * A row from `public.get_discovery_deck()` (migration 00015, MEXA-278).
  *
- * The view is declared here by hand instead of being regenerated into
+ * The same columns as the view, plus the one fact the view cannot carry: whether this
+ * person has already liked the caller. The RPC exists because the `swipes` SELECT policy
+ * hides rows in which the caller is the swipee, so only a SECURITY DEFINER function can see
+ * an incoming like - and because the deck's ranking (incoming likes first, then
+ * `elo_score`) has to happen where `elo_score` is still readable.
+ *
+ * Rows come back ranked. Do not re-sort them.
+ */
+export type DiscoveryDeckRow = PublicProfile & {
+  has_liked_me: boolean;
+};
+
+/**
+ * The generated schema plus the `user_public_profiles` view added by migration 00013 and
+ * the `get_discovery_deck` function added by 00015.
+ *
+ * Both are declared here by hand instead of being regenerated into
  * src/types/supabase.generated.ts, because `supabase gen types` shells out to Docker and
  * this machine has none - the same constraint that makes supabase/MIGRATIONS.md a runbook
  * rather than a `db push`. Two things follow:
  *
- *  - Keep this in step with the view in supabase/migrations/00013_users_column_privacy.sql.
+ *  - Keep this in step with the view and the function in
+ *    supabase/migrations/00015_discovery_rank_server_side.sql, which is where both of their
+ *    current definitions live (00013 created the view; 00015 restated it without
+ *    `elo_score`).
  *  - If the generated file is ever rebuilt on a machine that does have Docker, the
  *    generator will emit its own `Views` entry with every column nullable, because Postgres
  *    reports no NOT NULL information through a view. The nullability in `PublicProfile` is
  *    the truthful one, read off the base columns; prefer it and delete the generated entry.
  */
 export type Database = Omit<GeneratedDatabase, 'public'> & {
-  public: Omit<GeneratedDatabase['public'], 'Views'> & {
+  public: Omit<GeneratedDatabase['public'], 'Views' | 'Functions'> & {
     Views: {
       user_public_profiles: {
         Row: PublicProfile;
         Relationships: [];
+      };
+    };
+    Functions: GeneratedDatabase['public']['Functions'] & {
+      get_discovery_deck: {
+        Args: {
+          p_min_birth_date: string;
+          p_max_birth_date: string;
+          p_distance_max_miles?: number;
+          p_gender_preference?: string[] | null;
+          p_jewish_backgrounds?: string[] | null;
+          p_limit?: number;
+        };
+        Returns: DiscoveryDeckRow[];
       };
     };
   };

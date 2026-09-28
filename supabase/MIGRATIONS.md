@@ -39,6 +39,7 @@ Apply exactly this sequence:
 00012_deleted_accounts_retention.sql
 00013_users_column_privacy.sql
 00014_revoke_unreachable_table_privileges.sql
+00015_discovery_rank_server_side.sql
 ```
 
 Notes on the order:
@@ -55,11 +56,12 @@ Notes on the order:
 - Undo scripts live in `supabase/rollback/`, **never** in this directory. Anything
   dropped in here is a file some tool will eventually apply in name order, and an undo
   script is the last thing you want applied by accident — `00010_rollback.sql` sorted
-  *ahead* of the migration it undoes. The five that exist are
+  *ahead* of the migration it undoes. The six that exist are
   `00010_secure_definer_rpcs_rollback.sql`, `00011_preserve_moderation_history_rollback.sql`,
   `00012_deleted_accounts_retention_rollback.sql`,
-  `00013_users_column_privacy_rollback.sql` and
-  `00014_revoke_unreachable_table_privileges_rollback.sql`; read each one's header. `00014`'s
+  `00013_users_column_privacy_rollback.sql`,
+  `00014_revoke_unreachable_table_privileges_rollback.sql` and
+  `00015_discovery_rank_server_side_rollback.sql`; read each one's header. `00014`'s
   is the only one that is not a bit-exact inverse, and it says exactly where it differs and
   why.
 - `00011`, `00012` and `00013` are in the order above but are **not applied yet** to
@@ -79,6 +81,14 @@ Notes on the order:
   table in `public` plus a default-privileges fix, and re-running it is a no-op. Applying it
   out of order is safe; applying it *before* a new `CREATE TABLE` is better, because that is
   what stops the new table being handed TRUNCATE.
+- `00015` is **not applied yet** either, and it is the only migration here with a hard
+  dependency upwards: it restates `00013`'s view without `elo_score`, so `00013` has to be
+  applied first. It also adds `public.get_discovery_deck()`, which returns the discovery
+  deck already ranked — incoming likes first, then `elo_score` descending — so no client
+  ever sees the ranking number (MEXA-278). Same shipping constraint as `00013`: the app and
+  the migration go together, because an app that still sorts client-side asks the view for a
+  column that is gone, and an app that calls the RPC against a database without it gets a
+  404. It waits on Guts (grants and RPC security) and on `00013` landing.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
 - `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values
@@ -177,6 +187,19 @@ copy if another table ever has to serve both "mine" and "everyone's":
   reads. `user_photos."Users can view other photos"` was exactly that, and 00013 had to
   rewrite it through a SECURITY DEFINER helper. Grep `pg_policies` for the pattern before
   changing a policy anything else leans on.
+
+**A policy can hide rows the caller is entitled to, quietly.** The only SELECT policy on
+`swipes` (00002) is `swiper_id = <me>`, so a caller cannot read a row in which they are the
+*swipee* — and "who liked me" is exactly that. Three client reads were written against it
+and have always returned nothing: the incoming-likes query in `useDiscoveryProfiles.ts`
+(fixed in 00015 by moving it into a SECURITY DEFINER RPC, MEXA-278), the reciprocal-like
+check in `useSwipe.ts`, and the realtime filter in `useMatchesSubscription.ts` (both
+MEXA-280). The match itself still gets made — the `swipes_check_match` trigger from 00001
+runs as its owner and is not subject to the policy — so what breaks is the "It's a Match!"
+screen and the incoming-like notification, not the data.
+None of them errored; they just came back empty, which is why it went unnoticed for months.
+Before writing a query that reads a table "about me", check which side of the row the policy
+names.
 
 **Types for a new view have to be written by hand.** `supabase gen types typescript` shells
 out to Docker, and there is no Docker on this box — it exits 1 after printing only
