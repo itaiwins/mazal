@@ -72,12 +72,19 @@ Notes on the order:
 - `00012` is **not applied yet**: what reads the tombstones at signup still waits on a
   product decision (MEXA-258, `docs/MODERATION_REENTRY.md`). It refuses to run if `00011`
   has not — `00011` now has, so it is no longer blocked on that.
-- `00014` is **not applied yet** either — it is a privilege change on a live project, so it
-  waits on Guts or Alucard (MEXA-275) and then on Lelouch for the apply (MEXA-33). It has no
-  dependency on `00011`–`00013` and they have none on it: it is one `REVOKE` over every
-  table in `public` plus a default-privileges fix, and re-running it is a no-op. Applying it
-  out of order is safe; applying it *before* a new `CREATE TABLE` is better, because that is
-  what stops the new table being handed TRUNCATE.
+- `00014` **is applied** — 2026-09-28 23:36Z, MEXA-268, after Alucard's review (MEXA-275) and
+  Lelouch's approval (MEXA-285). It has no dependency on `00011`–`00013` and they have none
+  on it: it is one `REVOKE` over every table in `public` plus a default-privileges fix, and
+  re-running it is a no-op. Applying it out of order is safe; applying it *before* a new
+  `CREATE TABLE` is better, because that is what stops the new table being handed TRUNCATE.
+  Post-check, all green: as `authenticated`, `TRUNCATE` on `reports` / `users CASCADE` /
+  `messages` / `swipes` and `CREATE TRIGGER ON reports` are `42501`, reads and
+  `UPDATE public.users` still work, and no table in `public` grants any of the four to
+  `anon` or `authenticated` (`.scratch/mazal-mexa268/APPLY_AND_POSTCHECK.txt`). It went on
+  **after** `00011`, so the sweep covered `deleted_accounts` and `moderation_secrets` too —
+  no-ops there, since `00011` had already revoked everything from the client roles. Its
+  header counts 36 tables because that is what `public` held when the problem was measured;
+  `00011` has since added two.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
 - `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values
