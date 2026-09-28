@@ -37,6 +37,7 @@ Apply exactly this sequence:
 00010_secure_definer_rpcs.sql
 00011_preserve_moderation_history.sql
 00012_deleted_accounts_retention.sql
+00014_revoke_unreachable_table_privileges.sql
 ```
 
 Notes on the order:
@@ -53,13 +54,22 @@ Notes on the order:
 - Undo scripts live in `supabase/rollback/`, **never** in this directory. Anything
   dropped in here is a file some tool will eventually apply in name order, and an undo
   script is the last thing you want applied by accident — `00010_rollback.sql` sorted
-  *ahead* of the migration it undoes. The three that exist are
-  `00010_secure_definer_rpcs_rollback.sql`, `00011_preserve_moderation_history_rollback.sql`
-  and `00012_deleted_accounts_retention_rollback.sql`; read each one's header.
+  *ahead* of the migration it undoes. The four that exist are
+  `00010_secure_definer_rpcs_rollback.sql`, `00011_preserve_moderation_history_rollback.sql`,
+  `00012_deleted_accounts_retention_rollback.sql` and
+  `00014_revoke_unreachable_table_privileges_rollback.sql`; read each one's header. `00014`'s
+  is the only one that is not a bit-exact inverse, and it says exactly where it differs and
+  why.
 - `00011` and `00012` are in the order above but are **not applied yet** to
   `tayiyczmacvhokdxfqvm` — they are waiting on Guts's security review (MEXA-256) and, for
   what reads the tombstones at signup, on a product decision (MEXA-258,
   `docs/MODERATION_REENTRY.md`). `00012` refuses to run if `00011` has not.
+- `00014` is **not applied yet** either — it is a privilege change on a live project, so it
+  waits on Guts or Alucard (MEXA-275) and then on Lelouch for the apply (MEXA-33). It has no
+  dependency on `00011`–`00013` and they have none on it: it is one `REVOKE` over every
+  table in `public` plus a default-privileges fix, and re-running it is a no-op. Applying it
+  out of order is safe; applying it *before* a new `CREATE TABLE` is better, because that is
+  what stops the new table being handed TRUNCATE.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
 - `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values
@@ -136,6 +146,45 @@ GRANT  EXECUTE ON FUNCTION public.my_function(uuid) TO authenticated, service_ro
   PostgREST publishes every non-trigger function in `public` at `/rest/v1/rpc/<name>`, so
   a missed revoke is a live endpoint for anyone holding the anon key. Also add
   `SET search_path = public`.
+
+## Creating a new table
+
+The table-level twin of the problem above, from MEXA-268. Supabase ships
+`ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon, authenticated, service_role`
+on `public`, so before `00014` every one of the 36 tables here held the full privilege set
+for both client roles — `anon=arwdDxtm`, i.e. INSERT, SELECT, UPDATE, DELETE, **TRUNCATE,
+REFERENCES, TRIGGER and MAINTAIN**.
+
+**RLS does not constrain TRUNCATE, TRIGGER, REFERENCES or MAINTAIN.** Policies filter
+SELECT/INSERT/UPDATE/DELETE only; the other four are table-level privileges and bypass
+every policy. `TRUNCATE public.users CASCADE` as the `authenticated` role emptied nine
+more tables with it — measured on this project, in a rolled-back transaction, before
+`00014`. Nothing reaches it through PostgREST, which is why this is hardening rather than
+an incident, but the grant has no caller and no purpose.
+
+`00014` revokes all four schema-wide and fixes the `postgres`-owned default so the next
+`CREATE TABLE` does not re-grant them. Two things it does not solve:
+
+- The `supabase_admin`-owned entry in `pg_default_acl` for `public` still grants all eight.
+  The pooler role cannot change it (`permission denied to change default privileges`) and a
+  default ACL only applies to objects created by its owning role, so it is harmless while
+  every migration runs as `postgres`. Re-running `00014` section 1 is the fix if it ever
+  bites. Do not grant `supabase_admin` to `postgres` to get around it.
+- `arwd` is still schema-wide. A new table therefore starts life with INSERT, SELECT,
+  UPDATE and DELETE for `anon` **and** `authenticated`, and RLS is the only thing standing
+  between them and the data. So a new table needs, in the same migration that creates it:
+  `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`, a policy per verb it means to allow, and an
+  explicit `REVOKE`/`GRANT` pair naming the verbs it does not — the shape `00011` uses for
+  `deleted_accounts` and `moderation_secrets`:
+
+```sql
+REVOKE ALL ON TABLE public.my_table FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT ON TABLE public.my_table TO authenticated;
+GRANT ALL    ON TABLE public.my_table TO service_role;
+```
+
+  Granting a verb with no matching policy is not neutral: it is silent until someone adds a
+  permissive policy later and does not think to check the grant.
 
 ## Still to do on the backend
 
