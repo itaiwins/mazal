@@ -273,6 +273,15 @@ export default function RootLayout() {
                 }}
               />
 
+              {/* Auth email deep links (mazal://auth/reset-password, .../confirm) */}
+              <Stack.Screen
+                name="auth"
+                options={{
+                  headerShown: false,
+                  gestureEnabled: false,
+                }}
+              />
+
               {/* Onboarding group */}
               <Stack.Screen
                 name="(onboarding)"

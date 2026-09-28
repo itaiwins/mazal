@@ -25,6 +25,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import * as Crypto from 'expo-crypto';
 import { supabase } from '@/api/supabase/client';
+import { EMAIL_CONFIRM_REDIRECT_URL } from '@/lib/auth/authDeepLink';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { colors } from '@/theme/colors';
@@ -86,6 +87,9 @@ export default function RegisterScreen() {
         email: email.trim().toLowerCase(),
         password,
         options: {
+          // Without this the confirmation link falls back to the project's
+          // `site_url`, which opens the app with nothing to show for it.
+          emailRedirectTo: EMAIL_CONFIRM_REDIRECT_URL,
           data: {
             // Will be updated during onboarding
           },

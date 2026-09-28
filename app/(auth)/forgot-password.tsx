@@ -18,6 +18,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/api/supabase/client';
+import { RESET_PASSWORD_REDIRECT_URL } from '@/lib/auth/authDeepLink';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 
@@ -45,7 +46,7 @@ export default function ForgotPasswordScreen() {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(
         email.trim().toLowerCase(),
         {
-          redirectTo: 'mazal://auth/reset-password',
+          redirectTo: RESET_PASSWORD_REDIRECT_URL,
         }
       );
 

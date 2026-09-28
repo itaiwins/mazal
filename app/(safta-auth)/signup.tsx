@@ -29,6 +29,7 @@ import Animated, { FadeInUp } from 'react-native-reanimated';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { supabase } from '@/api/supabase/client';
+import { EMAIL_CONFIRM_REDIRECT_URL } from '@/lib/auth/authDeepLink';
 import { useAuthStore } from '@/stores/authStore';
 
 // Required for web browser auth to close properly
@@ -60,6 +61,9 @@ export default function SaftaSignupScreen() {
         email: email.trim().toLowerCase(),
         password,
         options: {
+          // `flow=safta` tells app/auth/confirm.tsx to continue into matchmaker
+          // profile setup instead of the regular onboarding.
+          emailRedirectTo: `${EMAIL_CONFIRM_REDIRECT_URL}?flow=safta`,
           data: {
             account_type: 'safta', // Mark this as a Safta account
           },
