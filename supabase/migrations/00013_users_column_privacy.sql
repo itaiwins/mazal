@@ -63,7 +63,7 @@
 -- app reads or writes either column today (checked across src/ and app/; only
 -- src/types/supabase.generated.ts mentions them), so this moves storage, not behaviour.
 --
--- WHAT `user_photos` HAS TO DO WITH IT
+-- WHAT `user_photos` HAS TO DO WITH IT (and an anon hole it was hiding)
 --
 -- `user_photos."Users can view other photos"` decided "is this profile visible to me?" with
 -- a correlated subquery against `users` - and a subquery inside a policy is itself subject
@@ -71,6 +71,12 @@
 -- every other user's photos disappear from discovery. The policy is rewritten to ask
 -- `public.is_discoverable_profile()`, a SECURITY DEFINER function, which is the same trick
 -- 00008 used with `has_block_between` to break the users <-> blocks cycle.
+--
+-- Rewriting it also closes a live anonymous read that had nothing to do with this issue, and
+-- that Guts found while reviewing it (MEXA-286): the old policy was `TO public`, its block
+-- check went NULL-safe-true for a caller with no `current_app_user_id()`, and `anon` held
+-- table-level SELECT - so the publishable anon key alone could read every active user's
+-- photo rows. The new policy is `TO authenticated` and section 5 takes anon's grant away.
 --
 -- GRANTS
 --
@@ -152,8 +158,15 @@ AS $$
            radians(p_lat1) AS lat1,
            radians(p_lat2) AS lat2
   ), a AS (
-    SELECT sin(d_lat / 2) * sin(d_lat / 2)
-         + cos(lat1) * cos(lat2) * sin(d_lon / 2) * sin(d_lon / 2) AS v
+    -- Clamped into [0, 1] (Guts, MEXA-286). Mathematically `a` cannot leave that range, but
+    -- in floating point a near-identical or near-antipodal pair can land a hair outside it,
+    -- and then `sqrt(1 - a)` raises "cannot take square root of a negative number". In
+    -- JavaScript that was a quiet NaN; here it would abort the whole discovery query, so
+    -- every card in the deck would fail to load for one unlucky pair of coordinates.
+    SELECT least(1::double precision, greatest(0::double precision,
+             sin(d_lat / 2) * sin(d_lat / 2)
+           + cos(lat1) * cos(lat2) * sin(d_lon / 2) * sin(d_lon / 2)
+           )) AS v
       FROM t
   )
   -- 3959 = Earth's radius in miles, as in the JavaScript.
@@ -280,14 +293,28 @@ SELECT
          )
   END AS distance_miles
 FROM public.users u
--- LEFT JOIN LATERAL, not a plain join: someone who has not finished onboarding has no
--- `users` row, and they should still get an empty deck rather than an error. LIMIT 1
--- because nothing constrains auth_id to be unique, the same reason current_app_user_id()
--- has one.
+-- LEFT JOIN LATERAL, not a plain join: a safta signs in against `safta_accounts` and has no
+-- `users` row at all, and somebody mid-onboarding has none yet either. Both should get a
+-- deck rather than an error, with a null distance because there is no location to measure
+-- from. When `me` is absent the blocks check below cannot match, so no block is enforced -
+-- which is the same thing `has_block_between()` has always done for those callers (00008
+-- returns NULL from current_app_user_id()), and they now see display columns instead of the
+-- whole row.
+--
+-- LIMIT 1 because no constraint names auth_id as unique, the same reason
+-- current_app_user_id() has one. The ORDER BY is Guts's point on MEXA-286: with duplicate
+-- auth_id rows an unordered LIMIT 1 would make block enforcement depend on which row the
+-- planner happened to return. It is insurance only - a duplicate turns out to be
+-- unreachable, because 00011's identity guard pins users.email to the auth account's
+-- verified email and users.email is UNIQUE, so a second row for one auth_id would have to
+-- duplicate an email the constraint forbids. Both halves of that are checked in
+-- .scratch/mazal-mexa261/verify_00013.mjs; the ORDER BY stays because it costs nothing and
+-- the guard is a trigger rather than a constraint.
 LEFT JOIN LATERAL (
   SELECT m.id, m.current_latitude, m.current_longitude
     FROM public.users m
    WHERE m.auth_id = auth.uid()
+   ORDER BY m.created_at, m.id
    LIMIT 1
 ) me ON true
 WHERE auth.uid() IS NOT NULL          -- fails closed: an anonymous caller gets nothing
@@ -323,6 +350,18 @@ CREATE POLICY "Users can view other photos" ON public.user_photos
   USING (public.is_discoverable_profile(user_id));
 
 -- "Users can view own photos" still covers the caller's own rows.
+
+-- Scoping that policy `TO authenticated` closes something the old one did not, and it is
+-- worth naming rather than leaving as a side effect (Guts, MEXA-286). The policy it replaces
+-- was `TO public`, and its block check went NULL-safe-true for a caller with no
+-- `current_app_user_id()` - so anyone holding only the publishable anon key could read every
+-- active user's `user_photos` rows without signing in. 0 rows in the table today, so nothing
+-- was exposed.
+--
+-- After the rewrite anon is blocked by having no applicable policy at all, which is correct
+-- but leans on nobody adding a permissive one later. Take the stale table grant away too, the
+-- same treatment `users` gets in section 6.
+REVOKE ALL ON TABLE public.user_photos FROM anon;
 
 -- =====================================================
 -- 6. TABLE GRANTS ON public.users

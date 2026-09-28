@@ -96,6 +96,11 @@ DROP FUNCTION IF EXISTS public.is_discoverable_profile(uuid);
 GRANT ALL ON TABLE public.users TO anon;
 GRANT ALL ON TABLE public.users TO authenticated;
 
+-- And on user_photos, which 00013 also revoked from anon. Restoring this re-opens the
+-- anonymous read of every active user's photo rows that the `TO public` policy in step 3
+-- allows, so it belongs to the same undo rather than being quietly left tightened.
+GRANT ALL ON TABLE public.user_photos TO anon;
+
 COMMIT;
 
 -- After running this, the app must be put back too: the queries in
