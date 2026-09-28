@@ -34,6 +34,7 @@ Apply exactly this sequence:
 00007_enable_rls_on_unprotected_tables.sql
 00008_fix_users_policy_recursion.sql
 00009_fix_shidduch_profiles_policy_recursion.sql
+00010_secure_definer_rpcs.sql
 ```
 
 Notes on the order:
@@ -43,8 +44,12 @@ Notes on the order:
   down, but Postgres parses a whole multi-statement batch before executing any of it, so
   applying `00001` to a database without PostGIS fails with
   `syntax error at or near "::"`.
-- `00007`–`00009` come last on purpose: they fix RLS problems in the migrations above
-  them, so they have to run after the objects they repair exist.
+- `00007`–`00010` come last on purpose: they fix RLS and privilege problems in the
+  migrations above them, so they have to run after the objects they repair exist. `00010`
+  in particular replaces functions defined in `00005`, `00006`, `20250114_*` and
+  `20250115_*`.
+- `00010_rollback.sql` is **not** applied. It is the undo for `00010`, kept next to it;
+  read its header.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
 - `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values
@@ -93,6 +98,34 @@ await c.query('commit');
   whose policy expressions reach back to itself; three cycles existed before `00008`
   and `00009` (`users ↔ blocks`, `shidduch_profiles ↔ shidduch_suggestions`,
   `shidduch_profiles ↔ family_connections`).
+
+`00010_secure_definer_rpcs.sql` was applied to the same project later on 2026-09-28
+(MEXA-252). After it, no function in `public` is executable by `anon` or `PUBLIC` except
+the four `notify_*` trigger functions, which Postgres will not run outside a trigger and
+PostgREST does not publish.
+
+## Writing a new SECURITY DEFINER function
+
+Two things bite here, both learned the hard way in MEXA-248/251/252:
+
+- A `SECURITY DEFINER` function runs as `postgres`, which has `BYPASSRLS`, so **no policy
+  on any table it reads or writes applies**. It has to check identity itself, from
+  `auth.uid()` / `public.current_app_user_id()`. Never trust an id passed in as an
+  argument; if the argument has to stay for compatibility, compare it to the caller and
+  raise `42501` when it does not match.
+- **`REVOKE ... FROM PUBLIC` is not enough, and omitting a role from `GRANT` does
+  nothing.** Supabase ships `ALTER DEFAULT PRIVILEGES` on `public` that grants `EXECUTE`
+  to `anon`, `authenticated` and `service_role` on every new function at creation time.
+  Say it explicitly:
+
+```sql
+REVOKE EXECUTE ON FUNCTION public.my_function(uuid) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.my_function(uuid) TO authenticated, service_role;
+```
+
+  PostgREST publishes every non-trigger function in `public` at `/rest/v1/rpc/<name>`, so
+  a missed revoke is a live endpoint for anyone holding the anon key. Also add
+  `SET search_path = public`.
 
 ## Still to do on the backend
 
