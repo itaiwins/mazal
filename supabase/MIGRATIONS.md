@@ -35,6 +35,8 @@ Apply exactly this sequence:
 00008_fix_users_policy_recursion.sql
 00009_fix_shidduch_profiles_policy_recursion.sql
 00010_secure_definer_rpcs.sql
+00011_preserve_moderation_history.sql
+00012_deleted_accounts_retention.sql
 ```
 
 Notes on the order:
@@ -48,8 +50,16 @@ Notes on the order:
   migrations above them, so they have to run after the objects they repair exist. `00010`
   in particular replaces functions defined in `00005`, `00006`, `20250114_*` and
   `20250115_*`.
-- `00010_rollback.sql` is **not** applied. It is the undo for `00010`, kept next to it;
-  read its header.
+- Undo scripts live in `supabase/rollback/`, **never** in this directory. Anything
+  dropped in here is a file some tool will eventually apply in name order, and an undo
+  script is the last thing you want applied by accident — `00010_rollback.sql` sorted
+  *ahead* of the migration it undoes. The three that exist are
+  `00010_secure_definer_rpcs_rollback.sql`, `00011_preserve_moderation_history_rollback.sql`
+  and `00012_deleted_accounts_retention_rollback.sql`; read each one's header.
+- `00011` and `00012` are in the order above but are **not applied yet** to
+  `tayiyczmacvhokdxfqvm` — they are waiting on Guts's security review (MEXA-256) and, for
+  what reads the tombstones at signup, on a product decision (MEXA-258,
+  `docs/MODERATION_REENTRY.md`). `00012` refuses to run if `00011` has not.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
 - `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values
