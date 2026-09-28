@@ -5,11 +5,26 @@
  * then changes it for real.
  *
  * Why the reauthentication step: `supabase.auth.updateUser({ password })` only
- * needs a valid session, not the old password, and this project has
- * `security_update_password_require_reauthentication` off. Without a check,
- * anyone holding an unlocked phone could take the account over from this
- * screen, so we sign in once with the entered current password first. That call
- * also mints a fresh session, which is what the update then runs against.
+ * needs a valid session, not the old password. Without a check, anyone holding
+ * an unlocked phone could take the account over from this screen, so we sign in
+ * once with the entered current password first.
+ *
+ * That sign-in does two things, and the second is easy to miss (MEXA-272). It
+ * mints a fresh session, and that session's AMR is `password`. GoTrue enforces
+ * `security_update_password_require_current_password` only when the session is
+ * *not* a recovery-ish one, and `Session.IsRecovery()` counts `otp`, `magiclink`
+ * and `recovery` as recovery-ish (`internal/api/user.go:175` and
+ * `internal/models/factor.go:66`, v2.197.0). A Mazal user who just confirmed a
+ * signup email holds an `amr: ['otp']` session, which the server check skips
+ * entirely. Signing in first is what guarantees the check engages — it is not
+ * only here for the nicer error message.
+ *
+ * We then also send `current_password`, so GoTrue verifies the old password
+ * itself rather than trusting this screen to have done it. That is what closes
+ * the hole a modified client opens by calling `updateUser({ password })`
+ * directly. It only has teeth once the project flag is on; sending the field
+ * while the flag is off is harmless (GoTrue ignores it), so this can ship
+ * before the flag flips.
  */
 
 import { useEffect, useState } from 'react';
@@ -40,6 +55,29 @@ import { spacing, borderRadius } from '@/theme/spacing';
  * this, and the current one just has to be non-empty.
  */
 const MIN_PASSWORD_LENGTH = 8;
+
+/**
+ * Turn the server's rejection into something a person can act on.
+ *
+ * The two `current_password_*` codes should be unreachable — step 1 already
+ * signed in with this exact password — so reaching them means the password
+ * changed under us (another device) rather than that the user mistyped. Codes
+ * are GoTrue's `internal/api/apierrors/errorcode.go:75-76`; note that the
+ * mismatch case is spelled `current_password_invalid` on the wire even though
+ * the Go constant is named `...Mismatch`. Returns null when we have nothing
+ * better to say than the server's own message.
+ */
+function currentPasswordErrorMessage(updateError: { code?: string }): string | null {
+  switch (updateError.code) {
+    case 'same_password':
+      return 'Your new password must be different from your current one.';
+    case 'current_password_required':
+    case 'current_password_invalid':
+      return 'That current password is incorrect. If you just changed it on another device, sign in again and retry.';
+    default:
+      return null;
+  }
+}
 
 type Status = 'loading' | 'ready' | 'saving' | 'unavailable';
 
@@ -143,17 +181,18 @@ export default function PasswordSettingsScreen() {
         return;
       }
 
-      // 2. Now actually change it.
+      // 2. Now actually change it, and let the server check the old password
+      //    too. `current_password` is not in auth-js's `UserAttributes` yet
+      //    (@supabase/auth-js 2.90.1), but `_updateUser` spreads the attributes
+      //    straight into the request body, so the extra field reaches GoTrue.
+      //    The cast is only to get past the type, not a behaviour change.
       const { error: updateError } = await supabase.auth.updateUser({
         password: newPassword,
-      });
+        current_password: currentPassword,
+      } as Parameters<typeof supabase.auth.updateUser>[0]);
 
       if (updateError) {
-        setError(
-          updateError.code === 'same_password'
-            ? 'Your new password must be different from your current one.'
-            : updateError.message
-        );
+        setError(currentPasswordErrorMessage(updateError) ?? updateError.message);
         setStatus('ready');
         return;
       }
