@@ -385,61 +385,86 @@ export default function ShidduchSuggestionsScreen() {
         };
       });
 
-      // Also get any manual shadchan suggestions from the database
+      // Also get any manual shadchan suggestions from the database.
+      //
+      // This used to reach `users` twice - once as `users!inner` nested under `profile_b`,
+      // once as `suggested_by_user:suggested_by_user_id` - and both are other people, so both
+      // came back null once 00013 (MEXA-261) made `users` own-row-only. The suggestion rows
+      // and the nested `shidduch_profiles` stay embedded; the two sets of user columns come
+      // from `user_public_profiles` in one follow-up query (MEXA-279).
+      //
+      // `profile_b` is named by its foreign key rather than by the `profile_b_id` column,
+      // because `shidduch_suggestions` points at `shidduch_profiles` twice (profile_a and
+      // profile_b) and only the constraint name resolves for the typed client.
       const { data: manualSuggestions } = await supabase
         .from('shidduch_suggestions')
         .select(`
           id,
           profile_a_status,
           compatibility_score,
-          profile_b:profile_b_id(
+          suggested_by_user_id,
+          profile_b:shidduch_profiles!shidduch_suggestions_profile_b_id_fkey(
             id,
+            user_id,
             hebrew_name,
-            community,
-            users!inner(
-              first_name,
-              date_of_birth,
-              current_city,
-              current_state
-            )
-          ),
-          suggested_by_user:suggested_by_user_id(
-            first_name,
-            last_name
+            community
           )
         `)
         .eq('profile_a_id', profile.id)
         .neq('suggested_by_type', 'algorithm')
         .order('created_at', { ascending: false });
 
-      const manualSuggestionsList: Suggestion[] = (manualSuggestions || []).map((s: any) => {
-        const profileB = s.profile_b;
-        const user = profileB?.users;
-        const age = user?.date_of_birth
-          ? Math.floor(
-              (Date.now() - new Date(user.date_of_birth).getTime()) /
-                (365.25 * 24 * 60 * 60 * 1000)
-            )
-          : null;
+      const suggestionUserIds = [
+        ...new Set(
+          (manualSuggestions ?? []).flatMap((s) => [s.profile_b?.user_id, s.suggested_by_user_id])
+        ),
+      ].filter((id): id is string => !!id);
 
-        return {
-          id: s.id,
-          firstName: user?.first_name || 'Anonymous',
-          hebrewName: profileB?.hebrew_name,
-          age,
-          community: COMMUNITY_LABELS[profileB?.community || ''] || 'Not specified',
-          city: [user?.current_city, user?.current_state].filter(Boolean).join(', ') || 'Not specified',
-          source: 'shadchan' as const,
-          sourceName: s.suggested_by_user
-            ? `${s.suggested_by_user.first_name} ${s.suggested_by_user.last_name}`.trim()
-            : 'Shadchan',
-          score: s.compatibility_score || 0,
-          reasons: [],
-          status: s.profile_a_status || 'pending',
-          photoVisible: false,
-          photoUrl: null,
-        };
-      });
+      const { data: suggestionUsers } = await supabase
+        .from('user_public_profiles')
+        .select('id, first_name, date_of_birth, current_city, current_state')
+        .in('id', suggestionUserIds);
+
+      const suggestionUsersById = new Map((suggestionUsers ?? []).map((u) => [u.id, u]));
+
+      const manualSuggestionsList: Suggestion[] = (manualSuggestions || [])
+        // The old query's `!inner` dropped a suggestion whose subject had no `users` row.
+        // The view hides anyone inactive, blocked either way, or the caller, so keeping that
+        // filter means a suggestion you are not allowed to see does not render at all,
+        // rather than rendering as "Anonymous".
+        .filter((s) => !!s.profile_b?.user_id && suggestionUsersById.has(s.profile_b.user_id))
+        .map((s) => {
+          const profileB = s.profile_b;
+          const user = profileB?.user_id ? suggestionUsersById.get(profileB.user_id) : undefined;
+          const suggestedBy = s.suggested_by_user_id
+            ? suggestionUsersById.get(s.suggested_by_user_id)
+            : undefined;
+          const age = user?.date_of_birth
+            ? Math.floor(
+                (Date.now() - new Date(user.date_of_birth).getTime()) /
+                  (365.25 * 24 * 60 * 60 * 1000)
+              )
+            : null;
+
+          return {
+            id: s.id,
+            firstName: user?.first_name || 'Anonymous',
+            hebrewName: profileB?.hebrew_name ?? undefined,
+            age,
+            community: COMMUNITY_LABELS[profileB?.community || ''] || 'Not specified',
+            city: [user?.current_city, user?.current_state].filter(Boolean).join(', ') || 'Not specified',
+            source: 'shadchan' as const,
+            // First name only: the view does not publish `last_name`, which is the point of
+            // it. A shadchan who is inactive or blocked has no row here at all, and the
+            // existing "Shadchan" fallback covers that.
+            sourceName: suggestedBy?.first_name || 'Shadchan',
+            score: s.compatibility_score || 0,
+            reasons: [],
+            status: (s.profile_a_status as Suggestion['status']) || 'pending',
+            photoVisible: false,
+            photoUrl: null,
+          };
+        });
 
       // Combine and sort by score
       const allSuggestions = [...manualSuggestionsList, ...aiSuggestions]

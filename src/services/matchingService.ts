@@ -489,27 +489,36 @@ export async function getAIRecommendations(
   try {
     console.log('[AI Matching] Getting recommendations for profile:', profileId);
 
-    // Get the source profile - use explicit relationship to avoid ambiguity
-    const { data: sourceProfile, error: sourceError } = await supabase
+    // The source profile belongs to the *caller*, so its user row is read from `users` and
+    // not from `user_public_profiles` - the view deliberately excludes the signed-in user
+    // (`auth_id IS DISTINCT FROM auth.uid()`), so embedding it here would return null and
+    // the gender check below would abandon the whole call. The caller's own row is exactly
+    // what `users` still serves after 00013 (MEXA-261), so this is two queries, not one.
+    const { data: sourceProfileRow, error: sourceError } = await supabase
       .from('shidduch_profiles')
-      .select(`
-        *,
-        users:users!shidduch_profiles_user_id_fkey(
-          first_name,
-          date_of_birth,
-          gender,
-          current_city,
-          current_state,
-          current_country
-        )
-      `)
+      .select('*')
       .eq('id', profileId)
       .single();
 
-    if (sourceError || !sourceProfile) {
+    if (sourceError || !sourceProfileRow) {
       console.error('[AI Matching] Error fetching source profile:', sourceError);
       return [];
     }
+
+    const { data: sourceUser, error: sourceUserError } = await supabase
+      .from('users')
+      .select('first_name, date_of_birth, gender, current_city, current_state, current_country')
+      .eq('id', sourceProfileRow.user_id)
+      .maybeSingle();
+
+    if (sourceUserError) {
+      console.error('[AI Matching] Error fetching source profile user:', sourceUserError);
+      return [];
+    }
+
+    // Reassembled under `users` so calculateCompatibility() sees the shape the embedded
+    // query used to produce.
+    const sourceProfile = { ...sourceProfileRow, users: sourceUser ?? undefined };
 
     // Handle missing gender data
     const sourceGender = sourceProfile.users?.gender;
@@ -532,20 +541,16 @@ export async function getAIRecommendations(
     );
 
     // Fetch potential candidates - get more to ensure enough after filtering
-    // Using a larger limit since we filter down after
+    // Using a larger limit since we filter down after.
+    //
+    // This used to embed `users:users!shidduch_profiles_user_id_fkey(...)`. Candidates are
+    // other people, and `users` has been own-row-only since 00013 (MEXA-261), so every
+    // candidate's embed came back null - which the gender filter below reads as "not a
+    // match", so the whole list came back empty. The user columns come from
+    // `user_public_profiles` in a second query keyed on the candidates' user ids.
     const { data: candidates, error: candidatesError } = await supabase
       .from('shidduch_profiles')
-      .select(`
-        *,
-        users:users!shidduch_profiles_user_id_fkey(
-          first_name,
-          date_of_birth,
-          gender,
-          current_city,
-          current_state,
-          current_country
-        )
-      `)
+      .select('*')
       .eq('profile_visible', true)
       .eq('accepting_suggestions', true)
       .neq('id', profileId)
@@ -556,10 +561,33 @@ export async function getAIRecommendations(
       return [];
     }
 
+    const candidateUserIds = [
+      ...new Set((candidates ?? []).map((candidate) => candidate.user_id)),
+    ].filter((id): id is string => !!id);
+
+    const { data: candidateUsers, error: candidateUsersError } = await supabase
+      .from('user_public_profiles')
+      .select('id, first_name, date_of_birth, gender, current_city, current_state, current_country')
+      .in('id', candidateUserIds);
+
+    if (candidateUsersError) {
+      console.error('[AI Matching] Error fetching candidate users:', candidateUsersError);
+      return [];
+    }
+
+    // The view withholds anyone inactive, blocked either way, or the caller themselves, so a
+    // candidate with no entry here drops out at the gender filter below. The embedded version
+    // scored and returned those profiles.
+    const candidateUsersById = new Map((candidateUsers ?? []).map((u) => [u.id, u]));
+
     console.log('[AI Matching] Found', candidates?.length || 0, 'candidate profiles');
 
     // Filter and score candidates
     const scoredMatches: MatchSuggestion[] = (candidates || [])
+      .map((candidate) => ({
+        ...candidate,
+        users: candidate.user_id ? candidateUsersById.get(candidate.user_id) : undefined,
+      }))
       .filter((candidate) => {
         // Must be opposite gender
         if (candidate.users?.gender !== oppositeGender) return false;

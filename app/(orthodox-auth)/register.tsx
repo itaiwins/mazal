@@ -71,40 +71,21 @@ export default function OrthodoxRegisterScreen() {
     return true;
   };
 
-  // Check if email is already registered in regular/safta accounts
-  const checkEmailNotInUse = async (emailToCheck: string): Promise<boolean> => {
-    try {
-      // Check if email exists in orthodox_emails (already used for Orthodox)
-      // Note: orthodox_emails table created via migration
-      const { data: orthodoxEmail } = await (supabase as any)
-        .from('orthodox_emails')
-        .select('id')
-        .eq('email', emailToCheck.toLowerCase())
-        .single();
-
-      if (orthodoxEmail) {
-        setError('This email is already registered for Orthodox mode. Please sign in.');
-        return false;
-      }
-
-      // Check if email exists in regular users (not Orthodox)
-      const { data: regularUser } = await (supabase as any)
-        .from('users')
-        .select('id, is_orthodox_user')
-        .eq('email', emailToCheck.toLowerCase())
-        .single();
-
-      if (regularUser && !regularUser.is_orthodox_user) {
-        setError('This email is already registered for the regular app. Orthodox accounts require a separate email.');
-        return false;
-      }
-
-      return true;
-    } catch {
-      // No existing user found, which is good
-      return true;
-    }
-  };
+  // There used to be a checkEmailNotInUse() here that asked, before sign-up, whether an
+  // address was already taken - by selecting from `orthodox_emails` and from `users` as
+  // `anon`. MEXA-279 removed it, for two reasons:
+  //
+  //   * It never worked. Both tables' SELECT policies are scoped to the signed-in owner
+  //     (`auth.uid()`), so a caller with no session matched nothing and the check always
+  //     concluded "address is free". Since 00013 (MEXA-261) `anon` holds no privilege on
+  //     `users` at all, so the same call now raises 42501 instead - which the `catch` also
+  //     read as "address is free".
+  //   * It should not be made to work. An endpoint that answers "is this address
+  //     registered?" to an unauthenticated caller is an account-enumeration primitive, and
+  //     on a dating app the answer is sensitive on its own.
+  //
+  // supabase.auth.signUp() below already rejects a duplicate address, and its error is
+  // surfaced to the user, so nothing is lost but the wrong answer.
 
   const handleRegister = async () => {
     if (!validateForm()) return;
@@ -113,14 +94,7 @@ export default function OrthodoxRegisterScreen() {
     setError(null);
 
     try {
-      // Check if email is available for Orthodox registration
-      const isEmailAvailable = await checkEmailNotInUse(email);
-      if (!isEmailAvailable) {
-        setIsLoading(false);
-        return;
-      }
-
-      // Create the account
+      // Create the account. signUp() is where a duplicate address is caught now.
       const { data, error: authError } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(),
         password,

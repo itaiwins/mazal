@@ -29,6 +29,7 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { supabase } from '@/api/supabase/client';
+import { fetchPrimaryPhotoUrls } from '@/api/queries/primaryPhotos';
 import { useAuthStore } from '@/stores/authStore';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
@@ -67,17 +68,17 @@ export default function OrthodoxDiscoverScreen() {
       if (!user?.id) return;
 
       try {
-        const { data, error } = await (supabase as any)
-          .from('users')
-          .select(`
-            id,
-            first_name,
-            date_of_birth,
-            jewish_background,
-            bio,
-            occupation,
-            photos:user_photos(photo_url, photo_order)
-          `)
+        // `user_public_profiles`, not `users`: since 00013 (MEXA-261) that table serves the
+        // caller's own row and nothing else, so this deck would come back empty. The view
+        // carries the visibility rule the dropped policy used to - active, not you, no block
+        // either way - and publishes display columns only.
+        //
+        // Photos are a second query rather than the `photos:user_photos(...)` embed this
+        // used to carry: the view is not a table, so the typed client cannot describe an
+        // embed hanging off it (MEXA-279).
+        const { data, error } = await supabase
+          .from('user_public_profiles')
+          .select('id, first_name, date_of_birth, jewish_background, bio, occupation')
           .eq('is_orthodox_user', true)
           .eq('is_active', true)
           .neq('id', user.id)
@@ -85,22 +86,19 @@ export default function OrthodoxDiscoverScreen() {
 
         if (error) throw error;
 
-        const formattedProfiles = (data || []).map((profile: any) => {
-          const primaryPhoto = profile.photos?.find((p: any) => p.photo_order === 0) ||
-                              profile.photos?.[0];
+        const photoUrls = await fetchPrimaryPhotoUrls((data ?? []).map((p) => p.id));
 
-          return {
-            id: profile.id,
-            first_name: profile.first_name || 'Anonymous',
-            age: profile.date_of_birth
-              ? new Date().getFullYear() - new Date(profile.date_of_birth).getFullYear()
-              : 0,
-            jewish_background: profile.jewish_background || '',
-            bio: profile.bio || '',
-            occupation: profile.occupation || '',
-            photo_url: primaryPhoto?.photo_url || null,
-          };
-        });
+        const formattedProfiles = (data || []).map((profile) => ({
+          id: profile.id,
+          first_name: profile.first_name || 'Anonymous',
+          age: profile.date_of_birth
+            ? new Date().getFullYear() - new Date(profile.date_of_birth).getFullYear()
+            : 0,
+          jewish_background: profile.jewish_background || '',
+          bio: profile.bio || '',
+          occupation: profile.occupation || '',
+          photo_url: photoUrls.get(profile.id) ?? null,
+        }));
 
         setProfiles(formattedProfiles);
       } catch (error) {

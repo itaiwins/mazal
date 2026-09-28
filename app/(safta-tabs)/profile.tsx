@@ -33,6 +33,7 @@ import { spacing, borderRadius, shadows } from '@/theme/spacing';
 import { useAuthStore } from '@/stores/authStore';
 import { useSaftaPremiumStore } from '@/stores/saftaPremiumStore';
 import { supabase } from '@/api/supabase/client';
+import { fetchPrimaryPhotoUrls } from '@/api/queries/primaryPhotos';
 import { useDeactivateAccount } from '@/api/mutations/useProfile';
 
 interface ConnectedUser {
@@ -124,22 +125,34 @@ export default function SaftaProfileScreen() {
       if (!session?.user?.id) return;
 
       try {
+        // This query named three things that do not exist, and the `catch`-and-log below
+        // hid that, so the screen has always shown no connected users (MEXA-279):
+        //
+        //   * `safta_connections` has no `safta_id`. The safta side is `safta_account_id`,
+        //     a reference to `safta_accounts`, which is what `session.user.id` has to be
+        //     resolved through - hence the first query.
+        //   * there is no `safta_connections_user_id_fkey`; the constraint on the member
+        //     side is `safta_connections_connected_user_id_fkey`.
+        //   * `users` is own-row-only since 00013 (MEXA-261), and a safta has no `users`
+        //     row at all, so the connected member has to come from `user_public_profiles` -
+        //     which is a view, hence two more queries rather than an embed with photos
+        //     nested underneath it.
+        const { data: saftaAccount, error: accountError } = await supabase
+          .from('safta_accounts')
+          .select('id')
+          .eq('auth_id', session.user.id)
+          .maybeSingle();
+
+        if (accountError || !saftaAccount) {
+          if (accountError) console.log('No safta_accounts row:', accountError.message);
+          setConnectedUsers([]);
+          return;
+        }
+
         const { data, error } = await supabase
           .from('safta_connections')
-          .select(`
-            id,
-            created_at,
-            user:users!safta_connections_user_id_fkey (
-              id,
-              first_name,
-              date_of_birth,
-              user_photos (
-                photo_url,
-                photo_order
-              )
-            )
-          `)
-          .eq('safta_id', session.user.id)
+          .select('id, created_at, connected_user_id')
+          .eq('safta_account_id', saftaAccount.id)
           .order('created_at', { ascending: false });
 
         if (error) {
@@ -148,10 +161,26 @@ export default function SaftaProfileScreen() {
           return;
         }
 
-        const users: ConnectedUser[] = (data || []).map((conn: any) => {
-          const user = conn.user;
-          const primaryPhoto = user?.user_photos?.find((p: any) => p.photo_order === 0)?.photo_url ||
-                               user?.user_photos?.[0]?.photo_url || null;
+        const connectedUserIds = [
+          ...new Set((data ?? []).map((conn) => conn.connected_user_id)),
+        ].filter((id): id is string => !!id);
+
+        const { data: members, error: membersError } = await supabase
+          .from('user_public_profiles')
+          .select('id, first_name, date_of_birth')
+          .in('id', connectedUserIds);
+
+        if (membersError) {
+          console.log('No connected member profiles:', membersError.message);
+          setConnectedUsers([]);
+          return;
+        }
+
+        const membersById = new Map((members ?? []).map((member) => [member.id, member]));
+        const photoUrls = await fetchPrimaryPhotoUrls(connectedUserIds);
+
+        const users: ConnectedUser[] = (data || []).map((conn) => {
+          const user = conn.connected_user_id ? membersById.get(conn.connected_user_id) : undefined;
 
           let age = 0;
           if (user?.date_of_birth) {
@@ -167,7 +196,7 @@ export default function SaftaProfileScreen() {
           return {
             id: user?.id || conn.id,
             first_name: user?.first_name || 'User',
-            photo_url: primaryPhoto,
+            photo_url: (conn.connected_user_id && photoUrls.get(conn.connected_user_id)) || null,
             age,
             connected_at: conn.created_at,
           };

@@ -8,6 +8,42 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/api/supabase/client';
 
+/**
+ * The columns a recommendation shows about the person recommended, read from
+ * `user_public_profiles`.
+ *
+ * Both hooks below used to get these by embedding `liked_user:users!liked_user_id(...)`.
+ * Since 00013 (MEXA-261) `users` serves the caller's own row only - and a safta signs in
+ * against `safta_accounts`, so she has no `users` row at all - which made the embed null on
+ * every recommendation. The view is not a table, so the app fetches it as a second query
+ * keyed on the id list and merges client-side (MEXA-279).
+ */
+const LIKED_USER_COLUMNS = 'id, first_name, occupation, jewish_background';
+
+async function fetchLikedUsers(likedUserIds: string[]) {
+  const ids = [...new Set(likedUserIds)].filter((id): id is string => !!id);
+  if (ids.length === 0) return new Map<string, SaftaRecommendation['liked_user']>();
+
+  const { data, error } = await supabase
+    .from('user_public_profiles')
+    .select(LIKED_USER_COLUMNS)
+    .in('id', ids);
+
+  if (error) throw error;
+
+  return new Map(
+    (data ?? []).map((u) => [
+      u.id,
+      {
+        id: u.id,
+        first_name: u.first_name ?? '',
+        occupation: u.occupation,
+        jewish_background: u.jewish_background,
+      },
+    ])
+  );
+}
+
 export interface SaftaRecommendation {
   id: string;
   safta_account_id: string;
@@ -36,15 +72,7 @@ export function useSaftaSentRecommendations(saftaAccountId: string | undefined) 
 
       const { data, error } = await supabase
         .from('safta_likes')
-        .select(`
-          *,
-          liked_user:users!liked_user_id (
-            id,
-            first_name,
-            occupation,
-            jewish_background
-          )
-        `)
+        .select('*')
         .eq('safta_account_id', saftaAccountId)
         .order('created_at', { ascending: false });
 
@@ -53,7 +81,12 @@ export function useSaftaSentRecommendations(saftaAccountId: string | undefined) 
         throw error;
       }
 
-      return data as unknown as SaftaRecommendation[];
+      const likedUsers = await fetchLikedUsers((data ?? []).map((like) => like.liked_user_id));
+
+      return (data ?? []).map((like) => ({
+        ...like,
+        liked_user: likedUsers.get(like.liked_user_id),
+      })) as unknown as SaftaRecommendation[];
     },
     enabled: !!saftaAccountId,
   });
@@ -68,16 +101,14 @@ export function useGrandchildRecommendations(userId: string | undefined) {
     queryFn: async () => {
       if (!userId) return [];
 
+      // `safta` stays an embed - `safta_accounts` is a table and 00013 did not touch it -
+      // but note it comes back null here and always has: that table's SELECT policy is
+      // `auth_id = auth.uid()`, so a grandchild cannot read the account row of the safta who
+      // recommended to them. A pre-existing gap, filed rather than widened (MEXA-279).
       const { data, error } = await supabase
         .from('safta_likes')
         .select(`
           *,
-          liked_user:users!liked_user_id (
-            id,
-            first_name,
-            occupation,
-            jewish_background
-          ),
           safta:safta_accounts!safta_account_id (
             id,
             display_name
@@ -92,7 +123,12 @@ export function useGrandchildRecommendations(userId: string | undefined) {
         throw error;
       }
 
-      return data;
+      const likedUsers = await fetchLikedUsers((data ?? []).map((like) => like.liked_user_id));
+
+      return (data ?? []).map((like) => ({
+        ...like,
+        liked_user: likedUsers.get(like.liked_user_id),
+      }));
     },
     enabled: !!userId,
   });

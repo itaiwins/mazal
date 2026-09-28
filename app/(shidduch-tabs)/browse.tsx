@@ -132,24 +132,23 @@ export default function BrowseProfilesScreen() {
         setCurrentProfileId(myProfile.id);
       }
 
-      // Build query with filters - using existing columns only
-      // Use explicit relationship to avoid ambiguity with created_by_user_id FK
+      // Build query with filters - using existing columns only.
+      //
+      // The user columns used to arrive as an embedded
+      // `users:users!shidduch_profiles_user_id_fkey(...)`. `users` has been own-row-only
+      // since 00013 (MEXA-261) and everyone listed here is somebody else, so the embed came
+      // back null and the whole list rendered nameless. They come from
+      // `user_public_profiles` in a second query keyed on the user ids instead (MEXA-279).
       let query = supabase
         .from('shidduch_profiles')
         .select(`
           id,
+          user_id,
           hebrew_name,
           community,
           hashkafa_details,
           looking_for_description,
-          created_at,
-          users:users!shidduch_profiles_user_id_fkey(
-            first_name,
-            date_of_birth,
-            gender,
-            current_city,
-            current_state
-          )
+          created_at
         `)
         .eq('profile_visible', true)
         .eq('accepting_suggestions', true)
@@ -169,10 +168,29 @@ export default function BrowseProfilesScreen() {
         return;
       }
 
+      const profileUserIds = [
+        ...new Set((profilesData ?? []).map((p) => p.user_id)),
+      ].filter((id): id is string => !!id);
+
+      const { data: profileUsers, error: usersError } = await supabase
+        .from('user_public_profiles')
+        .select('id, first_name, date_of_birth, gender, current_city, current_state')
+        .in('id', profileUserIds);
+
+      if (usersError) {
+        console.error('Error loading profile users:', usersError);
+        return;
+      }
+
+      // A profile whose user is inactive, blocked either way, or the caller has no entry
+      // here and so renders without a name, age or city - the same as it did when the embed
+      // was null. Left as-is rather than dropped, to keep this change to the read path.
+      const profileUsersById = new Map((profileUsers ?? []).map((u) => [u.id, u]));
+
       // Transform and filter data
       const transformedProfiles: BrowseProfile[] = (profilesData || [])
-        .map((p: any) => {
-          const user = p.users;
+        .map((p) => {
+          const user = p.user_id ? profileUsersById.get(p.user_id) : undefined;
           const age = user?.date_of_birth
             ? Math.floor(
                 (Date.now() - new Date(user.date_of_birth).getTime()) /
@@ -182,16 +200,16 @@ export default function BrowseProfilesScreen() {
 
           return {
             id: p.id,
-            first_name: user?.first_name,
+            first_name: user?.first_name ?? null,
             hebrew_name: p.hebrew_name,
             age,
             community: p.community,
-            city: user?.current_city,
-            state: user?.current_state,
+            city: user?.current_city ?? null,
+            state: user?.current_state ?? null,
             hashkafa_details: p.hashkafa_details,
             looking_for_description: p.looking_for_description,
             created_at: p.created_at,
-            gender: user?.gender,
+            gender: user?.gender ?? null,
           };
         })
         .filter((p: any) => {

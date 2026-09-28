@@ -21,6 +21,7 @@ import { Image } from 'expo-image';
 import Animated, { FadeInUp, FadeIn } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/api/supabase/client';
+import { fetchPrimaryPhotoUrls } from '@/api/queries/primaryPhotos';
 import { useAuthStore } from '@/stores/authStore';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
@@ -96,25 +97,39 @@ export default function OrthodoxMatchesScreen() {
       if (!user?.id) return;
 
       try {
+        // This used to embed both sides as `users!matches_userN_id_fkey(...)` with photos
+        // nested underneath. Since 00013 (MEXA-261) `users` serves the caller's own row only,
+        // so the counterpart came back null and every match rendered as "Anonymous" with no
+        // photo. Three queries now - the match rows, the counterparts from
+        // `user_public_profiles`, their photos - keyed on the id list, which is the shape
+        // `useMatches` already uses (MEXA-279).
         const { data, error } = await supabase
           .from('matches')
-          .select(`
-            id,
-            created_at,
-            user1_id,
-            user2_id,
-            user1:users!matches_user1_id_fkey(id, first_name, jewish_background, photos:user_photos(photo_url, photo_order)),
-            user2:users!matches_user2_id_fkey(id, first_name, jewish_background, photos:user_photos(photo_url, photo_order))
-          `)
+          .select('id, created_at, user1_id, user2_id')
           .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
           .order('created_at', { ascending: false });
 
         if (error) throw error;
 
-        const formattedMatches = (data || []).map((match: any) => {
-          const otherUser = match.user1_id === user.id ? match.user2 : match.user1;
-          const primaryPhoto = otherUser?.photos?.find((p: any) => p.photo_order === 0) ||
-                              otherUser?.photos?.[0];
+        const otherUserIds = [
+          ...new Set(
+            (data ?? []).map((match) => (match.user1_id === user.id ? match.user2_id : match.user1_id))
+          ),
+        ].filter((id): id is string => !!id);
+
+        const { data: otherUsers, error: usersError } = await supabase
+          .from('user_public_profiles')
+          .select('id, first_name, jewish_background')
+          .in('id', otherUserIds);
+
+        if (usersError) throw usersError;
+
+        const usersById = new Map((otherUsers ?? []).map((u) => [u.id, u]));
+        const photoUrls = await fetchPrimaryPhotoUrls(otherUserIds);
+
+        const formattedMatches = (data || []).map((match) => {
+          const otherUserId = match.user1_id === user.id ? match.user2_id : match.user1_id;
+          const otherUser = otherUserId ? usersById.get(otherUserId) : undefined;
 
           return {
             id: match.id,
@@ -122,7 +137,7 @@ export default function OrthodoxMatchesScreen() {
             other_user: {
               id: otherUser?.id || '',
               first_name: otherUser?.first_name || 'Anonymous',
-              photo_url: primaryPhoto?.photo_url || null,
+              photo_url: (otherUserId && photoUrls.get(otherUserId)) || null,
               jewish_background: otherUser?.jewish_background || '',
             },
             last_message: undefined,
