@@ -29,28 +29,6 @@ function calculateAge(dateOfBirth: string): number {
   return age;
 }
 
-/**
- * Calculate distance between two coordinates in miles
- */
-function calculateDistanceMiles(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
-  const R = 3959; // Earth's radius in miles
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
 // Using DiscoveryFilters from @/types instead of local interface
 
 /**
@@ -58,8 +36,6 @@ function calculateDistanceMiles(
  */
 async function fetchDiscoveryProfiles(
   userId: string,
-  userLat: number | null,
-  userLng: number | null,
   filters: {
     age_min: number;
     age_max: number;
@@ -81,9 +57,15 @@ async function fetchDiscoveryProfiles(
     today.getDate()
   );
 
-  // Fetch users who haven't been swiped and match basic criteria
+  // Fetch users who haven't been swiped and match basic criteria.
+  //
+  // `user_public_profiles`, not `users`: since 00013 (MEXA-261) the table only ever returns
+  // the signed-in user's own row, and the view is what publishes other people. It also
+  // excludes the caller and inactive users itself and hands back a precomputed
+  // `distance_miles` instead of coordinates. The filters below are kept anyway, so the
+  // deck is still correct if the view's own rules are ever loosened.
   let query = supabase
-    .from('users')
+    .from('user_public_profiles')
     .select('*')
     .neq('id', userId)
     .eq('is_active', true)
@@ -192,18 +174,12 @@ async function fetchDiscoveryProfiles(
   const profiles: DiscoveryUser[] = availableUsers
     .map((user) => {
       const age = calculateAge(user.date_of_birth);
-      let distance: number | undefined;
 
-      if (userLat && userLng && user.current_latitude && user.current_longitude) {
-        distance = Math.round(
-          calculateDistanceMiles(
-            userLat,
-            userLng,
-            user.current_latitude,
-            user.current_longitude
-          )
-        );
-      }
+      // Computed by the view now (public.haversine_miles, the same 3959-mile formula this
+      // file used to run on downloaded coordinates), so the numbers are unchanged. Null
+      // when either side has no location, which is the old `undefined`.
+      const distance =
+        user.distance_miles === null ? undefined : Math.round(user.distance_miles);
 
       // Filter by distance if specified
       if (
@@ -286,18 +262,15 @@ export function useDiscoveryProfiles() {
       if (!user?.id) {
         throw new Error('User not authenticated');
       }
-      return fetchDiscoveryProfiles(
-        user.id,
-        user.current_latitude,
-        user.current_longitude,
-        {
-          age_min: filters.age_min,
-          age_max: filters.age_max,
-          distance_max_miles: filters.distance_max_miles,
-          gender_preference: filters.gender_preference,
-          jewish_backgrounds: filters.jewish_backgrounds,
-        }
-      );
+      // No coordinates passed in any more: the view knows where the caller is and returns
+      // distances, so this side never handles a latitude/longitude pair.
+      return fetchDiscoveryProfiles(user.id, {
+        age_min: filters.age_min,
+        age_max: filters.age_max,
+        distance_max_miles: filters.distance_max_miles,
+        gender_preference: filters.gender_preference,
+        jewish_backgrounds: filters.jewish_backgrounds,
+      });
     },
     enabled: isDemoMode || !!user?.id,
     staleTime: 1000 * 60 * 2, // 2 minutes

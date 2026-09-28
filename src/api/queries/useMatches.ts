@@ -70,9 +70,10 @@ async function fetchMatches(userId: string): Promise<MatchWithPreview[]> {
     m.user1_id === userId ? m.user2_id : m.user1_id
   );
 
-  // Fetch other users' info
+  // Fetch other users' info. From the view, not `users`: that table is own-row-only since
+  // 00013 (MEXA-261), so this query would return nothing against it.
   const { data: users } = await supabase
-    .from('users')
+    .from('user_public_profiles')
     .select('id, first_name, display_name, date_of_birth, is_verified')
     .in('id', otherUserIds);
 
@@ -194,11 +195,13 @@ export function useMatchById(matchId: string | undefined) {
       if (error) throw error;
       if (!match) throw new Error('Match not found');
 
-      // Get the other user's full profile
+      // Get the other user's public profile. Matching somebody does not entitle either of
+      // you to the other's email, phone or coordinates, so this reads the same view
+      // discovery does (MEXA-261).
       const otherUserId = match.user1_id === user.id ? match.user2_id : match.user1_id;
 
       const { data: otherUser } = await supabase
-        .from('users')
+        .from('user_public_profiles')
         .select('*')
         .eq('id', otherUserId)
         .single();
