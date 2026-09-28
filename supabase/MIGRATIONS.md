@@ -62,6 +62,7 @@ Apply exactly this sequence:
 00038_deliver_push_notifications.sql
 00039_discovery_deck_ranked_on_server.sql
 00040_blocks_survive_resignup.sql
+00027_prompts_badges_visibility.sql
 ```
 
 **`00038`–`00040` (MEXA-435) are independent of each other and of `00012`–`00037`**, and each
@@ -1478,6 +1479,33 @@ Notes on the order:
   branches of the rollback's `anon` decision. Fresh connections afterwards confirm no
   fixture, no ledger row, `with_check` still NULL, no column ACL and 89 public policies —
   the live schema untouched.
+- `00027` is **not applied yet** — MEXA-277, waiting on an apply card. It gives
+  `user_prompts` and `user_badges` the pair of SELECT policies `00013` gave `user_photos`:
+  own-row via `public.current_app_user_id()`, everyone else via
+  `public.is_discoverable_profile(user_id)`, both `TO authenticated`, plus
+  `REVOKE ALL … FROM anon`. Both tables previously carried one policy, `TO public USING
+  (true)`, and neither had an own-row SELECT policy — `USING (true)` was covering the owner
+  by accident, which is why removing it needs *two* policies and not one.
+  **`USING (true)` + `TO public` is not "every signed-in user".** `anon` held table `SELECT`
+  from Supabase's schema-wide default grant, so an unauthenticated caller with the
+  publishable key could read every prompt answer and badge in the database. `TO authenticated`
+  is what closes that; the `REVOKE` is belt and braces, and the harness asserts the two layers
+  separately so a later re-grant still fails the policy probe.
+  **`current_app_user_id()`, not `auth.uid()`**: `user_id` on both tables is a
+  `public.users.id`. Comparing it to an `auth.users.id` matches nothing and would have
+  silently emptied the owner's own profile screen.
+  **It has a hard predecessor**: `is_discoverable_profile()` comes from `00013`, so applying
+  `00027` first fails with `function public.is_discoverable_profile(uuid) does not exist`.
+  `00013` is applied, so this is satisfied today. It is otherwise independent of everything
+  between `00014` and `00033` — it names no object any of them touch, which is why it sits
+  last in the order above rather than at its number. Its rollback has no predecessor at all
+  and runs in either order; it restores the two `USING (true)` policies and re-grants `anon`
+  only `SELECT, INSERT, UPDATE, DELETE` — deliberately **not** `TRUNCATE, TRIGGER,
+  REFERENCES, MAINTAIN`, because `00014` revoked those live and a bit-exact inverse would
+  quietly undo it on these two tables.
+  Guts PASSed the SQL and the security reasoning on MEXA-277 at `6c808ca`; the commit here is
+  that file renumbered `00015` → `00027` and rebased, with no SQL change.
+  Verified against live in rolled-back transactions by `.scratch/mazal-mexa277/verify.py`.
 - **The ledger lags the repo, re-measured 2026-09-29 (MEXA-326; first taken on MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
   `00017`–`00021`, `00023`, `00024`, `00025`, `00030`, `00032`, `00033`, `00034`, `20250114`,
