@@ -112,13 +112,22 @@ Notes on the order:
   no-ops there, since `00011` had already revoked everything from the client roles. Its
   header counts 36 tables because that is what `public` held when the problem was measured;
   `00011` has since added two.
-- `00015` is **not applied yet** — it is a privilege change on a live project, so it waits
-  on Guts's review (MEXA-276) and then on Lelouch for the apply. It is independent of
+- `00015` **is applied** — 2026-09-29 00:51Z, from `mazal-restart` @ `a5b233c` (MEXA-276),
+  after Guts's review (MEXA-291) and Lelouch's approval (MEXA-321). It is independent of
   `00013` and `00014` and they are independent of it: it names no column `00013` drops, and
   `00014` revokes a disjoint set of verbs (`00014` takes `Dxtm`, `00015` takes `a` and `w`
   and grants them back per column), so any order works. Its rollback is
   `00015_scope_users_write_grants_rollback.sql`, a bit-exact inverse except that it does not
   restore `anon`'s INSERT/UPDATE; the file says why.
+  Post-check, all green: **79 checks, 0 failed** against live with the migration applied —
+  every granted column still writes as `authenticated`, every other column returns `42501`
+  including when smuggled into the same statement as a legitimate one, and the row rule is
+  unchanged (`.scratch/mazal-mexa276/POSTCHECK_00015.txt`; before/after reads in
+  `PRE_APPLY_00015.txt` and `POST_APPLY_00015.txt`). `public.users` went from
+  `authenticated` holding INSERT/UPDATE on all 53 columns to **INSERT on 33 and UPDATE on
+  34**; `SELECT` is untouched at 53, which is why `select('*')` still works. `relacl` is
+  now `authenticated=r` — the remaining write privileges live only at column level. The
+  UPDATE policy gained its explicit `WITH CHECK (auth.uid() = auth_id)`.
   **`00015` is column-level. Adding a screen that writes a new `users` column now means
   adding a one-line `GRANT` in the same migration as the screen**, or the write returns
   42501. The migration header lists every granted column with the file:line that justifies
