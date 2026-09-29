@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.mazal.app",
-      "buildNumber": "3",
+      "buildNumber": "4",
       "infoPlist": {
         "NSCameraUsageDescription": "Mazal needs access to your camera to take profile photos.",
         "NSPhotoLibraryUsageDescription": "Mazal needs access to your photos to add them to your profile.",
