@@ -33,11 +33,12 @@ import { useEffect } from 'react';
 import { supabase } from '@/api/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
+import {
+  useOrthodoxEntitlement,
+  type EntitlementOutcome,
+} from '@/features/premium/hooks';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
-
-// In production, this would integrate with RevenueCat
-// For now, we'll simulate the subscription flow
 
 function AnimatedGoldBorder() {
   const rotation = useSharedValue(0);
@@ -72,6 +73,11 @@ export default function OrthodoxPaywallScreen() {
   const user = useAuthStore((s) => s.user);
   const setOrthodoxSubscription = useUIStore((s) => s.setOrthodoxSubscription);
   const setOrthodoxMode = useUIStore((s) => s.setOrthodoxMode);
+  const { isBusy, checkEntitlement, purchaseOrthodox, restoreOrthodox } =
+    useOrthodoxEntitlement();
+
+  // `isBusy` covers the store round-trip, `isLoading` the profile write around it.
+  const busy = isLoading || isBusy;
 
   const glowOpacity = useSharedValue(0.5);
 
@@ -90,44 +96,106 @@ export default function OrthodoxPaywallScreen() {
     shadowOpacity: glowOpacity.value,
   }));
 
+  /**
+   * Say what a non-grant meant. `cancelled` is silent: the user dismissed the store
+   * sheet themselves and does not need to be told.
+   */
+  const announce = (outcome: EntitlementOutcome, context: 'purchase' | 'restore') => {
+    switch (outcome.status) {
+      case 'granted':
+      case 'cancelled':
+        return;
+      case 'unavailable':
+        Alert.alert(
+          'Not Available Yet',
+          'Orthodox Shidduch is not on sale on this device yet. Please try again later.'
+        );
+        return;
+      case 'not_entitled':
+        if (context === 'restore') {
+          Alert.alert(
+            'No Subscription Found',
+            'We couldn\'t find an active subscription for this account.'
+          );
+        } else {
+          Alert.alert(
+            'Purchase Not Confirmed',
+            'The App Store didn\'t confirm an active subscription. If you have already paid, tap Restore Purchases.'
+          );
+        }
+        return;
+      case 'failed':
+        console.warn('[OrthodoxPaywall]', context, 'failed:', outcome.message);
+        Alert.alert(
+          context === 'restore' ? 'Restore Failed' : 'Purchase Failed',
+          'Something went wrong. Please try again.'
+        );
+        return;
+    }
+  };
+
+  /**
+   * Flip the account's Orthodox UI mode flag once a purchase is confirmed.
+   *
+   * `is_orthodox_user` is a mode flag, not an entitlement - the paid state lives in
+   * RevenueCat, and `orthodox_subscription_status` is left alone: since 00015
+   * (MEXA-276) no client can write it, and only a receipt-verifying server process
+   * would ever earn that back (MEXA-293).
+   *
+   * False when the write failed, and we stay on this screen. The login screens refuse
+   * an account without the flag, so the user has to come back through here - and a
+   * second tap of Subscribe is safe, because `handleSubscribe` sees the entitlement it
+   * already holds and does not try to buy a second subscription.
+   */
+  const markOrthodoxUser = async (): Promise<boolean> => {
+    // Note: is_orthodox_user column added via migration
+    const { error } = await (supabase as any)
+      .from('users')
+      .update({
+        is_orthodox_user: true,
+      })
+      .eq('id', user!.id);
+
+    if (error) {
+      Alert.alert(
+        'Almost There',
+        'Your subscription went through, but we couldn\'t finish setting up your account. Please tap Subscribe again.'
+      );
+      return false;
+    }
+    return true;
+  };
+
+  const grantAccess = (route: '/(orthodox-onboarding)/welcome' | '/(orthodox-tabs)') => {
+    setOrthodoxSubscription(true);
+    setOrthodoxMode(true);
+    router.replace(route);
+  };
+
   const handleSubscribe = async () => {
+    if (!user?.id) {
+      Alert.alert('Sign In Required', 'Please sign in again before subscribing.');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      // In production, this would:
-      // 1. Call RevenueCat to initiate purchase
-      // 2. Handle the payment flow
-      // 3. Verify the purchase on the backend
-      // 4. Update the user's subscription status
+      // Already entitled? Then this is a retry after the profile write failed below,
+      // and buying again would be rejected by the store as a duplicate subscription.
+      const outcome: EntitlementOutcome = (await checkEntitlement())
+        ? { status: 'granted' }
+        : await purchaseOrthodox();
 
-      // For development, simulate subscription.
-      //
-      // This used to also set `orthodox_subscription_status: 'active'` - a client writing
-      // its own paid-subscription state, with no purchase behind it (steps 1-4 above are
-      // all still TODO). Since 00015 (MEXA-276) that column is not in `authenticated`'s
-      // UPDATE grant, and it stays that way: whatever verifies the RevenueCat receipt
-      // writes it as `service_role`. `is_orthodox_user` is a UI mode flag, not an
-      // entitlement, so it is still written here.
-      if (user?.id) {
-        // Note: is_orthodox_user column added via migration
-        const { error } = await (supabase as any)
-          .from('users')
-          .update({
-            is_orthodox_user: true,
-          })
-          .eq('id', user.id);
-
-        if (error) {
-          Alert.alert('Error', 'Failed to activate subscription. Please try again.');
-          return;
-        }
-
-        setOrthodoxSubscription(true);
-        setOrthodoxMode(true);
-
-        // Navigate to Orthodox onboarding or main app
-        router.replace('/(orthodox-onboarding)/welcome');
+      if (outcome.status !== 'granted') {
+        announce(outcome, 'purchase');
+        return;
       }
+
+      if (!(await markOrthodoxUser())) return;
+
+      // Navigate to Orthodox onboarding or main app
+      grantAccess('/(orthodox-onboarding)/welcome');
     } catch (e) {
       console.error('Subscription error:', e);
       Alert.alert('Error', 'Something went wrong. Please try again.');
@@ -140,26 +208,16 @@ export default function OrthodoxPaywallScreen() {
     setIsLoading(true);
 
     try {
-      // In production, this would check RevenueCat for existing purchases
-      // For now, check the database
+      const outcome = await restoreOrthodox();
 
-      if (user?.id) {
-        // Note: orthodox_subscription_status column added via migration
-        const { data } = await (supabase as any)
-          .from('users')
-          .select('orthodox_subscription_status')
-          .eq('id', user.id)
-          .single();
-
-        if (data?.orthodox_subscription_status === 'active') {
-          setOrthodoxSubscription(true);
-          setOrthodoxMode(true);
-          router.replace('/(orthodox-tabs)');
-        } else {
-          Alert.alert('No Subscription Found', 'We couldn\'t find an active subscription for this account.');
-        }
+      if (outcome.status !== 'granted') {
+        announce(outcome, 'restore');
+        return;
       }
+
+      grantAccess('/(orthodox-tabs)');
     } catch (e) {
+      console.error('Restore error:', e);
       Alert.alert('Error', 'Failed to restore purchases. Please try again.');
     } finally {
       setIsLoading(false);
@@ -322,9 +380,9 @@ export default function OrthodoxPaywallScreen() {
         {/* Subscribe Button */}
         <Animated.View entering={FadeInDown.delay(400).springify()} style={styles.buttonContainer}>
           <Pressable
-            style={[styles.subscribeButton, isLoading && styles.subscribeButtonDisabled]}
+            style={[styles.subscribeButton, busy && styles.subscribeButtonDisabled]}
             onPress={handleSubscribe}
-            disabled={isLoading}
+            disabled={busy}
           >
             <LinearGradient
               colors={[colors.primary.gold, '#e6c358', colors.primary.gold]}
@@ -332,7 +390,7 @@ export default function OrthodoxPaywallScreen() {
               start={{ x: 0, y: 0.5 }}
               end={{ x: 1, y: 0.5 }}
             >
-              {isLoading ? (
+              {busy ? (
                 <ActivityIndicator color={colors.primary.navy} size="small" />
               ) : (
                 <>
@@ -343,7 +401,7 @@ export default function OrthodoxPaywallScreen() {
             </LinearGradient>
           </Pressable>
 
-          <Pressable style={styles.restoreButton} onPress={handleRestore} disabled={isLoading}>
+          <Pressable style={styles.restoreButton} onPress={handleRestore} disabled={busy}>
             <Text style={styles.restoreButtonText}>Restore Purchases</Text>
           </Pressable>
         </Animated.View>

@@ -20,6 +20,7 @@ import Purchases, {
 } from 'react-native-purchases';
 import { Platform } from 'react-native';
 import { FEATURE_WHO_LIKES_YOU } from './features';
+import { isEntitlementActive } from '@/lib/purchases/entitlements';
 
 // RevenueCat API keys (replace with your actual keys)
 const REVENUECAT_IOS_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY || '';
@@ -128,9 +129,7 @@ export async function hasEntitlement(
 ): Promise<boolean> {
   try {
     const customerInfo = await Purchases.getCustomerInfo();
-    return (
-      customerInfo.entitlements.active[entitlementId]?.isActive ?? false
-    );
+    return isEntitlementActive(customerInfo, entitlementId);
   } catch (error) {
     console.error('Failed to check entitlement:', error);
     return false;
@@ -147,6 +146,37 @@ export async function getOfferings(): Promise<PurchasesPackage[]> {
       return offerings.current.availablePackages;
     }
     return [];
+  } catch (error) {
+    console.error('Failed to get offerings:', error);
+    return [];
+  }
+}
+
+/**
+ * Every package RevenueCat can sell this user, across all offerings.
+ *
+ * `getOfferings()` above only returns the *current* offering, which is the one the
+ * gold/platinum paywall shows. Orthodox is sold from its own offering, so a caller
+ * looking for a specific product has to see the rest too (MEXA-293). Deduplicated by
+ * offering + package identifier, since the same package can appear in several
+ * offerings; the current offering comes first, so it wins the dedup.
+ */
+export async function getAllPackages(): Promise<PurchasesPackage[]> {
+  try {
+    const offerings = await Purchases.getOfferings();
+    const seen = new Set<string>();
+    const all: PurchasesPackage[] = [];
+
+    for (const offering of [offerings.current, ...Object.values(offerings.all ?? {})]) {
+      for (const pkg of offering?.availablePackages ?? []) {
+        const key = `${pkg.offeringIdentifier}:${pkg.identifier}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        all.push(pkg);
+      }
+    }
+
+    return all;
   } catch (error) {
     console.error('Failed to get offerings:', error);
     return [];

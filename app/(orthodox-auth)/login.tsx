@@ -27,6 +27,7 @@ import { supabase } from '@/api/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { DEV_BYPASS_PREMIUM } from '@/lib/config/revenuecat';
+import { useOrthodoxEntitlement } from '@/features/premium/hooks';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 
@@ -41,6 +42,9 @@ export default function OrthodoxLoginScreen() {
   const setSession = useAuthStore((s) => s.setSession);
   const setOrthodoxMode = useUIStore((s) => s.setOrthodoxMode);
   const setOrthodoxSubscription = useUIStore((s) => s.setOrthodoxSubscription);
+  // Paid state comes from the RevenueCat `mazal_orthodox` entitlement, not from
+  // `users.orthodox_subscription_status` - nothing writes that column (MEXA-293).
+  const { checkEntitlement } = useOrthodoxEntitlement();
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -82,7 +86,7 @@ export default function OrthodoxLoginScreen() {
         // Note: session.user.id is the Supabase Auth ID, must match users.auth_id
         const { data: userData } = await (supabase as any)
           .from('users')
-          .select('id, is_orthodox_user, orthodox_subscription_status')
+          .select('id, is_orthodox_user')
           .eq('auth_id', data.session.user.id)
           .single();
 
@@ -111,12 +115,13 @@ export default function OrthodoxLoginScreen() {
           } else {
             router.replace('/(shidduch-onboarding)/welcome');
           }
-        } else if (userData.orthodox_subscription_status === 'active') {
+        } else if (await checkEntitlement()) {
           setOrthodoxSubscription(true);
           setOrthodoxMode(true);
           router.replace('/(shidduch-tabs)');
         } else {
-          // Send to paywall
+          // No active entitlement, or RevenueCat couldn't answer: the paywall, where
+          // Restore Purchases gets an existing subscriber back in.
           router.replace('/(orthodox-auth)/paywall');
         }
       }
@@ -173,7 +178,7 @@ export default function OrthodoxLoginScreen() {
           console.log('[Orthodox Login] Checking user with auth_id:', data.session.user.id);
           const { data: userData, error: userError } = await (supabase as any)
             .from('users')
-            .select('id, is_orthodox_user, orthodox_subscription_status')
+            .select('id, is_orthodox_user')
             .eq('auth_id', data.session.user.id)
             .single();
 
@@ -219,7 +224,7 @@ export default function OrthodoxLoginScreen() {
             } else {
               router.replace('/(shidduch-onboarding)/welcome');
             }
-          } else if (userData.orthodox_subscription_status === 'active') {
+          } else if (await checkEntitlement()) {
             setOrthodoxSubscription(true);
             setOrthodoxMode(true);
             router.replace('/(shidduch-tabs)');
