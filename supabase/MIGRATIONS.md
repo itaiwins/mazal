@@ -335,11 +335,12 @@ Notes on the order:
   already on the database and applies nothing: **31/31** (`LIVE.txt`, Violet's own post-apply
   check, independent of the `POSTAPPLY.txt` run above).
   **The other three modes now fail against this project, by design — that is not a regression.**
-  `before` and `rollback` assert the *pre-*`00019` state, which no longer exists, so `before`
-  failing is the fix working: it fails on exactly the 8 probes the fix closes (the `anon`
-  no-session read, both block directions, `is_active`, `is_visible`). `after` cannot run at all,
-  because re-applying the file hits `42710` on a `CREATE POLICY` that already exists — the
-  migration refusing to be applied twice. Keep all four: `before`/`after`/`rollback` are how
+  `after` and `rollback` cannot run at all: both apply the file first, and the request dies
+  there on `42710 policy "Users can view own college affiliations" ... already exists` before
+  any probe runs — the migration refusing to be applied twice. `before` does run and fails,
+  which is the fix working: it fails on exactly the 8 probes `00019` closes (the `anon`
+  no-session read, both block directions, `is_active`, `is_visible`), so a *passing* `before`
+  here would mean the fix had been undone. Keep all four: `before`/`after`/`rollback` are how
   this gets re-verified against a **fresh** database (a rebuilt project, or a local Postgres
   following the Order block above). What they said when they were meaningful, against the
   pre-apply database at 2026-09-29 02:05Z:
