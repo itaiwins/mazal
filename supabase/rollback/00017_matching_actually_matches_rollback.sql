@@ -4,14 +4,19 @@
 -- itself broke something; "no matches are being created" is the state *before* 00017, not
 -- a symptom of it.
 --
--- A bit-exact inverse of all three parts, taken from the live schema of
+-- A bit-exact inverse of both parts, taken from the live schema of
 -- `tayiyczmacvhokdxfqvm` on 2026-09-29 before 00017:
 --
 --   check_for_match       prosecdef = false, no proconfig (no SET search_path), and an
 --                         unused `new_match_id UUID` declaration with a `RETURNING id
 --                         INTO` that never fired. Restored verbatim from 00001.
---   supabase_realtime     had zero tables. Restored by dropping `matches` from it.
---   matches               relreplident = 'd' (default). Restored.
+--   supabase_realtime     did not carry `matches`. Restored by dropping it from the
+--                         publication. Note this does NOT empty the publication any more:
+--                         00018 put `messages` on it, and that is not this file's to undo.
+--
+-- `matches`'s replica identity is not touched, because 00017 no longer changes it
+-- (MEXA-322). If you are rolling back a copy of 00017 that predates that and did set
+-- `REPLICA IDENTITY FULL`, add `ALTER TABLE public.matches REPLICA IDENTITY DEFAULT;`.
 --
 -- Note the client half of MEXA-294 is a separate revert. `performSwipe` after 00017 reads
 -- the `matches` row the trigger created; with 00017 rolled back that row does not exist,
@@ -67,8 +72,5 @@ BEGIN
   END IF;
 END
 $$;
-
--- 3. matches back to the default replica identity.
-ALTER TABLE public.matches REPLICA IDENTITY DEFAULT;
 
 COMMIT;

@@ -134,12 +134,16 @@ Notes on the order:
   E (sequences), F (comments), plus A as a template for one verb on one table. **Run the
   smallest one that unblocks you.** Section C is the one to think hardest about: it hands
   unauthenticated read access back to `colleges`, `user_badges` and `user_safta_stats`.
-- `00017` is **not applied yet** — MEXA-294 and MEXA-296 cause 1, waiting on Gojo's routing
-  and Guts's review (it moves a function to SECURITY DEFINER) and then on Lelouch, because
-  it is a change users see: the "It's a Match!" screen and new-match push notifications
-  start working. It is independent of `00011`–`00016` — it replaces one function defined in
-  `00001` and touches `supabase_realtime` and `matches`'s replica identity, none of which
-  those six name — so any order works. Two things it does not do, both deliberate:
+- `00017` is **not applied yet** — MEXA-294 and MEXA-296 cause 1. Guts reviewed it with no
+  blockers (MEXA-316) and Gojo has routed it; it waits only on Lelouch, because it is a
+  change users see: the "It's a Match!" screen and new-match push notifications start
+  working. It is independent of `00011`–`00016` and of `00018` — it replaces one function
+  defined in `00001` and adds one table to `supabase_realtime`, none of which those name —
+  so **any order works, including applying it before `00015` and `00016`.** Gojo checked
+  that specifically: Guts's "nobody can force a match with someone who has not liked them"
+  argument cites `00016`'s revoked UPDATE/DELETE grants, but `00002` gives `swipes` only a
+  SELECT and an INSERT policy, so RLS already refuses UPDATE and DELETE whatever the grants
+  say. Two things it does not do, both deliberate:
   **no new SELECT policy on `swipes`** (one admitting `swiped_id = <me>` would publish
   "who passed on you") and **no INSERT policy on `matches`** (the trigger owns match
   creation once it is DEFINER, and the client insert that needed one is deleted in the
@@ -150,8 +154,14 @@ Notes on the order:
   reads the `matches` row the trigger creates; against a database without `00017` that row
   does not exist and the match screen stays missing — the same as today, not a new break.
   No backfill is needed: `swipes` and `matches` are both empty on `tayiyczmacvhokdxfqvm`.
+  It **does not** set `REPLICA IDENTITY FULL` on `matches` — an earlier draft did, and
+  MEXA-322 took it out for the reasons `00018`'s header sets out at length (realtime
+  re-reads the live row by primary key for the RLS check, so a policy on non-PK columns is
+  fine at the default identity) plus one specific to this table: no column on `matches` is
+  TOASTable, so the default identity costs nothing at all here.
   Its rollback is `00017_matching_actually_matches_rollback.sql`, a bit-exact inverse of
-  all three parts, verified in the same transaction.
+  both parts, verified in the same transaction. Note it drops `matches` from the
+  publication but leaves `messages` there, since that one is `00018`'s.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
 - `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values

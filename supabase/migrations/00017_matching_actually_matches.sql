@@ -125,12 +125,51 @@ BEGIN
 END
 $$;
 
--- Realtime evaluates the subscriber against the table's SELECT policy, which for
--- `matches` is `user1_id = <me> OR user2_id = <me>`. Neither column is in the primary
--- key, so on the default replica identity an UPDATE's old row reaches realtime as the PK
--- alone and the policy cannot be evaluated against it. REPLICA IDENTITY FULL puts the
--- whole old row in the WAL. The client subscribes to UPDATE as well as INSERT (it
--- refreshes a match when `last_message_at` moves), so it needs this.
-ALTER TABLE public.matches REPLICA IDENTITY FULL;
+-- =====================================================
+-- Why NO `REPLICA IDENTITY FULL` (MEXA-322)
+-- =====================================================
+--
+-- An earlier draft of this migration set it, on the theory that realtime evaluates the
+-- subscriber's SELECT policy against the WAL's old row, which on the default replica
+-- identity is the primary key alone - and `matches`'s policy keys on `user1_id` /
+-- `user2_id`, neither of which is in the PK. That theory is wrong, and this project's own
+-- installed realtime code says so. `realtime.build_prepared_statement_sql` builds the
+-- visibility check as
+--
+--   select exists(select 1 from public.matches where id='<pk>')
+--
+-- run as the subscriber's role with their JWT claims: realtime **re-reads the live row by
+-- primary key**, so the policy may reference any column. `realtime.apply_rls` takes those
+-- PK values, and the client's filter, from `wal->'columns'` - the new tuple, which is
+-- complete on INSERT and UPDATE at any replica identity. Measured, not reasoned: 00018
+-- publishes `messages` at the **default** identity with a SELECT policy keyed on
+-- `match_id`, outside its PK, and the filtered UPDATE is delivered to the participant and
+-- withheld from a non-participant (scripts/e2e/mexa313-realtime-messages.mjs, cases 4
+-- and 10).
+--
+-- On `matches` it is doubly moot. The one genuine cost of the default identity is that an
+-- unchanged TOASTed value is omitted from the WAL and cannot be recovered from an empty
+-- old tuple - and **no column on this table is TOASTable**: `id`, `user1_id`, `user2_id`,
+-- `created_at`, `is_active`, `user1_unmatched`, `user2_unmatched` and `last_message_at`
+-- are all `attstorage = 'p'`. So FULL would buy nothing and log the whole old row on every
+-- UPDATE, including the `last_message_at` bump on every message sent, on a free plan.
+--
+-- =====================================================
+-- Two things for whoever applies this, learned on the 00018 apply
+-- =====================================================
+--
+-- 1. **Realtime takes about a minute to notice an `ALTER PUBLICATION`.** The e2e run
+--    straight after 00018 was applied lost its first three events and started delivering
+--    mid-run; re-run two minutes later it passed unchanged. A check run immediately after
+--    this apply reports a false failure. Wait, then verify - do not "fix" anything in that
+--    window.
+-- 2. **Realtime skips the RLS check for DELETE**, by design - `realtime.apply_rls`
+--    short-circuits on `action = 'DELETE'`. Once `matches` is published, any authenticated
+--    client may subscribe to DELETE on it and see one event per deleted row. The same
+--    function filters a DELETE's old row to the primary key whenever RLS is enabled, so
+--    the payload is a match uuid and a timestamp, with no user ids - and FULL would not
+--    change that either. `matches` has no DELETE policy, so deletes here come only from
+--    cascades. Recorded because it is new surface that did not exist while the publication
+--    was empty.
 
 COMMIT;
