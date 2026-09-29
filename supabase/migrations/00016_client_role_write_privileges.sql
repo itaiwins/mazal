@@ -7,6 +7,18 @@
 -- column, 00015 what it may *write* by column, while this file takes `users` DELETE from
 -- `authenticated` and every verb from `anon`. Disjoint verbs, so any order works.
 --
+-- AMENDED 2026-09-29 (MEXA-364) with the file's own transaction and its own ledger row.
+-- Guts PASSed this file at `e08396e` (MEXA-300) and it was never carded for an apply, so it
+-- sat while the MEXA-325 convention arrived: every migration wraps itself in BEGIN/COMMIT and
+-- writes its own `supabase_migrations.schema_migrations` row inside that transaction. This
+-- file predates both. Not one privilege statement changed - the diff is `BEGIN;`, `COMMIT;`
+-- and one INSERT. Both matter here more than usual:
+--   * Without the transaction, ~30 REVOKEs commit one at a time and section 7 is no longer a
+--     safety net - it would raise *after* the grants were already gone, leaving live in a
+--     state no file describes.
+--   * Without the row, `00011`'s failure repeats: a migration that ran but cannot be seen in
+--     the ledger, which is how `00016` itself came to need re-measuring twice.
+--
 -- ===================================================================================
 -- WHAT THIS IS ABOUT
 -- ===================================================================================
@@ -124,6 +136,9 @@
 --      anon key an email-enumeration oracle. Filed - see section 4.
 --
 -- Nothing else in `src/` or `app/` touches a table before a session exists.
+
+BEGIN;
+
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM anon;
 
 -- And on every table created from here on. Same known limit as 00014 section 2: only the
@@ -488,3 +503,17 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- ===================================================================================
+-- 8. LEDGER ROW, IN THIS TRANSACTION (MEXA-325, added on MEXA-364)
+-- ===================================================================================
+--
+-- Inside the same BEGIN as every REVOKE above, so the two cannot disagree: either the
+-- grants are gone and the ledger says `00016`, or neither happened. `00016` spent a day
+-- being re-measured on live precisely because a file can run without leaving a row
+-- (`00011`), and this file's whole effect is invisible in `\dt` - only the ACL changes.
+INSERT INTO supabase_migrations.schema_migrations (version, name)
+VALUES ('00016', 'client_role_write_privileges')
+ON CONFLICT DO NOTHING;
+
+COMMIT;

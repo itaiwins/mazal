@@ -82,6 +82,7 @@ GRANT INSERT, UPDATE, DELETE ON TABLE public.user_safta_stats  TO authenticated;
 -- anon by other migrations and must stay closed.
 --
 --   public.users                 00013 - REVOKE ALL FROM anon
+--   public.user_photos           00013 - REVOKE ALL FROM anon (00013 line 370)
 --   public.user_integrations     00013 - service_role only
 --   public.user_public_profiles  00013 - authenticated only (a view)
 --   public.deleted_accounts      00011 - service_role only
@@ -90,7 +91,31 @@ GRANT INSERT, UPDATE, DELETE ON TABLE public.user_safta_stats  TO authenticated;
 --   public.user_colleges         00019 - REVOKE ALL FROM anon (MEXA-289)
 --   public.user_safta_stats      00019 - REVOKE ALL FROM anon (MEXA-289)
 --
--- If a later migration closes another table to anon, add it here in the same breath.
+-- REWRITTEN 2026-09-29 (MEXA-364) FROM A SKIP LIST TO AN EXPLICIT RESTORE LIST, because the
+-- skip list had already gone stale and nothing could tell us. It was missing
+-- `public.user_photos`, which 00013 closed to anon for a stated reason - "an anon hole it was
+-- hiding": anyone holding the app's anon key could read an active user's photo rows without
+-- signing in. Running this rollback as written would have handed anon INSERT, SELECT, UPDATE
+-- and DELETE on the photos table of a dating app, and every assertion in this file would
+-- still have passed. Measured, in a rolled-back transaction against live: anon came back
+-- with 130 (relation, verb) pairs where it had held 126, and the four extras were all
+-- `user_photos` (`.scratch/mazal-mexa364/ROLLBACK.txt`, first run).
+--
+-- "Grant to everything except a list" fails open by construction: every table added after
+-- the list was written, and every table closed by a migration written after it, is handed to
+-- anon by default. This is the same class of bug Alucard caught in 00014's rollback and the
+-- same class the `reports` branch below exists for - the third instance, so the shape is
+-- changed rather than the entry added. `v_restore` below names the 32 relations `anon`
+-- actually held on `tayiyczmacvhokdxfqvm` before 00016, measured 2026-09-29 12:51Z. A list of
+-- what to restore cannot over-restore: a table it does not name stays closed, which is the
+-- direction a rollback should fail in.
+--
+-- It also asserts every name still exists, so a rename or a drop is an error here rather
+-- than a silently smaller rollback.
+--
+-- The list is deliberately NOT derived from the catalog at run time. By the time this file
+-- runs, 00016 has taken everything from anon, so there is nothing left to read - the
+-- pre-00016 state only exists as a written-down measurement.
 --
 -- The two 00019 entries also make the paragraph above narrower than it was written:
 -- `user_safta_stats` no longer has a `USING (true) TO public` SELECT policy, and neither does
@@ -98,14 +123,14 @@ GRANT INSERT, UPDATE, DELETE ON TABLE public.user_safta_stats  TO authenticated;
 -- section still hands back to unauthenticated callers is `colleges`, a reference table of
 -- school names, which is deliberate.
 --
--- The skip list is unconditional, so running this while 00013 has NOT been applied leaves
+-- The list is unconditional, so running this while 00013 has NOT been applied leaves
 -- `public.users` closed to anon rather than restoring the grant 00016 took. Same deliberate
 -- asymmetry as 00014's rollback, and the same reasoning: `users` is the table worth keeping
 -- shut, and re-opening it cannot fix whatever this rollback is being run for. If you truly
 -- need the exact pre-00016 ACL, run the one statement by hand:
 --
 --   GRANT INSERT, SELECT, UPDATE, DELETE ON TABLE public.users TO anon;
--- `reports` is a second, narrower kind of exception: it is not skipped, but it must get
+-- `reports` is a second, narrower kind of exception: it is in the list, but it must get
 -- back exactly INSERT and SELECT, because 00014 section 3 took UPDATE and DELETE away from
 -- both client roles on purpose - a report has to outlive both people in it (MEXA-256/00011).
 -- A flat four-verb re-grant here would hand `anon` more than it had before 00016 and
@@ -114,27 +139,66 @@ GRANT INSERT, UPDATE, DELETE ON TABLE public.user_safta_stats  TO authenticated;
 -- Alucard caught the same shape in 00014's own rollback (MEXA-275).
 DO $$
 DECLARE
-  v_skip TEXT[] := ARRAY[
-    'users',
-    'user_integrations',
-    'user_public_profiles',
-    'deleted_accounts',
-    'moderation_secrets',
-    'notification_queue',
-    'user_colleges',
-    'user_safta_stats'
+  -- The 31 relations this section restores: every relation `anon` held
+  -- INSERT/SELECT/UPDATE/DELETE on before 00016, minus `notification_queue`, which section D
+  -- restores on its own because 00016 section 2 closed it for a different reason.
+  -- `reports` gets INSERT and SELECT only, see the note above. The other eight relations in
+  -- the schema were already closed to anon by 00011, 00013 or 00019 and stay closed:
+  -- users, user_photos, user_integrations, user_public_profiles, user_colleges,
+  -- user_safta_stats, deleted_accounts, moderation_secrets.
+  v_restore TEXT[] := ARRAY[
+    'blocks',
+    'colleges',
+    'community_settings',
+    'family_connections',
+    'matches',
+    'messages',
+    'notification_preferences',
+    'orthodox_emails',
+    'push_tokens',
+    'reports',
+    'safta_accounts',
+    'safta_connections',
+    'safta_daily_usage',
+    'safta_likes',
+    'safta_messages',
+    'saved_locations',
+    'shabbat_schedules',
+    'shadchan_connections',
+    'shadchan_notes',
+    'shadchan_recommendations',
+    'shadchanim',
+    'shidduch_daily_activity',
+    'shidduch_messages',
+    'shidduch_profile_views',
+    'shidduch_profiles',
+    'shidduch_references',
+    'shidduch_suggestions',
+    'subscriptions',
+    'swipes',
+    'user_badges',
+    'user_prompts'
   ];
   v_insert_select_only TEXT[] := ARRAY['reports'];
   v_rel TEXT;
+  v_missing TEXT;
 BEGIN
-  FOR v_rel IN
-    SELECT c.relname
-      FROM pg_class c
-      JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
-     WHERE c.relkind IN ('r','p','v','m')
-       AND NOT (c.relname = ANY (v_skip))
-     ORDER BY c.relname
-  LOOP
+  IF array_length(v_restore, 1) <> 31 THEN
+    RAISE EXCEPTION 'MEXA-274 rollback: the restore list holds % names, expected 31 - read the header before changing it', array_length(v_restore, 1);
+  END IF;
+
+  SELECT string_agg(r, ', ' ORDER BY r) INTO v_missing
+    FROM unnest(v_restore) AS r
+   WHERE NOT EXISTS (
+     SELECT 1 FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+      WHERE c.relname = r AND c.relkind IN ('r','p','v','m')
+   );
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'MEXA-274 rollback: these relations no longer exist, so the restore list is stale: %', v_missing;
+  END IF;
+
+  FOREACH v_rel IN ARRAY v_restore LOOP
     IF v_rel = ANY (v_insert_select_only) THEN
       EXECUTE format('GRANT INSERT, SELECT ON TABLE public.%I TO anon', v_rel);
     ELSE
@@ -186,6 +250,20 @@ COMMENT ON TABLE public.colleges           IS NULL;
 COMMENT ON TABLE public.user_badges        IS NULL;
 
 -- ===================================================================================
+-- SECTION G - the ledger row (added on MEXA-364, with 00016's section 8)
+-- ===================================================================================
+--
+-- 00016 now writes its own ledger row inside its own transaction (MEXA-325), so the rollback
+-- removes it. Leaving it would tell the next runbook 00016 is applied when it is not, which
+-- is the failure MEXA-325 exists to stop and the one that cost this migration a day.
+--
+-- Unlike sections B-F this is not optional: run it whenever you have run enough of the
+-- others that `00016` is no longer true of the database. If you run only section A or one
+-- line of section B, leave the row alone and say on MEXA-274 what you changed instead.
+DELETE FROM supabase_migrations.schema_migrations
+ WHERE version = '00016' AND name = 'client_role_write_privileges';
+
+-- ===================================================================================
 -- VERIFY THE ROLLBACK LANDED
 -- ===================================================================================
 -- A GRANT that hits nothing is as silent as a REVOKE that hits nothing.
@@ -223,5 +301,26 @@ BEGIN
   IF has_table_privilege('anon', 'public.messages'::regclass, 'TRUNCATE') THEN
     RAISE EXCEPTION 'MEXA-274 rollback re-granted TRUNCATE, which is 00014''s to undo, not this file''s';
   END IF;
+
+  -- And the assertion this file did not have, which is why it shipped a bug for a day
+  -- (MEXA-364): the eight relations closed to anon by 00011, 00013 and 00019 must still be
+  -- closed. Section C used to grant to everything except a list, so `user_photos` - people's
+  -- photos on a dating app - came back to anon with nothing saying so.
+  DECLARE
+    v_reopened TEXT;
+  BEGIN
+    SELECT string_agg(c.relname || ':' || p.priv, ', ' ORDER BY c.relname, p.priv)
+      INTO v_reopened
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+     CROSS JOIN (VALUES ('INSERT'),('SELECT'),('UPDATE'),('DELETE')) AS p(priv)
+     WHERE c.relkind IN ('r','p','v','m')
+       AND c.relname IN ('users','user_photos','user_integrations','user_public_profiles',
+                         'user_colleges','user_safta_stats','deleted_accounts','moderation_secrets')
+       AND has_table_privilege('anon', c.oid, p.priv);
+    IF v_reopened IS NOT NULL THEN
+      RAISE EXCEPTION 'MEXA-364: this rollback re-opened relations that 00011/00013/00019 closed to anon: %', v_reopened;
+    END IF;
+  END;
 END;
 $$;

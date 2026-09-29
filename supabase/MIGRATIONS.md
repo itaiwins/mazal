@@ -142,8 +142,22 @@ Notes on the order:
   plain `DROP VIEW` and a genuine bit-exact inverse. `00014`'s,
   `00015`'s and `00016`'s are the three that are not bit-exact inverses, and each says
   exactly where it differs and why. `00013`'s is exact except for column order, which its
-  header explains. `00016`'s is split into six independent sections, `00019`'s into two and
+  header explains. `00016`'s is split into seven independent sections, `00019`'s into two and
   `00020`'s into two, smallest first — run the one that unblocks you, not the whole file.
+  `00016`'s section G (its ledger row) is the exception to "run the smallest section": run it
+  whenever you have run enough of B–F that `00016` is no longer true of the database.
+  **One lesson from `00016`'s section C is general: a rollback must name what it restores, not
+  what it skips.** A skip list fails open — every table added after it was written, and every
+  table a later migration closes, is handed back by default, with nothing to notice. `00016`'s
+  skipped `user_photos`, which `00013` had closed to `anon`, so running it would have
+  re-opened people's photo rows to anyone holding the anon key while every one of its own
+  checks passed (MEXA-364, measured in a rolled-back transaction against live). Same class
+  Alucard caught in `00014`'s rollback on MEXA-275, and the same class the `reports` branch
+  exists for — third instance, so the shape changed rather than the entry being added. It is
+  now an explicit 31-name restore list plus an assertion that the eight relations
+  `00011`/`00013`/`00019` closed to `anon` are still closed. **`00014`'s rollback still has
+  the skip-list shape and is worse (it re-grants `TRUNCATE`, which ignores RLS, to `anon` on
+  `user_photos`, `user_colleges` and `user_safta_stats`) — MEXA-399, not yet fixed.**
   `00021`'s is the first one that **deletes its own ledger row** rather than leaving a
   `DELETE` in a comment, because `00021` writes that row inside its own transaction; expect
   new rollbacks to do the same. `00024`'s does, and it is also **not** a bit-exact inverse:
@@ -220,26 +234,56 @@ Notes on the order:
   adding a one-line `GRANT` in the same migration as the screen**, or the write returns
   42501. The migration header lists every granted column with the file:line that justifies
   it; keep that list true.
-- `00016` is **not applied yet**, and that is still true as of 2026-09-29 — re-measured
-  read-only on MEXA-326: no `00016` row in `supabase_migrations.schema_migrations`, and
+- `00016` is **not applied yet**, and that is still true as of 2026-09-29 12:51Z — re-measured
+  read-only on MEXA-364 (and before that on MEXA-326): no `00016` row in
+  `supabase_migrations.schema_migrations`, and
   `anon` still holds **126** table grants in `public`, which its
   `REVOKE ALL ... FROM anon` would take to zero. It is **no longer waiting on a review**:
-  Guts PASSed it on MEXA-300. It is waiting on someone to card the apply for Lelouch, and
-  nobody has. **`00017` and `00018` went on live over this gap deliberately** — both were
+  Guts PASSed it at `e08396e` on MEXA-300. It is waiting on someone to card the apply for
+  Lelouch, and nobody has. **`00017` and `00018` went on live over this gap deliberately** — both were
   checked to be independent of it first (see `00017`'s note below) — so the hole between
   `00015` and `00017` in the ledger is intentional, not a skipped step to repair.
+  **Amended on MEXA-364, after Guts's PASS**, in three places, none of them a privilege
+  statement:
+  1. The file now wraps itself in `BEGIN; … COMMIT;` and writes its own ledger row (section 8,
+     MEXA-325). It predates that convention. Both matter more here than usual: without the
+     transaction, ~30 REVOKEs commit one at a time and section 7 stops being a safety net —
+     it would raise *after* the grants were gone; without the row, `00011`'s failure repeats
+     and this file's whole effect is invisible in `\dt`. Proven by sending the file verbatim
+     with its `COMMIT;` swapped for `ROLLBACK;`: all 126 grants and no ledger row survived,
+     which is only possible if the `BEGIN` is real (`.scratch/mazal-mexa364/ATOMICITY.txt`).
+  2. Its rollback's section C went from a skip list to an explicit 31-name restore list,
+     because the skip list had gone stale and re-opened `user_photos` to `anon` — see the
+     rollback note above and MEXA-364.
+  3. Its rollback gained section G, which deletes the ledger row that (1) now writes.
+
+  Re-verified against live in rolled-back transactions after those amendments —
+  `.scratch/mazal-mexa364/verify.mjs`, three modes, nothing left behind (a fresh connection
+  re-reads the grant count and the ledger each run): **`before` 39/39**, **`after` 50/50**,
+  **`rollback` 17/17**, plus a pre-fix control (`CONTROL.txt`) showing the old rollback
+  re-opened `user_photos` silently and the new assertion aborts and names it.
+  The `before` run is the one to read: as the real `authenticated` role, `DELETE FROM swipes`,
+  `DELETE FROM messages`, `DELETE FROM matches` and four UPDATEs all **succeed today** and RLS
+  filters them to zero rows with no error, and `SELECT` on `notification_queue` is allowed.
+  After, every one is `42501 permission denied for table` — checked on the *message*, not just
+  the code, because RLS refusing an INSERT is also `42501` and only the message tells a missing
+  policy from a missing grant.
+  Two things the measurement corrected: `users` DELETE for `authenticated` was **already gone**
+  (`00015` left `relacl` at `authenticated=r`), so 41 of 00016's 42 asserted pairs were still
+  granted, not 42; and nothing is actually exposed today — `notification_queue` holds 0 rows and
+  RLS admits none, so this is a fix, not an incident.
   It is written against the live post-`00014` state and **assumes `00014`
   has been applied**: it does not repeat `00014`'s work and its rollback deliberately does
   *not* undo it (`reports` comes back as `anon=ar`, never `arwd`). It is independent of
   `00013` and `00015`: `00015` narrows what `authenticated` may write to `users` by column,
   `00016` takes `users` DELETE away from `authenticated` and everything away from `anon`, so
-  the two touch disjoint verbs and any order works. Its rollback is split into six
+  the two touch disjoint verbs and any order works. Its rollback is split into seven
   independent sections — B (`authenticated`), C (`anon`), D (`notification_queue`),
-  E (sequences), F (comments), plus A as a template for one verb on one table. **Run the
-  smallest one that unblocks you.** Section C is the one to think hardest about: it hands
+  E (sequences), F (comments), G (the ledger row), plus A as a template for one verb on one
+  table. **Run the smallest one that unblocks you.** Section C is the one to think hardest about: it hands
   unauthenticated read access back to `colleges`, `user_badges` and `user_safta_stats` —
-  or it did. `00019` scoped `user_safta_stats`' SELECT policy `TO authenticated` and added
-  the table to section C's skip list, and `00015_prompts_badges_visibility` does the same for
+  or it did. `00019` scoped `user_safta_stats`' SELECT policy `TO authenticated` and took the
+  table off section C's restore list, and `00015_prompts_badges_visibility` does the same for
   `user_badges` when it lands (MEXA-277), which leaves `colleges` as the only table section C
   really re-opens. `00016` is also **independent of `00019`**: `00016` changes grants and no
   policy, `00019` changes two policies and revokes `anon` on the two tables it touches, which
@@ -925,7 +969,9 @@ Notes on the order:
   holds 126 table grants), and `colleges`, `swipes`, `user_safta_stats` and
   `notification_queue` all still grant `DELETE,INSERT,SELECT,UPDATE` to `authenticated`.
   It was reviewed and PASSed on MEXA-300 and then never carded for an apply — the same
-  failure this issue is about. Filed separately; do not read the per-migration notes above as
+  failure this issue is about. **MEXA-364 owns it now**, and re-measured the same numbers at
+  12:51Z: 126 pairs, no `00016` row, 41 of its 42 asserted `authenticated` pairs still granted
+  (`users` DELETE was already gone, by `00015`). Do not read the per-migration notes above as
   a statement of what is on live without checking the ledger and a privilege probe.
 - `00022` is **not applied yet** — written, verified, and **PASSed by Guts on MEXA-356**
   (2026-09-29, reviewed at `a54f014`); waiting on Lelouch's apply approval. It adds exactly
