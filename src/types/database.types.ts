@@ -234,10 +234,11 @@ export type WhoLikedMeRow = Pick<
  * by migration 00026, the `unmatch` function added by migration 00036, and
  * `get_discovery_deck` added by migration 00039.
  *
- * The view is declared here by hand instead of being regenerated into
- * src/types/supabase.generated.ts, because `supabase gen types` shells out to Docker and
- * this machine has none - the same constraint that makes supabase/MIGRATIONS.md a runbook
- * rather than a `db push`. Two things follow:
+ * The view is declared here by hand. `supabase gen types` needs Docker, which this machine
+ * lacks, but the Management API serves the same output
+ * (`GET /v1/projects/<ref>/types/typescript?included_schemas=public`), and that is how
+ * src/types/supabase.generated.ts was rebuilt from live on MEXA-434. Its view and function
+ * entries have every column nullable, so the hand declarations here still win. Two things follow:
  *
  *  - Keep this in step with the view, which is defined in
  *    supabase/migrations/00013_users_column_privacy.sql and rebuilt by
@@ -267,7 +268,13 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
         Relationships: [];
       };
     };
-    Functions: GeneratedDatabase['public']['Functions'] & {
+    // Omit, not intersect: since the MEXA-434 regen the generator emits these too, with
+    // every returned column nullable, and an intersection of the two row types does not
+    // typecheck. The hand declarations below are the truthful ones.
+    Functions: Omit<
+      GeneratedDatabase['public']['Functions'],
+      'get_discovery_deck' | 'undo_last_swipe' | 'unmatch' | 'count_who_liked_me' | 'get_who_liked_me'
+    > & {
       /**
        * The caller's discovery deck, filtered, ranked and then limited on the server (00039,
        * MEXA-435). Rows of `user_public_profiles`, in rank order; the server clamps

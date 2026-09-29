@@ -10,10 +10,68 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.1"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
+      account_reentry_events: {
+        Row: {
+          blocks_restored: number
+          created_at: string
+          deleted_account_id: string
+          id: string
+          identifier_source: string
+          matched_on: string
+          new_user_id: string
+          reviewed_at: string | null
+          reviewed_note: string | null
+        }
+        Insert: {
+          blocks_restored?: number
+          created_at?: string
+          deleted_account_id: string
+          id?: string
+          identifier_source: string
+          matched_on: string
+          new_user_id: string
+          reviewed_at?: string | null
+          reviewed_note?: string | null
+        }
+        Update: {
+          blocks_restored?: number
+          created_at?: string
+          deleted_account_id?: string
+          id?: string
+          identifier_source?: string
+          matched_on?: string
+          new_user_id?: string
+          reviewed_at?: string | null
+          reviewed_note?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_reentry_events_deleted_account_id_fkey"
+            columns: ["deleted_account_id"]
+            isOneToOne: false
+            referencedRelation: "deleted_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_reentry_events_new_user_id_fkey"
+            columns: ["new_user_id"]
+            isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_reentry_events_new_user_id_fkey"
+            columns: ["new_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       blocks: {
         Row: {
           blocked_id: string
@@ -38,7 +96,21 @@ export type Database = {
             foreignKeyName: "blocks_blocked_id_fkey"
             columns: ["blocked_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "blocks_blocked_id_fkey"
+            columns: ["blocked_id"]
+            isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "blocks_blocker_id_fkey"
+            columns: ["blocker_id"]
+            isOneToOne: false
+            referencedRelation: "user_public_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -140,6 +212,97 @@ export type Database = {
         }
         Relationships: []
       }
+      deleted_account_blockers: {
+        Row: {
+          blocked_at: string | null
+          blocker_id: string
+          deleted_account_id: string
+        }
+        Insert: {
+          blocked_at?: string | null
+          blocker_id: string
+          deleted_account_id: string
+        }
+        Update: {
+          blocked_at?: string | null
+          blocker_id?: string
+          deleted_account_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deleted_account_blockers_blocker_id_fkey"
+            columns: ["blocker_id"]
+            isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deleted_account_blockers_blocker_id_fkey"
+            columns: ["blocker_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deleted_account_blockers_deleted_account_id_fkey"
+            columns: ["deleted_account_id"]
+            isOneToOne: false
+            referencedRelation: "deleted_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      deleted_accounts: {
+        Row: {
+          account_created_at: string | null
+          auth_id: string | null
+          deleted_at: string
+          display_name: string | null
+          email_hash: string | null
+          hold_reason: string | null
+          hold_set_at: string | null
+          id: string
+          identifier_source: string
+          moderation_hold: boolean
+          open_reports_against_count: number
+          phone_hash: string | null
+          reports_against_count: number
+          user_id: string
+        }
+        Insert: {
+          account_created_at?: string | null
+          auth_id?: string | null
+          deleted_at?: string
+          display_name?: string | null
+          email_hash?: string | null
+          hold_reason?: string | null
+          hold_set_at?: string | null
+          id?: string
+          identifier_source?: string
+          moderation_hold?: boolean
+          open_reports_against_count?: number
+          phone_hash?: string | null
+          reports_against_count?: number
+          user_id: string
+        }
+        Update: {
+          account_created_at?: string | null
+          auth_id?: string | null
+          deleted_at?: string
+          display_name?: string | null
+          email_hash?: string | null
+          hold_reason?: string | null
+          hold_set_at?: string | null
+          id?: string
+          identifier_source?: string
+          moderation_hold?: boolean
+          open_reports_against_count?: number
+          phone_hash?: string | null
+          reports_against_count?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       family_connections: {
         Row: {
           approved_at: string | null
@@ -184,6 +347,13 @@ export type Database = {
           status?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "family_connections_family_user_id_fkey"
+            columns: ["family_user_id"]
+            isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "family_connections_family_user_id_fkey"
             columns: ["family_user_id"]
@@ -236,7 +406,21 @@ export type Database = {
             foreignKeyName: "matches_user1_id_fkey"
             columns: ["user1_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_user1_id_fkey"
+            columns: ["user1_id"]
+            isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_user2_id_fkey"
+            columns: ["user2_id"]
+            isOneToOne: false
+            referencedRelation: "user_public_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -294,10 +478,35 @@ export type Database = {
             foreignKeyName: "messages_sender_id_fkey"
             columns: ["sender_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "messages_sender_id_fkey"
+            columns: ["sender_id"]
+            isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
+      }
+      moderation_secrets: {
+        Row: {
+          created_at: string
+          pepper: string
+          singleton: boolean
+        }
+        Insert: {
+          created_at?: string
+          pepper: string
+          singleton?: boolean
+        }
+        Update: {
+          created_at?: string
+          pepper?: string
+          singleton?: boolean
+        }
+        Relationships: []
       }
       notification_preferences: {
         Row: {
@@ -350,6 +559,13 @@ export type Database = {
             foreignKeyName: "notification_preferences_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: true
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_preferences_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
@@ -360,7 +576,10 @@ export type Database = {
           body: string
           created_at: string | null
           data: Json | null
+          failure: string | null
           id: string
+          net_request_id: number | null
+          response_status: number | null
           sent_at: string | null
           status: string | null
           title: string
@@ -370,7 +589,10 @@ export type Database = {
           body: string
           created_at?: string | null
           data?: Json | null
+          failure?: string | null
           id?: string
+          net_request_id?: number | null
+          response_status?: number | null
           sent_at?: string | null
           status?: string | null
           title: string
@@ -380,13 +602,23 @@ export type Database = {
           body?: string
           created_at?: string | null
           data?: Json | null
+          failure?: string | null
           id?: string
+          net_request_id?: number | null
+          response_status?: number | null
           sent_at?: string | null
           status?: string | null
           title?: string
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "notification_queue_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "notification_queue_user_id_fkey"
             columns: ["user_id"]
@@ -416,6 +648,13 @@ export type Database = {
           user_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "orthodox_emails_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "orthodox_emails_user_id_fkey"
             columns: ["user_id"]
@@ -461,6 +700,13 @@ export type Database = {
             foreignKeyName: "push_tokens_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "push_tokens_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
@@ -494,22 +740,7 @@ export type Database = {
           reporter_id?: string
           status?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "reports_reported_id_fkey"
-            columns: ["reported_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "reports_reporter_id_fkey"
-            columns: ["reporter_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       safta_accounts: {
         Row: {
@@ -556,6 +787,13 @@ export type Database = {
             foreignKeyName: "safta_accounts_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "safta_accounts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
@@ -591,6 +829,13 @@ export type Database = {
             foreignKeyName: "safta_connections_connected_user_id_fkey"
             columns: ["connected_user_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "safta_connections_connected_user_id_fkey"
+            columns: ["connected_user_id"]
+            isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
@@ -599,6 +844,13 @@ export type Database = {
             columns: ["safta_account_id"]
             isOneToOne: false
             referencedRelation: "safta_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "safta_connections_safta_account_id_fkey"
+            columns: ["safta_account_id"]
+            isOneToOne: false
+            referencedRelation: "safta_public_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -634,6 +886,13 @@ export type Database = {
             columns: ["safta_account_id"]
             isOneToOne: false
             referencedRelation: "safta_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "safta_daily_usage_safta_account_id_fkey"
+            columns: ["safta_account_id"]
+            isOneToOne: false
+            referencedRelation: "safta_public_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -674,7 +933,21 @@ export type Database = {
             foreignKeyName: "safta_likes_for_user_id_fkey"
             columns: ["for_user_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "safta_likes_for_user_id_fkey"
+            columns: ["for_user_id"]
+            isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "safta_likes_liked_user_id_fkey"
+            columns: ["liked_user_id"]
+            isOneToOne: false
+            referencedRelation: "user_public_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -689,6 +962,13 @@ export type Database = {
             columns: ["safta_account_id"]
             isOneToOne: false
             referencedRelation: "safta_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "safta_likes_safta_account_id_fkey"
+            columns: ["safta_account_id"]
+            isOneToOne: false
+            referencedRelation: "safta_public_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -766,6 +1046,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "saved_locations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "saved_locations_user_id_fkey"
             columns: ["user_id"]
@@ -862,6 +1149,13 @@ export type Database = {
             foreignKeyName: "shadchan_connections_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shadchan_connections_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
@@ -912,6 +1206,13 @@ export type Database = {
             referencedRelation: "shidduch_profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "shadchan_notes_shadchan_id_fkey"
+            columns: ["shadchan_id"]
+            isOneToOne: false
+            referencedRelation: "shadchanim"
+            referencedColumns: ["id"]
+          },
         ]
       }
       shadchan_recommendations: {
@@ -956,7 +1257,21 @@ export type Database = {
             foreignKeyName: "shadchan_recommendations_for_user_id_fkey"
             columns: ["for_user_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shadchan_recommendations_for_user_id_fkey"
+            columns: ["for_user_id"]
+            isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shadchan_recommendations_recommended_user_id_fkey"
+            columns: ["recommended_user_id"]
+            isOneToOne: false
+            referencedRelation: "user_public_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -1016,6 +1331,13 @@ export type Database = {
           years_experience?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "shadchanim_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "shadchanim_user_id_fkey"
             columns: ["user_id"]
@@ -1114,6 +1436,13 @@ export type Database = {
             foreignKeyName: "shidduch_messages_sender_user_id_fkey"
             columns: ["sender_user_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shidduch_messages_sender_user_id_fkey"
+            columns: ["sender_user_id"]
+            isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
@@ -1167,6 +1496,13 @@ export type Database = {
             columns: ["viewer_profile_id"]
             isOneToOne: false
             referencedRelation: "shidduch_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shidduch_profile_views_viewer_user_id_fkey"
+            columns: ["viewer_user_id"]
+            isOneToOne: false
+            referencedRelation: "user_public_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -1412,7 +1748,21 @@ export type Database = {
             foreignKeyName: "shidduch_profiles_created_by_user_id_fkey"
             columns: ["created_by_user_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shidduch_profiles_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shidduch_profiles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "user_public_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -1584,6 +1934,13 @@ export type Database = {
             foreignKeyName: "shidduch_suggestions_suggested_by_user_id_fkey"
             columns: ["suggested_by_user_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shidduch_suggestions_suggested_by_user_id_fkey"
+            columns: ["suggested_by_user_id"]
+            isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
@@ -1628,6 +1985,13 @@ export type Database = {
             foreignKeyName: "subscriptions_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
@@ -1660,7 +2024,21 @@ export type Database = {
             foreignKeyName: "swipes_swiped_id_fkey"
             columns: ["swiped_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "swipes_swiped_id_fkey"
+            columns: ["swiped_id"]
+            isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "swipes_swiper_id_fkey"
+            columns: ["swiper_id"]
+            isOneToOne: false
+            referencedRelation: "user_public_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -1676,7 +2054,6 @@ export type Database = {
         Row: {
           badge_type: string
           created_at: string
-          display_order: number | null
           id: string
           user_id: string
           verified: boolean | null
@@ -1684,7 +2061,6 @@ export type Database = {
         Insert: {
           badge_type: string
           created_at?: string
-          display_order?: number | null
           id?: string
           user_id: string
           verified?: boolean | null
@@ -1692,12 +2068,18 @@ export type Database = {
         Update: {
           badge_type?: string
           created_at?: string
-          display_order?: number | null
           id?: string
           user_id?: string
           verified?: boolean | null
         }
         Relationships: [
+          {
+            foreignKeyName: "user_badges_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "user_badges_user_id_fkey"
             columns: ["user_id"]
@@ -1747,6 +2129,52 @@ export type Database = {
             foreignKeyName: "user_colleges_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_colleges_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_integrations: {
+        Row: {
+          created_at: string
+          instagram_access_token: string | null
+          instagram_user_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          instagram_access_token?: string | null
+          instagram_user_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          instagram_access_token?: string | null
+          instagram_user_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_integrations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_integrations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
@@ -1781,6 +2209,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "user_photos_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "user_photos_user_id_fkey"
             columns: ["user_id"]
@@ -1820,6 +2255,13 @@ export type Database = {
             foreignKeyName: "user_prompts_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_prompts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
@@ -1842,6 +2284,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "user_safta_stats_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "user_safta_stats_user_id_fkey"
             columns: ["user_id"]
@@ -1873,8 +2322,6 @@ export type Database = {
           gender_preference: string[]
           height_cm: number | null
           id: string
-          instagram_access_token: string | null
-          instagram_user_id: string | null
           is_active: boolean | null
           is_orthodox_only: boolean | null
           is_orthodox_user: boolean | null
@@ -1886,6 +2333,7 @@ export type Database = {
           keeps_kosher: string | null
           keeps_shabbat: string | null
           last_name: string | null
+          location: unknown
           location_updated_at: string | null
           looking_for: string
           observance_level: string | null
@@ -1929,8 +2377,6 @@ export type Database = {
           gender_preference?: string[]
           height_cm?: number | null
           id?: string
-          instagram_access_token?: string | null
-          instagram_user_id?: string | null
           is_active?: boolean | null
           is_orthodox_only?: boolean | null
           is_orthodox_user?: boolean | null
@@ -1942,6 +2388,7 @@ export type Database = {
           keeps_kosher?: string | null
           keeps_shabbat?: string | null
           last_name?: string | null
+          location?: unknown
           location_updated_at?: string | null
           looking_for: string
           observance_level?: string | null
@@ -1985,8 +2432,6 @@ export type Database = {
           gender_preference?: string[]
           height_cm?: number | null
           id?: string
-          instagram_access_token?: string | null
-          instagram_user_id?: string | null
           is_active?: boolean | null
           is_orthodox_only?: boolean | null
           is_orthodox_user?: boolean | null
@@ -1998,6 +2443,7 @@ export type Database = {
           keeps_kosher?: string | null
           keeps_shabbat?: string | null
           last_name?: string | null
+          location?: unknown
           location_updated_at?: string | null
           looking_for?: string
           observance_level?: string | null
@@ -2025,6 +2471,13 @@ export type Database = {
             foreignKeyName: "users_shadchan_id_fkey"
             columns: ["shadchan_id"]
             isOneToOne: false
+            referencedRelation: "user_public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "users_shadchan_id_fkey"
+            columns: ["shadchan_id"]
+            isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
@@ -2032,7 +2485,61 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      safta_public_profiles: {
+        Row: {
+          display_name: string | null
+          id: string | null
+          relationship: string | null
+        }
+        Insert: {
+          display_name?: string | null
+          id?: string | null
+          relationship?: string | null
+        }
+        Update: {
+          display_name?: string | null
+          id?: string | null
+          relationship?: string | null
+        }
+        Relationships: []
+      }
+      user_public_profiles: {
+        Row: {
+          age: number | null
+          bio: string | null
+          company: string | null
+          current_city: string | null
+          current_country: string | null
+          current_state: string | null
+          display_name: string | null
+          distance_miles: number | null
+          education: string | null
+          first_name: string | null
+          gender: string | null
+          height_cm: number | null
+          id: string | null
+          is_active: boolean | null
+          is_orthodox_only: boolean | null
+          is_orthodox_user: boolean | null
+          is_photo_verified: boolean | null
+          is_verified: boolean | null
+          jewish_background: string | null
+          jewish_education: string | null
+          keeps_kosher: string | null
+          keeps_shabbat: string | null
+          looking_for: string | null
+          observance_level: string | null
+          occupation: string | null
+          onboarding_complete: boolean | null
+          partner_must_be_jewish: boolean | null
+          raise_children_jewish: boolean | null
+          school: string | null
+          synagogue_attendance: string | null
+          wants_children: string | null
+          willing_to_relocate: boolean | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       browse_shidduch_profiles: {
@@ -2063,15 +2570,71 @@ export type Database = {
           state: string
         }[]
       }
-      calculate_distance: {
-        Args: { lat1: number; lat2: number; lon1: number; lon2: number }
-        Returns: number
-      }
       can_safta_add_connection: { Args: { safta_id: string }; Returns: boolean }
       can_safta_recommend: { Args: { safta_id: string }; Returns: boolean }
+      cleanup_old_push_tokens: { Args: never; Returns: undefined }
+      current_app_user_id: { Args: never; Returns: string }
+      current_shadchan_ids: { Args: never; Returns: string[] }
+      current_shidduch_profile_ids: { Args: never; Returns: string[] }
+      distance_between_users: {
+        Args: { user1_id: string; user2_id: string }
+        Returns: number
+      }
+      drain_notification_queue: { Args: { p_batch?: number }; Returns: number }
+      family_connected_shidduch_profile_ids: { Args: never; Returns: string[] }
       get_creator_profile_count: {
         Args: { p_creator_id: string }
         Returns: number
+      }
+      get_discovery_deck: {
+        Args: {
+          p_age_max?: number
+          p_age_min?: number
+          p_backgrounds?: string[]
+          p_distance_max_miles?: number
+          p_genders?: string[]
+          p_limit?: number
+        }
+        Returns: {
+          age: number | null
+          bio: string | null
+          company: string | null
+          current_city: string | null
+          current_country: string | null
+          current_state: string | null
+          display_name: string | null
+          distance_miles: number | null
+          education: string | null
+          first_name: string | null
+          gender: string | null
+          height_cm: number | null
+          id: string | null
+          is_active: boolean | null
+          is_orthodox_only: boolean | null
+          is_orthodox_user: boolean | null
+          is_photo_verified: boolean | null
+          is_verified: boolean | null
+          jewish_background: string | null
+          jewish_education: string | null
+          keeps_kosher: string | null
+          keeps_shabbat: string | null
+          looking_for: string | null
+          observance_level: string | null
+          occupation: string | null
+          onboarding_complete: boolean | null
+          partner_must_be_jewish: boolean | null
+          raise_children_jewish: boolean | null
+          school: string | null
+          synagogue_attendance: string | null
+          wants_children: string | null
+          willing_to_relocate: boolean | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "user_public_profiles"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       get_profile_stats: {
         Args: { p_profile_id: string }
@@ -2120,11 +2683,34 @@ export type Database = {
           out_their_status: string
         }[]
       }
+      has_block_between: { Args: { p_other_user_id: string }; Returns: boolean }
+      has_entitlement: { Args: { p_entitlement: string }; Returns: boolean }
+      hash_account_identifier: { Args: { p_value: string }; Returns: string }
+      haversine_miles: {
+        Args: { p_lat1: number; p_lat2: number; p_lon1: number; p_lon2: number }
+        Returns: number
+      }
       increment_safta_recommendation: {
         Args: { safta_id: string }
         Returns: number
       }
+      is_discoverable_profile: { Args: { p_user_id: string }; Returns: boolean }
       is_orthodox_email: { Args: { check_email: string }; Returns: boolean }
+      manageable_shidduch_profile_ids: { Args: never; Returns: string[] }
+      owns_safta_account: { Args: { p_safta_id: string }; Returns: boolean }
+      profile_age: { Args: { p_date_of_birth: string }; Returns: number }
+      purge_expired_block_only_tombstones: { Args: never; Returns: number }
+      purge_expired_deleted_accounts: { Args: never; Returns: number }
+      reconcile_notification_responses: { Args: never; Returns: number }
+      reentry_matches: {
+        Args: { p_auth_id: string }
+        Returns: {
+          deleted_account_id: string
+          identifier_source: string
+          matched_on: string
+          moderation_hold: boolean
+        }[]
+      }
       register_orthodox_email: {
         Args: { user_email: string; user_uuid: string }
         Returns: undefined
@@ -2147,6 +2733,34 @@ export type Database = {
         }
         Returns: undefined
       }
+      suggested_shidduch_profile_ids: { Args: never; Returns: string[] }
+      undo_last_swipe: {
+        Args: never
+        Returns: {
+          action: string
+          ok: boolean
+          reason: string
+          swipe_id: string
+          swiped_at: string
+          swiped_id: string
+        }[]
+      }
+      unmatch: {
+        Args: { p_match_id: string }
+        Returns: {
+          match_id: string
+          ok: boolean
+          other_user_id: string
+          reason: string
+        }[]
+      }
+      users_within_radius: {
+        Args: { center_lat: number; center_lng: number; radius_miles: number }
+        Returns: {
+          distance_miles: number
+          user_id: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
@@ -2165,12 +2779,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2194,11 +2808,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2219,11 +2833,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2244,11 +2858,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2261,11 +2875,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
