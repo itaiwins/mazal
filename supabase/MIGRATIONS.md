@@ -45,7 +45,12 @@ Apply exactly this sequence:
 00018_publish_messages_to_realtime.sql
 00019_college_and_safta_stats_visibility.sql
 00020_safta_likes_actually_save.sql
+00022_safta_public_profiles.sql
 ```
+
+`00021_drop_orthodox_discovery_rpc.sql` is on branch `mexa-327` and not merged here yet.
+It drops a function and names nothing `00022` touches, so the two are order-independent;
+slot it in at its number when that branch lands.
 
 Notes on the order:
 
@@ -70,8 +75,9 @@ Notes on the order:
   `00015_scope_users_write_grants_rollback.sql`,
   `00016_client_role_write_privileges_rollback.sql`,
   `00017_matching_actually_matches_rollback.sql`,
-  `00019_college_and_safta_stats_visibility_rollback.sql` and
-  `00020_safta_likes_actually_save_rollback.sql`; read each one's header. `00014`'s,
+  `00019_college_and_safta_stats_visibility_rollback.sql`,
+  `00020_safta_likes_actually_save_rollback.sql` and
+  `00022_safta_public_profiles_rollback.sql`; read each one's header. `00014`'s,
   `00015`'s and `00016`'s are the three that are not bit-exact inverses, and each says
   exactly where it differs and why. `00013`'s is exact except for column order, which its
   header explains. `00016`'s is split into six independent sections, `00019`'s into two and
@@ -315,6 +321,55 @@ Notes on the order:
   `safta_likes` until `00016` lands, but both come back `42501: permission denied for table
   users` rather than 0 rows, because `00002`'s own policies subquery `public.users` and
   `00013`/`00015` took that away from `anon`.
+- `00022` is **not applied yet** — written and verified, waiting on Guts's review
+  (MEXA-302) and Lelouch's apply approval. It adds exactly one object,
+  `public.safta_public_profiles`, and changes no policy, grant or column on any existing
+  table, so its rollback is a plain `DROP VIEW` and a genuine bit-exact inverse.
+
+  What it is for: `safta_accounts` has one SELECT policy, `auth_id = auth.uid()`, so a
+  grandchild could never read the row of a Safta connected to her. Three shipping call
+  sites depended on it and one of them, `useSaftaConnections`, embedded it as
+  `safta_accounts!inner(...)` — PostgREST turns `!inner` into an inner join, so the
+  unreadable row **deleted the connection** and the grandchild's Safta list on the matches
+  tab rendered empty rather than nameless. All of it is behind `FEATURE_SAFTA_MODE`, which
+  is off, so no user has been affected.
+
+  The view is the `user_public_profiles` shape from `00013`: owner-run
+  (`security_invoker = false`), `security_barrier = true`, the WHERE clause **is** the row
+  rule. Three display columns only — `id`, `display_name`, `relationship`. `email` and the
+  three `subscription_*` columns are not in it and must not be added; they are an adult's
+  contact details and billing state, and a column absent from a view cannot be leaked by a
+  policy mistake. Rows are limited to accounts the caller holds an **accepted**
+  `safta_connections` row to, plus her own: `pending` would let anyone with a Safta account
+  learn a display name by inserting a connection nobody ever accepted.
+
+  One thing that is easy to get wrong and is **not** shared with `00013`: this view *is*
+  auto-updatable (`is_insertable_into = YES`), so without the REVOKE an owner-run write
+  would reach `safta_accounts` with RLS off. Supabase's default privileges grant all four
+  verbs on any new object in `public`, so section 2's REVOKE is load-bearing, not
+  boilerplate. Measured both ways in `.scratch/mazal-mexa302/probe_mine_updatable.mjs`.
+  `00013`'s `user_public_profiles` is *not* auto-updatable (`55000 cannot update view`), so
+  the write grants still sitting on it are inert — checked while writing this, no issue
+  filed.
+
+  Verified against live in rolled-back transactions by `.scratch/mazal-mexa302/verify.mjs`,
+  three modes, nothing left behind (a fresh connection asserts the view is absent and all
+  fixture tables are back to 0 rows in each run).
+  All green: **`before` 10/10** (`BEFORE.txt`) — the connected grandchild measured reading
+  **0 rows**, not a null column, off `safta_accounts`.
+  **`after` 35/35** (`AFTER.txt`) — the accepted grandchild sees the name; a pending one, a
+  rejected one, an unconnected user and a second Safta all see nothing; `anon` is `42501` on
+  the grant *and* the row rule independently yields 0 rows with no session; all seven
+  withheld columns are `42703` through the view and still 0 rows off the table; INSERT,
+  UPDATE and DELETE through the view are all refused and the row is unchanged after; and
+  the join the app now issues returns 1 named connection for the accepted grandchild and 0
+  for the pending one, with her pending connection row readable but its name NULL.
+  **`rollback` 10/10** (`ROLLBACK.txt`) — identical to `before`, i.e. the undo lands exactly
+  where it started.
+
+  **After applying, reload the PostgREST schema cache** (`NOTIFY pgrst, 'reload schema';`
+  or the dashboard's restart) — a new view is invisible to the REST API until it does, and
+  the app-side reads would 404 while the SQL is already correct.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
 - `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values

@@ -7,6 +7,8 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/api/supabase/client';
+import { fetchSaftaPublicProfiles } from '@/api/queries/saftaPublicProfiles';
+import type { SaftaPublicProfile } from '@/types/database.types';
 
 /**
  * The columns a recommendation shows about the person recommended, read from
@@ -59,6 +61,12 @@ export interface SaftaRecommendation {
     occupation: string | null;
     jewish_background: string | null;
   };
+  /**
+   * The Safta who sent it, from `safta_public_profiles`. Undefined unless the caller holds
+   * an accepted connection to her - see 00022 (MEXA-302). Only `useGrandchildRecommendations`
+   * populates it; a Safta reading her own sent list already knows who she is.
+   */
+  safta?: SaftaPublicProfile;
 }
 
 /**
@@ -101,19 +109,15 @@ export function useGrandchildRecommendations(userId: string | undefined) {
     queryFn: async () => {
       if (!userId) return [];
 
-      // `safta` stays an embed - `safta_accounts` is a table and 00013 did not touch it -
-      // but note it comes back null here and always has: that table's SELECT policy is
-      // `auth_id = auth.uid()`, so a grandchild cannot read the account row of the safta who
-      // recommended to them. A pre-existing gap, filed rather than widened (MEXA-279).
+      // `safta` was an embed on `safta_accounts` and came back null on every row: that
+      // table's SELECT policy is `auth_id = auth.uid()`, so a grandchild cannot read the
+      // account row of the Safta who recommended to them. MEXA-279 filed it rather than
+      // widening it mid-refactor; migration 00022 (MEXA-302) added
+      // `safta_public_profiles`, which publishes the display columns to a grandchild on an
+      // accepted connection, and this is the read that uses it.
       const { data, error } = await supabase
         .from('safta_likes')
-        .select(`
-          *,
-          safta:safta_accounts!safta_account_id (
-            id,
-            display_name
-          )
-        `)
+        .select('*')
         .eq('for_user_id', userId)
         .eq('sent_to_user', true)
         .order('created_at', { ascending: false });
@@ -124,10 +128,16 @@ export function useGrandchildRecommendations(userId: string | undefined) {
       }
 
       const likedUsers = await fetchLikedUsers((data ?? []).map((like) => like.liked_user_id));
+      const saftas = await fetchSaftaPublicProfiles(
+        (data ?? []).map((like) => like.safta_account_id)
+      );
 
       return (data ?? []).map((like) => ({
         ...like,
         liked_user: likedUsers.get(like.liked_user_id),
+        // Undefined when the connection behind the recommendation is not accepted - the
+        // recommendation itself still shows, just without "recommended by Bubbe".
+        safta: saftas.get(like.safta_account_id),
       }));
     },
     enabled: !!userId,
@@ -233,22 +243,24 @@ export function useSaftaConnection(userId: string | undefined) {
     queryFn: async () => {
       if (!userId) return null;
 
-      // Check if user has connected safta accounts
+      // Check if user has connected safta accounts. `safta` comes from
+      // `safta_public_profiles`, not an embed on `safta_accounts`: that table is
+      // owner-scoped, so the embed was null for every grandchild (MEXA-302).
       const { data: connections } = await supabase
         .from('safta_connections')
-        .select(`
-          *,
-          safta:safta_accounts!safta_account_id (
-            id,
-            display_name,
-            relationship
-          )
-        `)
+        .select('*')
         .eq('connected_user_id', userId)
         .eq('status', 'accepted');
 
+      const saftas = await fetchSaftaPublicProfiles(
+        (connections ?? []).map((c) => c.safta_account_id)
+      );
+
       return {
-        connections: connections || [],
+        connections: (connections ?? []).map((c) => ({
+          ...c,
+          safta: saftas.get(c.safta_account_id),
+        })),
         hasSafta: (connections?.length || 0) > 0,
       };
     },

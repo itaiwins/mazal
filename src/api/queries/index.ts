@@ -10,3 +10,8 @@ export { useMatches, useMatchById, useUnreadMatchesCount, type MatchWithPreview 
 export { useMessages, useInfiniteMessages, useUnreadCount } from './useMessages';
 export { useSaftaConnections, useSaftaLikesCount, type SaftaConnectionWithPreview } from './useSaftaConnections';
 export { useSaftaMessages, useSaftaConnectionById, useSaftaUnreadCount, type SaftaMessage } from './useSaftaMessages';
+export {
+  fetchSaftaPublicProfiles,
+  UNKNOWN_SAFTA_NAME,
+  DEFAULT_SAFTA_RELATIONSHIP,
+} from './saftaPublicProfiles';

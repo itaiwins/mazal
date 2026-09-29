@@ -8,6 +8,11 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/api/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
 import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
+import {
+  fetchSaftaPublicProfiles,
+  UNKNOWN_SAFTA_NAME,
+  DEFAULT_SAFTA_RELATIONSHIP,
+} from './saftaPublicProfiles';
 
 // Note: safta_messages table needs to be created via migration before these work
 // Using 'as any' for table access until types are regenerated
@@ -81,6 +86,8 @@ export function useSaftaConnectionById(connectionId: string | undefined) {
         throw new Error('Connection ID and user required');
       }
 
+      // No `safta_accounts` embed: that table is owner-scoped, so the embed was null for
+      // every grandchild and the chat header always read 'Unknown Safta' (MEXA-302).
       const { data: connection, error } = await supabase
         .from('safta_connections')
         .select(`
@@ -88,12 +95,7 @@ export function useSaftaConnectionById(connectionId: string | undefined) {
           status,
           created_at,
           safta_account_id,
-          connected_user_id,
-          safta_accounts (
-            id,
-            display_name,
-            relationship
-          )
+          connected_user_id
         `)
         .eq('id', connectionId)
         .single();
@@ -101,7 +103,13 @@ export function useSaftaConnectionById(connectionId: string | undefined) {
       if (error) throw error;
       if (!connection) throw new Error('Connection not found');
 
-      const saftaAccount = (connection as any).safta_accounts;
+      // Unlike `useSaftaConnections`, this hook does not filter on status - it fetches one
+      // connection by id, which may still be `pending`. `safta_public_profiles` only
+      // publishes a name on an `accepted` connection, so a pending one keeps falling
+      // through to 'Unknown Safta'. That is the intended behaviour, not a gap: the name
+      // is disclosed when the grandchild accepts.
+      const saftaAccount = (await fetchSaftaPublicProfiles([connection.safta_account_id]))
+        .get(connection.safta_account_id);
 
       return {
         id: connection.id,
@@ -109,8 +117,8 @@ export function useSaftaConnectionById(connectionId: string | undefined) {
         createdAt: connection.created_at,
         saftaId: connection.safta_account_id,
         userId: connection.connected_user_id,
-        saftaName: saftaAccount?.display_name || 'Unknown Safta',
-        relationship: saftaAccount?.relationship || 'Family',
+        saftaName: saftaAccount?.display_name || UNKNOWN_SAFTA_NAME,
+        relationship: saftaAccount?.relationship || DEFAULT_SAFTA_RELATIONSHIP,
       };
     },
     enabled: !!connectionId && !!user?.id && FEATURE_SAFTA_MODE,
