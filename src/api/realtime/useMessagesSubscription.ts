@@ -67,7 +67,15 @@ export function useMessagesSubscription(matchId: string | undefined) {
           filter: `match_id=eq.${matchId}`,
         },
         (payload) => {
-          const updatedMessage = payload.new as Message;
+          // Partial on purpose. An UPDATE's payload is not guaranteed to carry every
+          // column: a TOASTed value the UPDATE did not change is left out of the WAL,
+          // and `messages` is on the default replica identity, so realtime has no old
+          // row to recover it from (MEXA-313, see 00018's header). The read-receipt
+          // UPDATE is exactly that case - it touches `is_read`/`read_at` and leaves a
+          // long `content` alone - so replacing the cached message with this payload
+          // blanked the body of any message over ~2 KB.
+          const updatedMessage = payload.new as Partial<Message>;
+          if (!updatedMessage.id) return;
 
           // Update the message in cache (for read status updates)
           queryClient.setQueryData<Message[]>(
@@ -75,7 +83,7 @@ export function useMessagesSubscription(matchId: string | undefined) {
             (old) => {
               if (!old) return old;
               return old.map((m) =>
-                m.id === updatedMessage.id ? updatedMessage : m
+                m.id === updatedMessage.id ? { ...m, ...updatedMessage } : m
               );
             }
           );
