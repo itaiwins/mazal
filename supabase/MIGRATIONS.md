@@ -1050,9 +1050,14 @@ Notes on the order:
   policies; a second apply aborts; and the rollback restores `00025` byte for byte, brings
   the control result back, and refuses a second run. A fresh connection afterwards confirms
   no ledger row, `00025`'s body, and row counts identical to the baseline the run started
-  from. Guards proven to bite by mutation, not just present: dropping `AND status =
-  'pending'` makes the `sent`-row case fail, and dropping the `data->>'userId'` predicate
-  makes the third-party case fail.
+  from. **The two predicates that matter are proven by mutation, in both layers.** Deleting
+  `AND status = 'pending'` outright never reaches a behavioural test — post-check `3c`
+  aborts the apply with *"the retraction is not restricted to pending rows"*. Widening it to
+  `(status = 'pending' OR status = 'sent')` slips past that grep and is caught by the
+  behaviour instead: the `sent`-row case fails, 44/45. Same in both layers for the caller
+  pin — neutralised as `(data->>'userId' = … OR TRUE)` it applies cleanly and the
+  third-party case fails, 44/45. So neither assertion is vacuous and neither layer is
+  carrying the other.
 - **The ledger lags the repo, re-measured 2026-09-29 (MEXA-326; first taken on MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
   `00017`–`00021`, `00023`, `00024`, `00025`, `00030`, `20250114`, `20250115`
