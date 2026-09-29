@@ -142,6 +142,12 @@ export function createAuthStateHandler(
   // Bumped on every event. A deferred fetch that comes back after a newer event has
   // already been handled is stale and must not write to the store — otherwise signing
   // out (or switching accounts) can be undone by the previous account's in-flight read.
+  //
+  // It is per handler, not per app, so it only orders the events *this* handler sees.
+  // That is sound because there is exactly one subscription: `app/_layout.tsx` registers
+  // it in an effect with an empty dependency array and unsubscribes on cleanup. Register
+  // a second one anywhere and two handlers would each think their own write is the
+  // newest — so don't, or lift this counter to module scope first (Guts, MEXA-340).
   let generation = 0;
   // Which auth id the store's profile belongs to, so a token refresh is a no-op.
   let loadedAuthId: string | null = null;
