@@ -20,7 +20,9 @@ export default function ProfileLayout() {
         animation: 'slide_from_right',
       }}
     >
-      <Stack.Screen name="index" />
+      {/* No `index`: the half-built light-themed Edit Profile that used to sit there was
+          dead code and won the `/profile` URL from the Profile tab on web (MEXA-338,
+          walkthrough finding 12). `edit` is the real one. */}
       <Stack.Screen name="edit" />
       <Stack.Screen name="preview" />
     </Stack>
