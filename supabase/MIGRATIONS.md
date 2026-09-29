@@ -107,7 +107,13 @@ Notes on the order:
   Post-check, all green: as `authenticated`, `TRUNCATE` on `reports` / `users CASCADE` /
   `messages` / `swipes` and `CREATE TRIGGER ON reports` are `42501`, reads and
   `UPDATE public.users` still work, and no table in `public` grants any of the four to
-  `anon` or `authenticated` (`.scratch/mazal-mexa268/APPLY_AND_POSTCHECK.txt`). It went on
+  `anon` or `authenticated` (`.scratch/mazal-mexa268/APPLY_AND_POSTCHECK.txt`).
+  **Re-checking this later: `00015` has since changed what "`UPDATE public.users` still
+  works" means.** A *table-wide* `UPDATE public.users` as `authenticated` is now `42501`,
+  and that is `00015` working as designed, not `00014` regressing. Probe a column the client
+  is actually granted (`bio`) and expect a server-owned one (`updated_at`, `elo_score`) to be
+  refused — `.scratch/mazal-mexa268/postcheck_00014_rerun.mjs`, re-run green 20/20 on
+  2026-09-29 against the live project. It went on
   **after** `00011`, so the sweep covered `deleted_accounts` and `moderation_secrets` too —
   no-ops there, since `00011` had already revoked everything from the client roles. Its
   header counts 36 tables because that is what `public` held when the problem was measured;
