@@ -3,49 +3,75 @@
  *
  * Filters explicit, inappropriate, or harmful content from user inputs.
  * Provides both detection and sanitization functions.
+ *
+ * Two rules for every pattern in here (MEXA-337):
+ *
+ * 1. **No trailing `\w*` on a short stem.** A stem plus `\w*` matches the start of any
+ *    longer word: `\b(wh+o+r+e+|h+o+)\w*` flagged "home", "hope", "host", "holiday" and
+ *    "honestly", and `\b(s+h+i+t+|sht)\w*` flagged "shtetl", "shtick" and "shtreimel".
+ *    Each pattern instead ends at `\b`, with the real suffixes spelled out.
+ * 2. **No lookbehind and no named groups.** Hermes, the engine the app runs on, does not
+ *    support them, so a pattern that works in Node can throw on device.
+ *
+ * `scripts/check-moderation.mjs` is the corpus: it runs offline and it is the thing that
+ * proves a change here did not start rejecting ordinary answers. Run it after any edit.
  */
 
-// Common explicit/harmful words and patterns (basic list - extend as needed)
+// Explicit / harmful words and patterns. Each one blocks the content outright.
 const EXPLICIT_PATTERNS = [
-  // Explicit sexual terms
-  /\b(f+u+c+k+|f+\*+c+k+|fvck|fuk)\w*/gi,
-  /\b(s+h+i+t+|sh\*t|sht)\w*/gi,
-  /\b(a+s+s+h+o+l+e+|a\*\*hole)\w*/gi,
-  /\b(b+i+t+c+h+|b\*tch)\w*/gi,
-  /\b(d+i+c+k+|d\*ck)\w*/gi,
-  /\b(p+u+s+s+y+|p\*ssy)\w*/gi,
-  /\b(c+u+n+t+|c\*nt)\w*/gi,
-  /\b(c+o+c+k+)\b/gi,
-  /\b(n+i+g+g+\w*|n\*gger)\w*/gi,
-  /\b(f+a+g+g*o*t*)\w*/gi,
-  /\b(r+e+t+a+r+d+)\w*/gi,
-  /\b(wh+o+r+e+|h+o+)\w*/gi,
-  /\b(sl+u+t+)\w*/gi,
-  /\b(p+o+r+n+)\w*/gi,
-  /\b(xxx+|x+rated)\b/gi,
+  // Explicit sexual terms and insults
+  /\b(?:f+u+c+k+|f+\*+c+k+|fvck+|fuk+)(?:s|ed|er|ers|ing|face|faces|tard|tards)?\b/gi,
+  /\b(?:bull)?(?:s+h+i+t+|sh\*t)(?:s|y|ty|tier|tiest|ed|ing|head|heads|hole|holes)?\b/gi,
+  /\b(?:a+s+s+h+o+l+e+s*|a\*\*hole|a\*\*holes)\b/gi,
+  /\b(?:b+i+t+c+h+|b\*tch)(?:es|ed|ing|y)?\b/gi,
+  /\b(?:d+i+c+k+|d\*ck)(?:s|head|heads|ish)?\b/gi,
+  /\b(?:p+u+s+s+y+|pussies|p\*ssy)\b/gi,
+  /\b(?:c+u+n+t+s*|c\*nt|c\*nts)\b/gi,
+  /\b(?:c+o+c+k+s*)\b/gi,
+  // Spelled out rather than `nigg\w*`, which also caught "niggle" and "niggardly".
+  /\b(?:n+i+g+g+(?:a+|e+r+)s*|n\*gg(?:a|er)s?)\b/gi,
+  /\b(?:f+a+g+s*|f+a+g+g+o+t+s*)\b/gi,
+  /\b(?:r+e+t+a+r+d+(?:s|ed|ing)?)\b/gi,
+  // Bare "ho" is gone: it is the word-boundary bug from MEXA-337. "hoe"/"hoes" stay.
+  /\b(?:wh+o+r+e+s*|wh+o+r+i+n+g+|h+o+e+s*)\b/gi,
+  /\b(?:sl+u+t+(?:s|y|ty)?)\b/gi,
+  /\b(?:p+o+r+n+(?:o|os|hub|ography|ographic)?)\b/gi,
+  /\b(?:xxx+|x+[-\s]?rated)\b/gi,
 
-  // Violence and threats
-  /\b(k+i+l+l+\s+(you|yourself|u))\b/gi,
-  /\b(die|death\s+threat)\b/gi,
-  /\b(murder|rape)\b/gi,
+  // Violence and threats. Threats are phrases, not single words: bare "die" blocked
+  // "I will die on that hill" and bare "murder" blocked "a good murder mystery".
+  /\b(?:k+i+l+l+\s+(?:you|yourself|u|ur\s*self)|kys)\b/gi,
+  /\bdeath\s+threats?\b/gi,
+  /\b(?:i\s*(?:'|’)?(?:ll|m)|i\s+(?:will|am)|im|we\s+(?:will|are)|gonna|going\s+to)\s+(?:gonna\s+|going\s+to\s+)?(?:kill|murder|rape|stab|hurt)\s+(?:you|u|her|him|them|yourself)\b/gi,
+  /\b(?:you\s+should\s+die|go\s+die|die\s+in\s+a\s+fire)\b/gi,
+  /\brap(?:e|es|ed|ing|ist|ists)\b/gi,
 
   // Drugs (context-dependent)
-  /\b(cocaine|heroin|meth)\b/gi,
+  /\b(?:cocaine|heroin|meth)\b/gi,
 
   // Scam/spam patterns
-  /\b(venmo|cashapp|paypal)\s*(me|now)/gi,
-  /\b(send\s*(me\s*)?(money|cash|$))/gi,
-  /\b(crypto\s*invest(ment)?)\b/gi,
+  /\b(?:venmo|cashapp|cash\s*app|paypal|zelle)\s*(?:me|now)\b/gi,
+  // The old `(money|cash|$)` used `$` as an end-of-string anchor, not a dollar sign, so
+  // any message ending in "send" was blocked.
+  /\b(?:send|wire)\s+(?:me\s+)?(?:money|cash|\$\s*\d+)\b/gi,
+  /\bcrypto\s*invest(?:ment|ments|ing)?\b/gi,
 ];
+
+/**
+ * Matches that look explicit but are not, compared case-sensitively so the insult still
+ * blocks. "Dick" is a name a grandfather on this app plausibly has; "dick" is not.
+ */
+const ALLOWED_MATCHES = new Set(['Dick', 'Dicks']);
 
 // Contact info patterns (for dating app safety)
 const CONTACT_INFO_PATTERNS = [
   // Phone numbers (various formats)
-  /(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g,
+  /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
   /\b\d{10,11}\b/g,
 
-  // Social media handles (allow but flag)
-  /@\w{3,}/g,
+  // Social media handles (allow but flag). The leading space or line start keeps this off
+  // the local part of an email address, which the email pattern below already covers.
+  /(?:^|[\s(])@[A-Za-z][A-Za-z0-9._]{2,}/g,
 
   // URLs
   /https?:\/\/[^\s]+/gi,
@@ -75,11 +101,28 @@ export interface ModerationResult {
 }
 
 /**
+ * All matches for a global pattern, with `lastIndex` reset first.
+ *
+ * Every pattern here is a module-level `/g` regex, so it carries `lastIndex` between
+ * calls. `pattern.test(content)` used to leak that state: the same message moderated
+ * twice got two different verdicts.
+ */
+function findMatches(content: string, pattern: RegExp): string[] {
+  pattern.lastIndex = 0;
+  return content.match(pattern) ?? [];
+}
+
+/** Keep the first character, asterisk the rest: "fuck" -> "f***". */
+function maskMatch(match: string): string {
+  return match[0] + '*'.repeat(Math.max(match.length - 1, 0));
+}
+
+/**
  * Check if content contains explicit or inappropriate material
  */
 export function moderateContent(content: string): ModerationResult {
   const warnings: string[] = [];
-  const flaggedPatterns: string[] = [];
+  const flagged = new Set<string>();
 
   let containsExplicit = false;
   let containsContactInfo = false;
@@ -88,20 +131,20 @@ export function moderateContent(content: string): ModerationResult {
 
   // Check for explicit content
   for (const pattern of EXPLICIT_PATTERNS) {
-    const matches = content.match(pattern);
-    if (matches) {
-      containsExplicit = true;
-      flaggedPatterns.push(...matches);
-      // Replace with asterisks
-      sanitizedContent = sanitizedContent.replace(pattern, (match) =>
-        match[0] + '*'.repeat(match.length - 1)
-      );
-    }
+    const matches = findMatches(content, pattern).filter((m) => !ALLOWED_MATCHES.has(m.trim()));
+    if (matches.length === 0) continue;
+
+    containsExplicit = true;
+    for (const match of matches) flagged.add(match);
+    pattern.lastIndex = 0;
+    sanitizedContent = sanitizedContent.replace(pattern, (match) =>
+      ALLOWED_MATCHES.has(match.trim()) ? match : maskMatch(match)
+    );
   }
 
   // Check for contact info (warn but don't block)
   for (const pattern of CONTACT_INFO_PATTERNS) {
-    if (pattern.test(content)) {
+    if (findMatches(content, pattern).length > 0) {
       containsContactInfo = true;
       warnings.push('Content may contain contact information');
       break;
@@ -110,13 +153,13 @@ export function moderateContent(content: string): ModerationResult {
 
   // Check for personal info (block)
   for (const pattern of PERSONAL_INFO_PATTERNS) {
-    const matches = content.match(pattern);
-    if (matches) {
-      containsPersonalInfo = true;
-      flaggedPatterns.push(...matches);
-      // Mask personal info
-      sanitizedContent = sanitizedContent.replace(pattern, '***-**-****');
-    }
+    const matches = findMatches(content, pattern);
+    if (matches.length === 0) continue;
+
+    containsPersonalInfo = true;
+    for (const match of matches) flagged.add(match);
+    pattern.lastIndex = 0;
+    sanitizedContent = sanitizedContent.replace(pattern, '***-**-****');
   }
 
   const isClean = !containsExplicit && !containsPersonalInfo;
@@ -126,7 +169,7 @@ export function moderateContent(content: string): ModerationResult {
     containsExplicit,
     containsContactInfo,
     containsPersonalInfo,
-    flaggedPatterns,
+    flaggedPatterns: [...flagged],
     sanitizedContent,
     warnings,
   };
@@ -149,6 +192,15 @@ export function sanitizeContent(content: string): string {
 }
 
 /**
+ * The word that tripped the filter, trimmed and quoted for an error message. Without it
+ * the user is told to "revise" a sentence with no idea which part to change (MEXA-337).
+ */
+function quoteFirstFlagged(result: ModerationResult): string {
+  const term = result.flaggedPatterns[0]?.trim();
+  return term ? ` (“${term}”)` : '';
+}
+
+/**
  * Validate content for profile fields (stricter than messages)
  */
 export function validateProfileContent(content: string): {
@@ -160,7 +212,7 @@ export function validateProfileContent(content: string): {
   if (result.containsExplicit) {
     return {
       isValid: false,
-      error: 'This content contains inappropriate language. Please revise.',
+      error: `This content contains inappropriate language${quoteFirstFlagged(result)}. Please revise.`,
     };
   }
 
@@ -187,7 +239,7 @@ export function validateMessageContent(content: string): {
   if (result.containsExplicit) {
     return {
       isValid: false,
-      error: 'Your message contains inappropriate content and cannot be sent.',
+      error: `Your message contains inappropriate content${quoteFirstFlagged(result)} and cannot be sent.`,
     };
   }
 

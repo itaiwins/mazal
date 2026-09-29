@@ -114,6 +114,13 @@ Fix is `badge ? … : null`, or `(badge ?? 0) > 0 &&`.
 
 ## 4. The profanity filter rejects "home", "hope", "host", "hot", "holiday", "honestly"
 
+> **Fixed on MEXA-337.** Every pattern in `src/lib/moderation/index.ts` now ends at a word
+> boundary with its real suffixes spelled out, so no stem swallows the rest of a word, and
+> threats are phrases rather than the bare words "die" and "murder". The corpus that proves
+> it is `scripts/check-moderation.mjs` (offline, no credentials): all six cases below pass,
+> and so do "shtetl", "shtick", "shtreimel" and "shiitake", which the old `sht` alternative
+> blocked too. The error message now names the word it objected to.
+
 `src/lib/moderation/index.ts:20` — `/\b(wh+o+r+e+|h+o+)\w*/gi`. The `h+o+` alternative
 matches "ho" at a word boundary and `\w*` swallows the rest of the word, so **any word
 starting with "ho" is flagged as explicit.** Measured:

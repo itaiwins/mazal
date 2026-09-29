@@ -1,10 +1,11 @@
 # `scripts/`
 
-Operational scripts that run against the live Supabase project. None of them are part
-of the app bundle.
+Operational scripts that run against the live Supabase project, plus the offline checks
+marked as such. None of them are part of the app bundle.
 
 | Script | What it does |
 |---|---|
+| `check-moderation.mjs` | **Offline** — no Supabase, no credentials, no network. Fifty-six-case corpus for the content filter (MEXA-337): every phrase a real user should be able to type has to get through `validateProfileContent` and `validateMessageContent`, every explicit or threatening one has to be refused, and contact info has to warn twice in a row rather than once. Transpiles `src/lib/moderation/index.ts` in memory, so it needs no build. Add a case whenever an ordinary answer gets wrongly rejected. |
 | `sweep-e2e-users.mjs` | Deletes the test accounts an e2e run left behind in `auth.users`. Dry run by default. |
 | `e2e/mexa272-password-cases.py` | Seven-case check that `current_password` is enforced on password / recovery / magic-link / signup sessions (MEXA-272). Cleans up after itself. |
 | `e2e/mexa313-realtime-messages.mjs` | Eleven-case check that a `postgres_changes` subscription on `messages` really delivers: two sessions, one sends and the other has to hear it. The only thing that proves the chat live-updates, because `subscribe()` reports `SUBSCRIBED` whether or not any event will follow (MEXA-313). Cleans up after itself. |
@@ -12,8 +13,9 @@ of the app bundle.
 | `e2e/mexa335-auth-lock-deadlock.mjs` | Thirteen-case check that an `onAuthStateChange` callback no longer deadlocks the auth client (MEXA-335). Case 2 asserts the *old* shape — an `async` callback awaiting a query — still hangs, so the rest cannot pass vacuously, and case 1 asserts the client is on `lockNoOp`: that is the lock React Native uses, which is how this answers "does it happen on iOS too?" without an iOS build. Imports the real handler from `src/lib/auth/authStateSync.ts` rather than a copy; Node 24 strips the types, and the `MODULE_TYPELESS_PACKAGE_JSON` warning it prints is expected. Cleans up after itself. |
 | `e2e/mexa294-realtime-matches.mjs` | Fourteen-case check that mutual matching works end to end: four sessions swipe through the real API, and the pair that likes each other has to get the `matches` INSERT over realtime and a queued push, while a non-participant gets neither (MEXA-294). The app's subscription is unfiltered, so case 6 — RLS gating delivery — is what keeps publishing the table from handing every signed-in user every match. Cleans up after itself. Give realtime **two minutes** after any `ALTER PUBLICATION` before believing a failure. |
 
-All of them need credentials from `archive/credentials/mazal-supabase.env` in the
-workspace, which is outside this repo and stays there:
+All of them except `check-moderation.mjs` need credentials from
+`archive/credentials/mazal-supabase.env` in the workspace, which is outside this repo and
+stays there:
 
 ```sh
 set -a; . /home/itai/mexant/workspace/archive/credentials/mazal-supabase.env; set +a
