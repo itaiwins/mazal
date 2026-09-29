@@ -230,13 +230,16 @@ export default function LikesYouScreen() {
             <View style={styles.lockedIcon}>
               <Ionicons name="heart" size={48} color={colors.primary.gold} />
             </View>
-            <Text style={styles.lockedCount}>{count}</Text>
+            {/* The big number is the upsell, so it only appears when there is something to
+                be sold. A 56pt "0" over "Nobody has liked you yet" says the same thing
+                twice and the loud half of it is the discouraging half. */}
+            {count > 0 && <Text style={styles.lockedCount}>{count}</Text>}
             <Text style={styles.lockedTitle}>
-              {count === 1 ? 'person likes you' : 'people like you'}
+              {count === 0 ? 'No likes yet' : count === 1 ? 'person likes you' : 'people like you'}
             </Text>
             <Text style={styles.lockedSubtitle}>
               {count === 0
-                ? "Nobody has liked you yet. Keep swiping - when they do, they'll show up here."
+                ? "Keep swiping - when somebody likes you, they'll show up here."
                 : 'Upgrade to Mazal Gold to see who they are and match instantly.'}
             </Text>
             {count > 0 && (
