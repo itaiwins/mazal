@@ -46,57 +46,41 @@ async function performSwipe(
     return { success: true, isMatch: false };
   }
 
-  // Check if the other person has already liked us
-  const { data: reciprocalSwipe } = await supabase
-    .from('swipes')
+  // Did that like complete a match? Ask `matches`, not `swipes` (MEXA-294).
+  //
+  // This used to look for the other person's like in `swipes` and, if it found one, insert
+  // the `matches` row itself. Neither half worked. The only SELECT policy on `swipes` is
+  // `swiper_id = <me>`, so a caller can never read a row in which they are the swipee -
+  // the reciprocal-like query came back empty for everyone, silently, and the "It's a
+  // Match!" screen never appeared. And `matches` has no INSERT policy, so the insert
+  // underneath it would have been refused with 42501 if it had ever run.
+  //
+  // `swipes_check_match` is the one thing that creates a match, and since 00017 it is
+  // SECURITY DEFINER, so it sees both sides and writes the row in the same transaction as
+  // the INSERT above. By the time we get here it is committed, and the `matches` SELECT
+  // policy shows it to both participants - so all we have to do is read it.
+  //
+  // user1_id < user2_id, matching the trigger and the UNIQUE (user1_id, user2_id)
+  // constraint, so the pair has exactly one row whichever way round the second like came.
+  const [user1, user2] =
+    swiperId < swipedId ? [swiperId, swipedId] : [swipedId, swiperId];
+
+  const { data: match, error: matchError } = await supabase
+    .from('matches')
     .select('id')
-    .eq('swiper_id', swipedId)
-    .eq('swiped_id', swiperId)
-    .in('action', ['like', 'super_like'])
-    .single();
+    .eq('user1_id', user1)
+    .eq('user2_id', user2)
+    .maybeSingle();
 
-  // If there's a reciprocal like, create a match
-  if (reciprocalSwipe) {
-    // Determine user order (always user1_id < user2_id for consistency)
-    const [user1, user2] =
-      swiperId < swipedId ? [swiperId, swipedId] : [swipedId, swiperId];
+  if (matchError) {
+    // The swipe is recorded and the match, if any, exists - only our read of it failed.
+    // Don't throw the swipe away over a missing celebration; the matches list will show it.
+    console.error('Error reading match after swipe:', matchError);
+    return { success: true, isMatch: false };
+  }
 
-    // Create the match
-    const { data: match, error: matchError } = await supabase
-      .from('matches')
-      .insert({
-        user1_id: user1,
-        user2_id: user2,
-      })
-      .select()
-      .single();
-
-    if (matchError) {
-      // Match might already exist (race condition)
-      if (matchError.code === '23505') {
-        // Unique constraint violation - match exists
-        const { data: existingMatch } = await supabase
-          .from('matches')
-          .select('id')
-          .eq('user1_id', user1)
-          .eq('user2_id', user2)
-          .single();
-
-        return {
-          success: true,
-          isMatch: true,
-          matchId: existingMatch?.id,
-        };
-      }
-      console.error('Error creating match:', matchError);
-      throw matchError;
-    }
-
-    return {
-      success: true,
-      isMatch: true,
-      matchId: match.id,
-    };
+  if (match) {
+    return { success: true, isMatch: true, matchId: match.id };
   }
 
   return { success: true, isMatch: false };

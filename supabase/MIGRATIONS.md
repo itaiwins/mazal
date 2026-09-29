@@ -41,6 +41,7 @@ Apply exactly this sequence:
 00014_revoke_unreachable_table_privileges.sql
 00015_scope_users_write_grants.sql
 00016_client_role_write_privileges.sql
+00017_matching_actually_matches.sql
 ```
 
 Notes on the order:
@@ -57,12 +58,13 @@ Notes on the order:
 - Undo scripts live in `supabase/rollback/`, **never** in this directory. Anything
   dropped in here is a file some tool will eventually apply in name order, and an undo
   script is the last thing you want applied by accident — `00010_rollback.sql` sorted
-  *ahead* of the migration it undoes. The four that exist are
+  *ahead* of the migration it undoes. The seven that exist are
   `00010_secure_definer_rpcs_rollback.sql`, `00011_preserve_moderation_history_rollback.sql`,
   `00012_deleted_accounts_retention_rollback.sql`,
   `00013_users_column_privacy_rollback.sql`,
-  `00014_revoke_unreachable_table_privileges_rollback.sql` and
-  `00016_client_role_write_privileges_rollback.sql`; read each one's header. `00014`'s and
+  `00014_revoke_unreachable_table_privileges_rollback.sql`,
+  `00016_client_role_write_privileges_rollback.sql` and
+  `00017_matching_actually_matches_rollback.sql`; read each one's header. `00014`'s and
   `00016`'s are the two that are not bit-exact inverses, and each says exactly where it
   differs and why. `00013`'s is exact except for column order, which its header explains.
   `00016`'s is also split into six independent sections, smallest first — run the one that
@@ -123,6 +125,24 @@ Notes on the order:
   E (sequences), F (comments), plus A as a template for one verb on one table. **Run the
   smallest one that unblocks you.** Section C is the one to think hardest about: it hands
   unauthenticated read access back to `colleges`, `user_badges` and `user_safta_stats`.
+- `00017` is **not applied yet** — MEXA-294 and MEXA-296 cause 1, waiting on Gojo's routing
+  and Guts's review (it moves a function to SECURITY DEFINER) and then on Lelouch, because
+  it is a change users see: the "It's a Match!" screen and new-match push notifications
+  start working. It is independent of `00011`–`00016` — it replaces one function defined in
+  `00001` and touches `supabase_realtime` and `matches`'s replica identity, none of which
+  those six name — so any order works. Two things it does not do, both deliberate:
+  **no new SELECT policy on `swipes`** (one admitting `swiped_id = <me>` would publish
+  "who passed on you") and **no INSERT policy on `matches`** (the trigger owns match
+  creation once it is DEFINER, and the client insert that needed one is deleted in the
+  same commit). The dead INSERT grant `anon` and `authenticated` still hold on `matches`
+  is left for MEXA-274's sweep; it was already unreachable, because `matches` has never had
+  an INSERT policy.
+  **`00017` and the app ship together, like `00013`.** `performSwipe` after this commit
+  reads the `matches` row the trigger creates; against a database without `00017` that row
+  does not exist and the match screen stays missing — the same as today, not a new break.
+  No backfill is needed: `swipes` and `matches` are both empty on `tayiyczmacvhokdxfqvm`.
+  Its rollback is `00017_matching_actually_matches_rollback.sql`, a bit-exact inverse of
+  all three parts, verified in the same transaction.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
 - `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values

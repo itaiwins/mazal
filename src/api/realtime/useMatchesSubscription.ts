@@ -111,57 +111,29 @@ export function useMatchesSubscription(
   return { latestMatch, clearLatestMatch };
 }
 
-/**
- * Subscribe to "who liked me" updates (premium feature)
+/*
+ * `useLikesSubscription` was here: a postgres_changes subscription on `swipes` filtered by
+ * `swiped_id=eq.<me>`, meant to drive the premium "see who liked you" badge. Removed in
+ * MEXA-294, because there is no version of it that works today and keeping it made an
+ * unbuilt feature look built.
+ *
+ * Three separate reasons it delivered nothing:
+ *
+ *   1. Realtime applies the table's SELECT policy to each subscriber, and the only one on
+ *      `swipes` is `swiper_id = <me>`. A row where the subscriber is the *swipee* - which
+ *      is every row this filter selects - fails it.
+ *   2. `supabase_realtime` had no tables on it at all, so no row event was ever sent for
+ *      any table. 00017 adds `matches`; `swipes` is deliberately left off, because the
+ *      policy that would make this subscription deliver is the one that also publishes
+ *      "who passed on you".
+ *   3. Nothing mounted the hook, and nothing ever queried `queryKeys.swipes.whoLikedMe()` -
+ *      there is no "who liked me" query or screen in the app. The key exists in
+ *      queryClient.ts and this was its only reference.
+ *
+ * Building that surface properly - a SECURITY DEFINER RPC for the list, entitlement-gated,
+ * and a notification path that doesn't require publishing `swipes` - is its own issue.
+ * Match notifications, which is what this file's other hook does, work as of 00017.
  */
-export function useLikesSubscription() {
-  const queryClient = useQueryClient();
-  const user = useAuthStore((s) => s.user);
-  const [newLikeCount, setNewLikeCount] = useState(0);
-
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const channel: RealtimeChannel = supabase
-      .channel('incoming-likes')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'swipes',
-          filter: `swiped_id=eq.${user.id}`,
-        },
-        (payload) => {
-          const swipe = payload.new as { action: string };
-
-          // Only count likes and super likes
-          if (swipe.action === 'like' || swipe.action === 'super_like') {
-            setNewLikeCount((prev) => prev + 1);
-
-            // Invalidate the "who liked me" query
-            queryClient.invalidateQueries({
-              queryKey: queryKeys.swipes.whoLikedMe(),
-            });
-
-            // Also invalidate discovery to update "has liked me" indicators
-            queryClient.invalidateQueries({ queryKey: queryKeys.discovery.all });
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user?.id, queryClient]);
-
-  const clearNewLikeCount = useCallback(() => {
-    setNewLikeCount(0);
-  }, []);
-
-  return { newLikeCount, clearNewLikeCount };
-}
 
 /**
  * Subscribe to online/presence status of matches
