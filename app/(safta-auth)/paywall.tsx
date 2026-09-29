@@ -2,10 +2,28 @@
  * Safta Pro Paywall Screen
  *
  * Premium subscription for dedicated matchmakers
- * $14.99/month or $119.99/year
+ *
+ * ## Why this screen no longer writes the database (MEXA-345)
+ *
+ * Subscribe used to `update safta_accounts set subscription_status = 'active',
+ * subscription_plan = 'safta_pro'` straight from the client, with no store call anywhere,
+ * and Restore Purchases read the same two columns back. That was not a stub that would
+ * fail in production — measured on the live project (`tayiyczmacvhokdxfqvm`) on
+ * 2026-09-29, `authenticated` holds column-level UPDATE on both, and the
+ * `Safta can update own account` policy is `USING (auth_id = auth.uid())` with **no**
+ * `WITH CHECK`. So the write lands, and any Safta account could have given itself Safta
+ * Pro by issuing it directly. This is the Safta twin of the `users.orthodox_subscription_status`
+ * defect MEXA-292 found.
+ *
+ * The paid state is the RevenueCat `safta_pro` entitlement now, the way MEXA-293 did it
+ * for Orthodox. The columns are left in place and simply never written from here; taking
+ * the grant away is a schema change and is tracked separately.
+ *
+ * Prices come from StoreKit, never from the app's own `PRICING` constant (Lelouch's rule
+ * on MEXA-387).
  */
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -15,6 +33,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import type { PurchasesPackage } from 'react-native-purchases';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,26 +49,49 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { useEffect } from 'react';
-import { supabase } from '@/api/supabase/client';
-import { useAuthStore } from '@/stores/authStore';
 import { useSaftaPremiumStore } from '@/stores/saftaPremiumStore';
 import {
-  PRICING,
   PREMIUM_FEATURES,
   ENTITLEMENTS,
+  PRODUCTS,
   SAFTA_PLAN_COMPARISON,
+  getAllPackages,
 } from '@/lib/config/revenuecat';
+import { useEntitlement } from '@/features/premium/hooks';
+import { entitlementNotice } from '@/lib/purchases/entitlementMessages';
+import type { EntitlementOutcome } from '@/lib/purchases/entitlements';
+import {
+  pricesFromProductIds,
+  paywallAvailability,
+  PRICES_UNAVAILABLE_MESSAGE,
+  type BillingPeriod,
+  type OfferingsState,
+  type PlanPrices,
+} from '@/lib/premium/storePricing';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 
-// In production, this would integrate with RevenueCat
+const NO_PRICES: PlanPrices = { yearly: null, monthly: null, savingsPercent: null };
+
+/**
+ * Safta Pro's store products. Note these are `safta_pro_*`, not `mazal_safta_pro_*` —
+ * they predate the `mazal_<plan>_<period>` convention `productIdFor()` encodes, which is
+ * why this screen passes the ids outright instead of a plan name.
+ */
+const SAFTA_PRODUCT_IDS = {
+  monthly: PRODUCTS.SAFTA_PRO_MONTHLY,
+  yearly: PRODUCTS.SAFTA_PRO_YEARLY,
+} as const;
 
 export default function SaftaProPaywallScreen() {
   const insets = useSafeAreaInsets();
-  const [isLoading, setIsLoading] = useState(false);
-  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('yearly');
-  const user = useAuthStore((s) => s.user);
+  const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('yearly');
+  const [offeringsState, setOfferingsState] = useState<OfferingsState>('loading');
+  const [prices, setPrices] = useState<PlanPrices>(NO_PRICES);
   const setPlan = useSaftaPremiumStore((s) => s.setPlan);
+  const { isBusy, checkEntitlement, purchase, restore } = useEntitlement(
+    ENTITLEMENTS.SAFTA_PRO
+  );
 
   const glowOpacity = useSharedValue(0.5);
 
@@ -68,75 +110,67 @@ export default function SaftaProPaywallScreen() {
     shadowOpacity: glowOpacity.value,
   }));
 
+  // Ask the store what Safta Pro costs. Until it answers the screen shows a spinner where
+  // the price goes; if it never does, it says so and Subscribe stays disabled.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const packages: PurchasesPackage[] = await getAllPackages();
+      if (cancelled) return;
+      setPrices(pricesFromProductIds(packages, SAFTA_PRODUCT_IDS));
+      setOfferingsState(packages.length ? 'ready' : 'unavailable');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const announce = useCallback(
+    (outcome: EntitlementOutcome, context: 'purchase' | 'restore') => {
+      const notice = entitlementNotice(outcome, context, 'Safta Pro');
+      if (notice) Alert.alert(notice.title, notice.message);
+    },
+    []
+  );
+
+  const grantAccess = useCallback(() => {
+    setPlan('safta_pro');
+    router.replace('/(safta-tabs)');
+  }, [setPlan]);
+
   const handleSubscribe = async () => {
-    setIsLoading(true);
+    // Already entitled? Then this is a second tap, and asking the store again would be a
+    // duplicate-subscription attempt.
+    const outcome = (await checkEntitlement())
+      ? ({ status: 'granted' } as EntitlementOutcome)
+      : // Buy exactly the period the screen is advertising - never a fallback to the
+        // other one, which would charge a price the user never saw.
+        await purchase([SAFTA_PRODUCT_IDS[billingPeriod]]);
 
-    try {
-      // In production, this would:
-      // 1. Call RevenueCat to initiate purchase
-      // 2. Handle the payment flow
-      // 3. Verify the purchase on the backend
-      // 4. Update the user's subscription status
-
-      // For development, simulate subscription
-      if (user?.id) {
-        const { error } = await (supabase as any)
-          .from('safta_accounts')
-          .update({
-            subscription_status: 'active',
-            subscription_plan: 'safta_pro',
-          })
-          .eq('user_id', user.id);
-
-        if (error) {
-          Alert.alert('Error', 'Failed to activate subscription. Please try again.');
-          return;
-        }
-
-        setPlan('safta_pro');
-
-        Alert.alert(
-          'Welcome to Safta Pro!',
-          'Your subscription is now active. Enjoy unlimited matchmaking!',
-          [{ text: 'Start Matching', onPress: () => router.replace('/(safta-tabs)') }]
-        );
-      }
-    } catch (e) {
-      console.error('Subscription error:', e);
-      Alert.alert('Error', 'Something went wrong. Please try again.');
-    } finally {
-      setIsLoading(false);
+    if (outcome.status !== 'granted') {
+      announce(outcome, 'purchase');
+      return;
     }
+
+    setPlan('safta_pro');
+    Alert.alert(
+      'Welcome to Safta Pro!',
+      'Your subscription is now active. Enjoy unlimited matchmaking!',
+      [{ text: 'Start Matching', onPress: () => router.replace('/(safta-tabs)') }]
+    );
   };
 
   const handleRestore = async () => {
-    setIsLoading(true);
-
-    try {
-      if (user?.id) {
-        const { data } = await (supabase as any)
-          .from('safta_accounts')
-          .select('subscription_status, subscription_plan')
-          .eq('user_id', user.id)
-          .single();
-
-        if (data?.subscription_status === 'active' && data?.subscription_plan === 'safta_pro') {
-          setPlan('safta_pro');
-          router.replace('/(safta-tabs)');
-        } else {
-          Alert.alert('No Subscription Found', "We couldn't find an active Safta Pro subscription for this account.");
-        }
-      }
-    } catch (e) {
-      Alert.alert('Error', 'Failed to restore purchases. Please try again.');
-    } finally {
-      setIsLoading(false);
+    const outcome = await restore();
+    if (outcome.status !== 'granted') {
+      announce(outcome, 'restore');
+      return;
     }
+    grantAccess();
   };
 
-  const selectedPrice = billingPeriod === 'monthly'
-    ? PRICING.safta_pro.monthly.displayPrice
-    : PRICING.safta_pro.yearly.displayPrice;
+  const availability = paywallAvailability(offeringsState, prices, billingPeriod);
+  const selectedPrice = billingPeriod === 'monthly' ? prices.monthly : prices.yearly;
 
   const features = PREMIUM_FEATURES[ENTITLEMENTS.SAFTA_PRO].features;
 
@@ -207,22 +241,34 @@ export default function SaftaProPaywallScreen() {
               styles.billingOptionText,
               billingPeriod === 'yearly' && styles.billingOptionTextActive,
             ]}>Yearly</Text>
-            <View style={styles.savingsBadge}>
-              <Text style={styles.savingsBadgeText}>Save 33%</Text>
-            </View>
+            {prices.savingsPercent !== null && (
+              <View style={styles.savingsBadge}>
+                <Text style={styles.savingsBadgeText}>Save {prices.savingsPercent}%</Text>
+              </View>
+            )}
           </Pressable>
         </Animated.View>
 
         {/* Price Card */}
         <Animated.View entering={FadeInUp.delay(200).springify()} style={styles.priceCard}>
-          <Text style={styles.priceAmount}>{selectedPrice}</Text>
-          <Text style={styles.pricePeriod}>
-            per {billingPeriod === 'monthly' ? 'month' : 'year'}
-          </Text>
-          {billingPeriod === 'yearly' && (
-            <Text style={styles.priceNote}>
-              Just {PRICING.safta_pro.yearly.monthlyEquivalent}/month
-            </Text>
+          {availability.showSpinner && (
+            <ActivityIndicator color={colors.primary.coral} />
+          )}
+          {availability.showUnavailable && (
+            <Text style={styles.priceUnavailable}>{PRICES_UNAVAILABLE_MESSAGE}</Text>
+          )}
+          {availability.showPrices && selectedPrice && (
+            <>
+              <Text style={styles.priceAmount}>{selectedPrice.displayPrice}</Text>
+              <Text style={styles.pricePeriod}>
+                per {billingPeriod === 'monthly' ? 'month' : 'year'}
+              </Text>
+              {billingPeriod === 'yearly' && selectedPrice.monthlyEquivalent && (
+                <Text style={styles.priceNote}>
+                  Just {selectedPrice.monthlyEquivalent}/month
+                </Text>
+              )}
+            </>
           )}
         </Animated.View>
 
@@ -275,9 +321,12 @@ export default function SaftaProPaywallScreen() {
         {/* Subscribe Button */}
         <Animated.View entering={FadeInDown.delay(400).springify()} style={styles.buttonContainer}>
           <Pressable
-            style={[styles.subscribeButton, isLoading && styles.subscribeButtonDisabled]}
+            style={[
+              styles.subscribeButton,
+              (isBusy || !availability.canPurchase) && styles.subscribeButtonDisabled,
+            ]}
             onPress={handleSubscribe}
-            disabled={isLoading}
+            disabled={isBusy || !availability.canPurchase}
           >
             <LinearGradient
               colors={[colors.primary.coral, '#ff8a80', colors.primary.coral]}
@@ -285,18 +334,22 @@ export default function SaftaProPaywallScreen() {
               start={{ x: 0, y: 0.5 }}
               end={{ x: 1, y: 0.5 }}
             >
-              {isLoading ? (
+              {isBusy ? (
                 <ActivityIndicator color={colors.primary.white} size="small" />
               ) : (
                 <>
                   <Text style={styles.subscribeButtonText}>Start Safta Pro</Text>
-                  <Text style={styles.subscribeButtonPrice}>{selectedPrice}/{billingPeriod === 'monthly' ? 'mo' : 'yr'}</Text>
+                  {selectedPrice && (
+                    <Text style={styles.subscribeButtonPrice}>
+                      {selectedPrice.displayPrice}/{billingPeriod === 'monthly' ? 'mo' : 'yr'}
+                    </Text>
+                  )}
                 </>
               )}
             </LinearGradient>
           </Pressable>
 
-          <Pressable style={styles.restoreButton} onPress={handleRestore} disabled={isLoading}>
+          <Pressable style={styles.restoreButton} onPress={handleRestore} disabled={isBusy}>
             <Text style={styles.restoreButtonText}>Restore Purchases</Text>
           </Pressable>
         </Animated.View>
@@ -431,6 +484,11 @@ const styles = StyleSheet.create({
     color: colors.semantic.success,
     marginTop: spacing[1],
     fontWeight: '500',
+  },
+  priceUnavailable: {
+    fontSize: 14,
+    color: colors.neutral[500],
+    textAlign: 'center',
   },
   featuresContainer: {
     marginBottom: spacing[6],

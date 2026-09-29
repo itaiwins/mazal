@@ -14,4 +14,5 @@ export {
 } from './usePremium';
 
 export { useOrthodoxEntitlement } from './useOrthodoxEntitlement';
-export type { EntitlementOutcome } from './useOrthodoxEntitlement';
+export { useEntitlement } from './useEntitlement';
+export type { EntitlementOutcome } from './useEntitlement';

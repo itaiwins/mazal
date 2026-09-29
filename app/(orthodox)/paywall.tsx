@@ -2,9 +2,27 @@
  * Orthodox Mode Paywall
  *
  * Subscription required to access Orthodox/Hasidic dating mode
+ *
+ * ## This is the second Orthodox paywall (MEXA-345)
+ *
+ * `app/(orthodox-auth)/paywall.tsx` is the one the live funnel uses — welcome → login /
+ * register → paywall → onboarding → `(orthodox-tabs)`. This screen belongs to the older
+ * `app/(orthodox)/` group, which nothing in the app navigates to any more: the only
+ * reference to the group outside itself is its `Stack.Screen` registration in
+ * `app/_layout.tsx`, so it is reachable by route but not by tapping. Both groups redirect
+ * to `/` while `FEATURE_ORTHODOX_MODE` is off, which is why this never shipped.
+ *
+ * Whether the group should exist at all is Gojo's call. Until it is answered the screen
+ * gets the same gate as the live one rather than being left as a bypass around it: before
+ * this, Subscribe waited 1500ms and set the persisted `hasOrthodoxSubscription` flag with
+ * no store call anywhere, and Restore always answered "No Purchases".
+ *
+ * Prices come from StoreKit now, never from a constant in the app (Lelouch's rule on
+ * MEXA-387) — this file used to carry its own `ORTHODOX_PRICING` of $24.99/$199.99, which
+ * also disagreed with every other price in the repo.
  */
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -15,6 +33,7 @@ import {
   Alert,
   Platform,
 } from 'react-native';
+import type { PurchasesPackage } from 'react-native-purchases';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,15 +41,31 @@ import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
-import { PREMIUM_FEATURES, ENTITLEMENTS } from '@/lib/config/revenuecat';
+import {
+  PREMIUM_FEATURES,
+  ENTITLEMENTS,
+  PRODUCTS,
+  getAllPackages,
+} from '@/lib/config/revenuecat';
+import { useEntitlement } from '@/features/premium/hooks';
+import { entitlementNotice } from '@/lib/purchases/entitlementMessages';
+import type { EntitlementOutcome } from '@/lib/purchases/entitlements';
+import {
+  planPricesFromPackages,
+  paywallAvailability,
+  PRICES_UNAVAILABLE_MESSAGE,
+  type BillingPeriod,
+  type OfferingsState,
+  type PlanPrices,
+} from '@/lib/premium/storePricing';
 import { useUIStore } from '@/stores/uiStore';
 import { StarOfDavid } from '@/components/icons/StarOfDavid';
 
-type BillingPeriod = 'monthly' | 'yearly';
+const NO_PRICES: PlanPrices = { yearly: null, monthly: null, savingsPercent: null };
 
-const ORTHODOX_PRICING = {
-  monthly: { price: '$24.99', period: '/month', savings: null },
-  yearly: { price: '$199.99', period: '/year', savings: 'Save 33%' },
+const ORTHODOX_PRODUCT_IDS: Record<BillingPeriod, string> = {
+  monthly: PRODUCTS.ORTHODOX_MONTHLY,
+  yearly: PRODUCTS.ORTHODOX_YEARLY,
 };
 
 const HASHKAFOS = [
@@ -47,51 +82,74 @@ export default function OrthodoxPaywallScreen() {
   const insets = useSafeAreaInsets();
   const setOrthodoxSubscription = useUIStore((s) => s.setOrthodoxSubscription);
   const setOrthodoxMode = useUIStore((s) => s.setOrthodoxMode);
+  const { isBusy, checkEntitlement, purchase, restore } = useEntitlement(
+    ENTITLEMENTS.ORTHODOX
+  );
 
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('yearly');
-  const [isPurchasing, setIsPurchasing] = useState(false);
+  const [offeringsState, setOfferingsState] = useState<OfferingsState>('loading');
+  const [prices, setPrices] = useState<PlanPrices>(NO_PRICES);
 
   const orthodoxFeatures = PREMIUM_FEATURES[ENTITLEMENTS.ORTHODOX];
-  const pricing = ORTHODOX_PRICING[billingPeriod];
+
+  // Ask the store what Orthodox mode costs. Until it answers the screen shows a spinner
+  // where the prices go; if it never does, it says so and Subscribe stays disabled.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const packages: PurchasesPackage[] = await getAllPackages();
+      if (cancelled) return;
+      setPrices(planPricesFromPackages(packages, 'orthodox'));
+      setOfferingsState(packages.length ? 'ready' : 'unavailable');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const availability = paywallAvailability(offeringsState, prices, billingPeriod);
+  const selectedPrice = billingPeriod === 'yearly' ? prices.yearly : prices.monthly;
+
+  const announce = useCallback(
+    (outcome: EntitlementOutcome, context: 'purchase' | 'restore') => {
+      const notice = entitlementNotice(outcome, context, 'Orthodox Mode');
+      if (notice) Alert.alert(notice.title, notice.message);
+    },
+    []
+  );
+
+  const grantAccess = useCallback(() => {
+    setOrthodoxSubscription(true);
+    setOrthodoxMode(true);
+    router.replace('/(orthodox)/shidduch');
+  }, [setOrthodoxMode, setOrthodoxSubscription]);
 
   const handlePurchase = async () => {
-    setIsPurchasing(true);
-    try {
-      // In production, this would use RevenueCat to process the purchase
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+    // Buy the period the user actually chose. Passing both ids would let the store sell
+    // the other one, at a price this screen never showed.
+    const outcome = (await checkEntitlement())
+      ? ({ status: 'granted' } as EntitlementOutcome)
+      : await purchase([ORTHODOX_PRODUCT_IDS[billingPeriod]]);
 
-      // Mark as subscribed
-      setOrthodoxSubscription(true);
-
-      Alert.alert(
-        'Welcome to Orthodox Mode',
-        'Your subscription is now active. You can now access the Orthodox dating pool.',
-        [{
-          text: 'Set Up Profile',
-          onPress: () => {
-            setOrthodoxMode(true);
-            router.replace('/(orthodox)/shidduch');
-          }
-        }]
-      );
-    } catch (error) {
-      Alert.alert('Error', 'Purchase failed. Please try again.');
-    } finally {
-      setIsPurchasing(false);
+    if (outcome.status !== 'granted') {
+      announce(outcome, 'purchase');
+      return;
     }
+
+    Alert.alert(
+      'Welcome to Orthodox Mode',
+      'Your subscription is now active. You can now access the Orthodox dating pool.',
+      [{ text: 'Set Up Profile', onPress: grantAccess }]
+    );
   };
 
   const handleRestore = async () => {
-    setIsPurchasing(true);
-    try {
-      // In production, restore from RevenueCat
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      Alert.alert('No Purchases', 'No previous Orthodox Mode subscription found.');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to restore purchases.');
-    } finally {
-      setIsPurchasing(false);
+    const outcome = await restore();
+    if (outcome.status !== 'granted') {
+      announce(outcome, 'restore');
+      return;
     }
+    grantAccess();
   };
 
   const handleClose = () => {
@@ -198,10 +256,10 @@ export default function OrthodoxPaywallScreen() {
               ]}
               onPress={() => setBillingPeriod('yearly')}
             >
-              {ORTHODOX_PRICING.yearly.savings && (
+              {prices.savingsPercent !== null && (
                 <View style={styles.savingsBadge}>
                   <Text style={styles.savingsText}>
-                    {ORTHODOX_PRICING.yearly.savings}
+                    Save {prices.savingsPercent}%
                   </Text>
                 </View>
               )}
@@ -213,15 +271,21 @@ export default function OrthodoxPaywallScreen() {
               >
                 Yearly
               </Text>
-              <Text
-                style={[
-                  styles.billingPrice,
-                  billingPeriod === 'yearly' && styles.billingPriceActive,
-                ]}
-              >
-                {ORTHODOX_PRICING.yearly.price}
-              </Text>
-              <Text style={styles.billingPerMonth}>~$16.67/month</Text>
+              {prices.yearly && (
+                <Text
+                  style={[
+                    styles.billingPrice,
+                    billingPeriod === 'yearly' && styles.billingPriceActive,
+                  ]}
+                >
+                  {prices.yearly.displayPrice}
+                </Text>
+              )}
+              {prices.yearly?.monthlyEquivalent && (
+                <Text style={styles.billingPerMonth}>
+                  {prices.yearly.monthlyEquivalent}/month
+                </Text>
+              )}
             </Pressable>
 
             <Pressable
@@ -239,35 +303,56 @@ export default function OrthodoxPaywallScreen() {
               >
                 Monthly
               </Text>
-              <Text
-                style={[
-                  styles.billingPrice,
-                  billingPeriod === 'monthly' && styles.billingPriceActive,
-                ]}
-              >
-                {ORTHODOX_PRICING.monthly.price}
-              </Text>
+              {prices.monthly && (
+                <Text
+                  style={[
+                    styles.billingPrice,
+                    billingPeriod === 'monthly' && styles.billingPriceActive,
+                  ]}
+                >
+                  {prices.monthly.displayPrice}
+                </Text>
+              )}
             </Pressable>
           </View>
+
+          {availability.showSpinner && (
+            <ActivityIndicator
+              style={styles.pricesSpinner}
+              color={colors.primary.gold}
+            />
+          )}
+          {availability.showUnavailable && (
+            <Text style={styles.pricesUnavailable}>{PRICES_UNAVAILABLE_MESSAGE}</Text>
+          )}
         </Animated.View>
 
         {/* CTA */}
         <Animated.View entering={FadeInDown.delay(500).springify()}>
           <Pressable
-            style={[styles.ctaButton, isPurchasing && styles.ctaButtonDisabled]}
+            style={[
+              styles.ctaButton,
+              (isBusy || !availability.canPurchase) && styles.ctaButtonDisabled,
+            ]}
             onPress={handlePurchase}
-            disabled={isPurchasing}
+            disabled={isBusy || !availability.canPurchase}
           >
-            {isPurchasing ? (
+            {isBusy ? (
               <ActivityIndicator color={colors.primary.navy} />
             ) : (
               <Text style={styles.ctaText}>
-                Subscribe for {pricing.price}{pricing.period}
+                {selectedPrice
+                  ? `Subscribe for ${selectedPrice.displayPrice}/${billingPeriod === 'yearly' ? 'year' : 'month'}`
+                  : 'Subscribe'}
               </Text>
             )}
           </Pressable>
 
-          <Pressable style={styles.restoreButton} onPress={handleRestore}>
+          <Pressable
+            style={styles.restoreButton}
+            onPress={handleRestore}
+            disabled={isBusy}
+          >
             <Text style={styles.restoreText}>Restore Purchases</Text>
           </Pressable>
 
@@ -453,6 +538,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.transparent.white50,
     marginTop: spacing[1],
+  },
+  pricesSpinner: {
+    marginTop: spacing[4],
+  },
+  pricesUnavailable: {
+    marginTop: spacing[4],
+    fontSize: 13,
+    textAlign: 'center',
+    color: colors.transparent.white60,
   },
   ctaButton: {
     backgroundColor: colors.primary.gold,

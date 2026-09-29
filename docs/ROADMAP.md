@@ -337,10 +337,21 @@ Tables / migrations (untouched, nothing dropped): `safta_accounts`, `safta_conne
 4. `src/components/chat/SendToChatsModal.tsx` still has a hardcoded mock chat
    (`id: 'safta-1'`) in its Saftas section — replace with real connections.
 5. RevenueCat: create the `safta_pro` entitlement and the `safta_pro_monthly` /
-   `safta_pro_yearly` products, and the matching App Store subscriptions.
+   `safta_pro_yearly` products, and the matching App Store subscriptions. Note those two
+   product ids do **not** follow the `mazal_<plan>_<period>` convention the rest of the
+   app uses; `(safta-auth)/paywall.tsx` passes them explicitly. Renaming them to
+   `mazal_safta_pro_*` is worth deciding before they are created in App Store Connect,
+   because a product id cannot be changed afterwards.
+   Since MEXA-345 the code is ready for them: the paywall makes a real `purchasePackage`
+   call and grants only on an active `safta_pro` entitlement. It no longer writes
+   `safta_accounts.subscription_status` — that column and `subscription_plan` now have no
+   writer at all, and `authenticated` still holds UPDATE on both (tracked separately).
+   Until the dashboard products exist, Subscribe is disabled and the screen says the
+   prices are unavailable — no access.
 6. Push: the `safta_like` notification needs a server-side trigger.
-7. Product review of the Safta paywall copy and pricing (`$14.99/mo`, `$119.99/yr`)
-   before it is shown to anyone.
+7. Product review of the Safta paywall copy and pricing before it is shown to anyone. The
+   screen no longer quotes a price of its own, so whatever is set in App Store Connect is
+   what a user sees.
 
 ---
 
@@ -424,9 +435,13 @@ points.
    entitlement, and the login screens read that entitlement instead of the dead
    `users.orthodox_subscription_status` column. Until the dashboard products exist,
    `getAllPackages()` finds nothing and Subscribe says "Not Available Yet" — no access.
-   Note `(orthodox)/paywall.tsx` is a *second*, older paywall that still fakes its
-   purchase with a `setTimeout` (MEXA-345); it has to be fixed or deleted before the flag
-   goes on.
+   `(orthodox)/paywall.tsx` is a *second*, older paywall in the orphaned `app/(orthodox)/`
+   group — nothing navigates there; the only reference outside the group is its
+   `Stack.Screen` in `app/_layout.tsx`. MEXA-345 gave it the same real purchase and
+   restore, so it is no longer a bypass around the live gate. **Whether the group should
+   exist at all is still open** — it duplicates `(orthodox-auth)` and `(orthodox-tabs)`.
+   Its prices are the store's now, not the $24.99/$199.99 it used to hardcode, which
+   disagreed with the $49.99 above.
 5. Real shadchan data — the directory has no backing content.
 6. A rabbinic/community review of the guidelines and matching rules before launch, and
    Itai's sign-off on all Orthodox-facing copy.

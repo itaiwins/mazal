@@ -53,23 +53,51 @@ export type PlanPrices = {
   savingsPercent: number | null;
 };
 
-/** The identifier convention the app and App Store Connect share. */
+/** A plan's store product id for each billing period. */
+export type PeriodProductIds = { readonly monthly: string; readonly yearly: string };
+
+/**
+ * The identifier convention the app and App Store Connect share — for the plans that
+ * follow it.
+ *
+ * Safta Pro does not: `PRODUCTS.SAFTA_PRO_MONTHLY` is `safta_pro_monthly`, with no
+ * `mazal_` prefix (MEXA-345). Rather than rename a product id, which is an App Store
+ * Connect identity and not ours to change here, every function below takes the two ids
+ * explicitly and this helper is just the shorthand for the plans that do fit.
+ */
 export function productIdFor(plan: string, period: BillingPeriod): string {
   return `mazal_${plan}_${period}`;
 }
 
+/** The pair of ids for a plan that follows the `mazal_<plan>_<period>` convention. */
+export function planProductIds(plan: string): PeriodProductIds {
+  return { monthly: productIdFor(plan, 'monthly'), yearly: productIdFor(plan, 'yearly') };
+}
+
 /**
+ * The package selling exactly `productId`.
+ *
  * Generic over the element type, so a caller holding real `PurchasesPackage`s gets one
  * back and can hand it straight to `purchasePackage()` — narrowing to `PricedPackage`
  * here would throw away the fields RevenueCat needs.
+ *
+ * Exact match only. A paywall that fell back to "whatever package was in the offering"
+ * would charge a price it never showed.
  */
+export function findPackageById<T extends PricedPackage>(
+  packages: readonly T[],
+  productId: string
+): T | null {
+  if (!productId) return null;
+  return packages.find((p) => p.product?.identifier === productId) ?? null;
+}
+
 export function findPackage<T extends PricedPackage>(
   packages: readonly T[],
   plan: string,
   period: BillingPeriod
 ): T | null {
-  const id = productIdFor(plan, period);
-  return packages.find((p) => p.product?.identifier === id) ?? null;
+  return findPackageById(packages, productIdFor(plan, period));
 }
 
 function priceFrom(pkg: PricedPackage | null): StorePrice | null {
@@ -83,12 +111,13 @@ function priceFrom(pkg: PricedPackage | null): StorePrice | null {
   };
 }
 
-export function planPricesFromPackages(
+/** Prices for a plan whose two product ids are given outright. */
+export function pricesFromProductIds(
   packages: readonly PricedPackage[],
-  plan: string
+  ids: PeriodProductIds
 ): PlanPrices {
-  const yearlyPkg = findPackage(packages, plan, 'yearly');
-  const monthlyPkg = findPackage(packages, plan, 'monthly');
+  const yearlyPkg = findPackageById(packages, ids.yearly);
+  const monthlyPkg = findPackageById(packages, ids.monthly);
   const yearly = priceFrom(yearlyPkg);
   const monthly = priceFrom(monthlyPkg);
 
@@ -110,6 +139,13 @@ export function planPricesFromPackages(
   }
 
   return { yearly, monthly, savingsPercent };
+}
+
+export function planPricesFromPackages(
+  packages: readonly PricedPackage[],
+  plan: string
+): PlanPrices {
+  return pricesFromProductIds(packages, planProductIds(plan));
 }
 
 /** Where the paywall is in its conversation with the store. */
