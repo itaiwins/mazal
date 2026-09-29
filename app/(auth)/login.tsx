@@ -20,10 +20,7 @@ import {
 import { Link, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import * as AppleAuthentication from 'expo-apple-authentication';
-import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
-import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/api/supabase/client';
 import { completeOAuthCallback } from '@/lib/auth/authDeepLink';
@@ -35,7 +32,6 @@ import { FEATURE_ORTHODOX_MODE } from '@/lib/config/features';
 import { authErrorMessage } from '@/lib/auth/authErrorMessage';
 
 // Required for web browser auth to close properly
-WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -82,163 +78,6 @@ export default function LoginScreen() {
     } catch (e) {
       setError('Something went wrong. Please try again.');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleAppleSignIn = async () => {
-    try {
-      // Check if Apple Authentication is available
-      const isAvailable = await AppleAuthentication.isAvailableAsync();
-      if (!isAvailable) {
-        Alert.alert('Not Available', 'Apple Sign In is not available on this device');
-        return;
-      }
-
-      setIsLoading(true);
-
-      // Generate nonce for security
-      const rawNonce = Crypto.getRandomBytes(16).reduce(
-        (acc, byte) => acc + byte.toString(16).padStart(2, '0'),
-        ''
-      );
-      const hashedNonce = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        rawNonce
-      );
-
-      // Request credentials from Apple
-      const credential = await AppleAuthentication.signInAsync({
-        requestedScopes: [
-          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-          AppleAuthentication.AppleAuthenticationScope.EMAIL,
-        ],
-        nonce: hashedNonce,
-      });
-
-      if (credential.identityToken) {
-        // Sign in with Supabase using the Apple ID token
-        const { data, error } = await supabase.auth.signInWithIdToken({
-          provider: 'apple',
-          token: credential.identityToken,
-          nonce: rawNonce,
-        });
-
-        if (error) {
-          console.error('Supabase Apple auth error:', error);
-          Alert.alert('Error', error.message);
-          return;
-        }
-
-        if (data.session) {
-          console.log('[Login] Apple Sign In successful, session user id:', data.session.user.id);
-
-          // Check if user has a profile and what mode they should be in
-          const { data: userProfile, error: profileError } = await supabase
-            .from('users')
-            .select('id, onboarding_complete')
-            .eq('auth_id', data.session.user.id)
-            .single();
-
-          console.log('[Login] User profile:', userProfile, 'Error:', profileError);
-
-          // Check if they have a shidduch profile (skipped while Orthodox mode is
-          // hidden behind a flag - docs/ROADMAP.md)
-          if (userProfile && FEATURE_ORTHODOX_MODE) {
-            const { data: shidduchProfile } = await supabase
-              .from('shidduch_profiles')
-              .select('id')
-              .eq('user_id', userProfile.id)
-              .single();
-
-            console.log('[Login] Shidduch profile:', shidduchProfile ? 'EXISTS' : 'NOT FOUND');
-          }
-
-          setSession(data.session);
-          setCurrentMode('user'); // Explicitly set to user mode
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          console.log('[Login] About to navigate to /');
-          router.replace('/');
-        }
-      }
-    } catch (e: any) {
-      if (e.code === 'ERR_REQUEST_CANCELED') {
-        // User canceled the sign in
-        console.log('Apple Sign In cancelled');
-      } else {
-        console.error('Apple Sign In error:', e);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        Alert.alert('Error', 'Failed to sign in with Apple');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleGoogleSignIn = async () => {
-    try {
-      setIsLoading(true);
-
-      // Use the app's custom scheme for redirect
-      const redirectUrl = 'mazal://auth/callback';
-
-      console.log('[Login] Google redirect URL:', redirectUrl);
-
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: redirectUrl,
-          skipBrowserRedirect: true,
-        },
-      });
-
-      if (error) {
-        console.error('Google OAuth error:', error);
-        Alert.alert('Error', error.message);
-        return;
-      }
-
-      if (data?.url) {
-        // Open the OAuth URL in a web browser
-        const result = await WebBrowser.openAuthSessionAsync(
-          data.url,
-          redirectUrl,
-          { showInRecents: true }
-        );
-
-        console.log('[Login] Google OAuth result:', result.type);
-
-        if (result.type === 'success' && result.url) {
-          // The client is on PKCE, so the callback carries a `?code=` and nothing
-          // else usable; the exchange is the same one the email links use.
-          const outcome = await completeOAuthCallback(result.url);
-
-          if (outcome.ok) {
-            console.log('[Login] Google Sign In successful');
-
-            // Set mode and navigate after delay
-            setCurrentMode('user'); // Explicitly set to user mode
-            setTimeout(() => {
-              console.log('[Login] Navigating after delay...');
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              setIsLoading(false);
-              router.replace('/');
-            }, 500);
-            return; // Exit early, setTimeout will handle navigation
-          }
-
-          console.error('[Login] Google callback not usable:', outcome.message);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          Alert.alert('Error', 'Authentication failed. Please try again.');
-        } else if (result.type === 'cancel') {
-          console.log('Google Sign In cancelled by user');
-        }
-      }
-    } catch (e) {
-      console.error('Google Sign In error:', e);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Error', 'Failed to sign in with Google');
     } finally {
       setIsLoading(false);
     }
@@ -341,34 +180,15 @@ export default function LoginScreen() {
           </Pressable>
         </View>
 
-        {/* Divider */}
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>or continue with</Text>
-          <View style={styles.dividerLine} />
-        </View>
+        {/* Sign in with Apple and Google were here. Both providers are disabled on the
+            live project — `GET /auth/v1/settings` returns `apple: false, google: false` —
+            so each button only produced an error, and the Apple one showed Apple's own
+            system sheet first, which made it look like Mazal broke after taking the user's
+            Apple ID. Removed for the first TestFlight on Lelouch's call (MEXA-387).
 
-        {/* Social login buttons */}
-        <View style={styles.socialButtons}>
-          {Platform.OS === 'ios' && (
-            <Pressable
-              style={styles.socialButton}
-              onPress={handleAppleSignIn}
-              disabled={isLoading}
-            >
-              <Ionicons name="logo-apple" size={24} color={colors.primary.white} />
-              <Text style={styles.socialButtonText}>Apple</Text>
-            </Pressable>
-          )}
-          <Pressable
-            style={styles.socialButton}
-            onPress={handleGoogleSignIn}
-            disabled={isLoading}
-          >
-            <Ionicons name="logo-google" size={22} color={colors.primary.white} />
-            <Text style={styles.socialButtonText}>Google</Text>
-          </Pressable>
-        </View>
+            Turning them on is MEXA-389, and they go back together: guideline 4.8 requires
+            Sign in with Apple if any other third-party login is offered. The buttons and
+            both handlers are in this commit's parent — `git show` rather than a rewrite. */}
 
         {/* Sign up link */}
         <View style={styles.signUpContainer}>
@@ -480,42 +300,6 @@ const styles = StyleSheet.create({
     color: colors.primary.navy,
     fontSize: 17,
     fontWeight: '600',
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: spacing[8],
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.transparent.white20,
-  },
-  dividerText: {
-    color: colors.transparent.white50,
-    paddingHorizontal: spacing[4],
-    fontSize: 14,
-  },
-  socialButtons: {
-    flexDirection: 'row',
-    gap: spacing[4],
-  },
-  socialButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing[2],
-    backgroundColor: colors.transparent.white10,
-    paddingVertical: spacing[3.5],
-    borderRadius: borderRadius.xl,
-    borderWidth: 1,
-    borderColor: colors.transparent.white20,
-  },
-  socialButtonText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: colors.primary.white,
   },
   signUpContainer: {
     flexDirection: 'row',
