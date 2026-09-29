@@ -108,6 +108,8 @@ After that, the record and the reports attached to it are deleted automatically.
 
 Reports that you filed about other users are also kept after you delete your account. They are part of the safety history of the person you reported, and are not ours to erase on your behalf. Once your account is gone they are no longer linked to a profile, but the report and its outcome remain.
 
+If a report led us to take action on your account, we may use this record to prevent the same email address from being used to create a new account while the record is kept.
+
 Requesting earlier deletion
 
 You can ask us to delete your data sooner by contacting privacy@mazal.app. We will do that for everything above, with one exception: a safety record that is still within the period described here. That record exists to protect other people, so we cannot remove it on request. If this applies to you, we will tell you.`,
