@@ -14,9 +14,14 @@
  *  1. **An unrecognised message is passed through unchanged.** Rewriting an error nobody
  *     anticipated into "something went wrong" is how a real cause disappears. The mapping
  *     only speaks where it knows what happened.
- *  2. **Nothing here says whether an address has an account.** "Invalid login credentials"
- *     stays one message for a wrong password and an unknown email — telling them apart
- *     turns the login form into a way to enumerate who is on a dating app.
+ *  2. **The login form's message does not separate a wrong password from an unknown
+ *     email.** "Invalid login credentials" stays one message for both — telling them apart
+ *     turns the login form into a way to enumerate who is on a dating app. This file adds
+ *     no signal of its own, but enumeration resistance is a property of GoTrue's responses,
+ *     not of this file: the `user already registered` rule on `signUp` does name an
+ *     existing account, and only fires when GoTrue's raw text already said so (with
+ *     confirmations on, GoTrue returns an obfuscated user instead of that error), so the
+ *     mapping neither creates nor removes that signal (MEXA-388 C).
  */
 
 /** What GoTrue was asked to do. Some messages mean different things per operation. */

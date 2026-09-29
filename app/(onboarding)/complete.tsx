@@ -332,8 +332,15 @@ export default function CompleteScreen() {
         raise_children_jewish: data?.raise_children_jewish ?? true,
         willing_to_relocate: data?.willing_to_relocate ?? false,
         bio: data?.bio || '',
-        onboarding_complete: true,
-        is_active: true,
+        // Not live yet (MEXA-388 A). The row is written before the photos because the
+        // photo rows reference it, but it only enters the deck (`is_active`) and only
+        // counts as onboarded (`onboarding_complete`, which authStore routes on) once the
+        // photo outcome is settled - see "Go live" below. A user who picks "Try again" and
+        // then closes the app is therefore neither in anyone's deck with no photos nor
+        // routed past this screen on relaunch. The retry takes the update path, which
+        // writes these same two falses again.
+        onboarding_complete: false,
+        is_active: false,
       };
 
       console.log('[Complete] Saving profile to database using direct API...');
@@ -583,9 +590,28 @@ export default function CompleteScreen() {
         }
       }
 
+      // Go live (MEXA-388 A): every photo landed, the user saw the partial-upload notice,
+      // or they chose "Continue anyway". Nothing before this point makes the profile
+      // visible. If this write fails the user stays here and Continue retries the whole
+      // save, which is safe (update path, photos replaced).
+      console.log('[Complete] Marking profile live...');
+      const { data: liveUser, error: liveError } = await updateUser(verifiedAuthId, {
+        onboarding_complete: true,
+        is_active: true,
+      });
+      if (liveError || !liveUser) {
+        console.error('[Complete] Could not mark profile live:', liveError?.message);
+        Alert.alert(
+          'Error',
+          `Could not finish setting up your profile: ${liveError?.message || 'no data returned'}. Please try again.`
+        );
+        setIsSaving(false);
+        return;
+      }
+
       console.log('[Complete] Updating auth store...');
       // Update the auth store with the saved user
-      setUser(userData);
+      setUser(liveUser);
 
       // Reset onboarding store
       reset();

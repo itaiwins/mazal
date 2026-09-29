@@ -506,17 +506,23 @@ the app items in **MEXA-435** (Edward). Each has a 10-run cap. Decided:
 ### Before public launch (App Store)
 
 - Sign in with Apple + Google, both or neither, per guideline 4.8 (MEXA-389)
-- Push notifications are never delivered: nothing drains `notification_queue` (MEXA-410)
+- ~~Push notifications are never delivered: nothing drains `notification_queue` (MEXA-410)~~ Built on MEXA-435 (`00038`, pg_cron + pg_net), in review, not applied
 - Database lockdown: `00016` (anon loses all table grants) is reviewed but not applied; leftover write grants; `USING (true)` reads on prompts/badges; DOB exposed to signed-in users; DEFINER `search_path`/`pg_temp` (MEXA-364, 274, 277, 320, 319, 379, 399)
-- Discovery sort server-side so `elo_score` stays private; rank-then-limit is Itai's product call (MEXA-278, 318)
+- ~~Discovery sort server-side so `elo_score` stays private; rank-then-limit (MEXA-278, 318)~~ Built on MEXA-435 (`00039` + client), in review, not applied
 - Unmatch can be undone by the person who was unmatched; `00036` is written, not applied (MEXA-418)
 - `swipes.created_at` is client-settable (Rewind window) (MEXA-409)
-- A blocked account's blocks die when it re-signs up; deleted-account holds as a signup block, which is Itai's product call (MEXA-381, 258)
+- ~~A blocked account's blocks die when it re-signs up (MEXA-381, 258)~~ Built on MEXA-435 (`00040`, supersedes `00029`; hold enforced after confirmation, privacy text updated), in review, not applied
 - The privacy policy promises a purge (`00012`) that isn't applied (MEXA-384)
 - Clean 17 `@example.com` test accounts out of live auth (MEXA-282)
 - Client paths that fall back to the anon key (MEXA-299)
-- Auth leftovers: PKCE redirect check, email-changed notice (MEXA-370)
-- Onboarding polish from the MEXA-338 review (MEXA-388)
+- ~~Auth leftovers: PKCE redirect check, email-changed notice (MEXA-370)~~ Done on MEXA-435: PKCE 6/6 live, `?code=` only (no `type=`); email-changed notice on
+- ~~Onboarding polish from the MEXA-338 review (MEXA-388)~~ Built on MEXA-435, in review
+- Push: Expo receipts (the second, delivery-level check) are not polled; `quiet_hours_*` is not honoured (no timezone) (MEXA-435)
+- Push: `supabase/functions/send-notification` is now unused by the queue; delete it or keep it for ad-hoc sends (MEXA-435)
+- A moderator's hold is enforced when the profile is created, not when an existing account changes its email to a held address (MEXA-435)
+- Discovery: the client's "liked you" query returns nothing under `swipes` RLS, so `has_liked_me` on a card is always false; the server rank still puts likers first (MEXA-435)
+- Onboarding: each photo retry uploads new storage objects and leaves the first attempt's as orphans (MEXA-388 A)
+- Device check for the next build: Settings > Display > Text Size at max, the dot navigator must not cover the five padded onboarding screens (MEXA-388 B)
 - Profanity filter: the "home"/"hope" false positives are **fixed** (a3f41fe). Widening threat detection further is parked (MEXA-337, 343)
 
 ### When purchases go live (RevenueCat key: Itai, later)

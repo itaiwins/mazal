@@ -56,6 +56,10 @@ const DOT_WRAPPER_HEIGHT =
  *
  * Prefer `useDotNavigatorInset()` — a screen wants this plus the real inset.
  */
+// It only holds if the text cannot grow: iOS Dynamic Type scales `fontSize` AND
+// `lineHeight`, so every `Text` inside the navigator sets `maxFontSizeMultiplier={1}`
+// (MEXA-388 B). The web render always runs at fontScale 1, so check-tab-bar-overlap.mjs
+// cannot catch a regression here; the device check is Settings > Display > Text Size at max.
 export const DOT_NAVIGATOR_HEIGHT =
   METRICS.paddingTop +
   METRICS.hintLineHeight +
@@ -120,12 +124,12 @@ function Dot({
         */}
         {badge !== undefined && badge > 0 ? (
           <View style={styles.badge}>
-            <Text style={styles.badgeText}>{badge > 9 ? '9+' : badge}</Text>
+            <Text style={styles.badgeText} maxFontSizeMultiplier={1}>{badge > 9 ? '9+' : badge}</Text>
           </View>
         ) : null}
       </View>
       {isActive && (
-        <Text style={styles.label}>{label}</Text>
+        <Text style={styles.label} maxFontSizeMultiplier={1}>{label}</Text>
       )}
     </View>
   );
@@ -183,7 +187,7 @@ export function DotNavigator({ tabs, activeTab, onTabPress }: DotNavigatorProps)
       style={[styles.container, { paddingBottom: insets.bottom + METRICS.paddingBottom }]}
     >
       <View style={styles.hintContainer}>
-        <Text style={styles.hintText}>Drag dots to navigate</Text>
+        <Text style={styles.hintText} maxFontSizeMultiplier={1}>Drag dots to navigate</Text>
       </View>
       <GestureDetector gesture={panGesture}>
         <View style={styles.dotsRow}>

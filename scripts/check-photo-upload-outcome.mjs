@@ -189,6 +189,17 @@ record(
   'the blocking branch stays on the screen instead of navigating'
 );
 
+// MEXA-388 A: the block above only keeps the user on the screen. It keeps a photoless
+// profile out of the deck only if the row is not live until after it.
+console.log('\nthe profile goes live only after the photo outcome');
+const firstWrite = screen.indexOf('onboarding_complete: false');
+const outcomeAt = screen.indexOf('describePhotoUploadOutcome(photosPicked');
+const goLive = screen.search(/updateUser\(verifiedAuthId, \{\s*onboarding_complete: true,\s*is_active: true,?\s*\}\)/);
+record(firstWrite !== -1 && /is_active: false/.test(screen), 'the first write sets onboarding_complete and is_active false');
+record(!/onboarding_complete: true,\s*is_active: true,\s*\};/.test(screen), 'profileData no longer carries the live flags');
+record(goLive > outcomeAt && outcomeAt > firstWrite, 'the go-live update comes after the photo outcome is decided');
+record(/setUser\(liveUser\)/.test(screen), 'the auth store gets the live row, not the pre-photo one');
+
 console.log(`\n${passes} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log('\nfailures:');
