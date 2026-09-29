@@ -44,6 +44,7 @@ Apply exactly this sequence:
 00017_matching_actually_matches.sql
 00018_publish_messages_to_realtime.sql
 00019_college_and_safta_stats_visibility.sql
+00020_safta_likes_actually_save.sql
 ```
 
 Notes on the order:
@@ -60,17 +61,21 @@ Notes on the order:
 - Undo scripts live in `supabase/rollback/`, **never** in this directory. Anything
   dropped in here is a file some tool will eventually apply in name order, and an undo
   script is the last thing you want applied by accident — `00010_rollback.sql` sorted
-  *ahead* of the migration it undoes. The seven that exist are
-  `00010_secure_definer_rpcs_rollback.sql`, `00011_preserve_moderation_history_rollback.sql`,
+  *ahead* of the migration it undoes. There is one for every migration from `00010` on
+  except `00018`: `00010_secure_definer_rpcs_rollback.sql`,
+  `00011_preserve_moderation_history_rollback.sql`,
   `00012_deleted_accounts_retention_rollback.sql`,
   `00013_users_column_privacy_rollback.sql`,
   `00014_revoke_unreachable_table_privileges_rollback.sql`,
-  `00016_client_role_write_privileges_rollback.sql` and
-  `00017_matching_actually_matches_rollback.sql`; read each one's header. `00014`'s and
-  `00016`'s are the two that are not bit-exact inverses, and each says exactly where it
-  differs and why. `00013`'s is exact except for column order, which its header explains.
-  `00016`'s is also split into six independent sections, smallest first — run the one that
-  unblocks you, not the whole file.
+  `00015_scope_users_write_grants_rollback.sql`,
+  `00016_client_role_write_privileges_rollback.sql`,
+  `00017_matching_actually_matches_rollback.sql`,
+  `00019_college_and_safta_stats_visibility_rollback.sql` and
+  `00020_safta_likes_actually_save_rollback.sql`; read each one's header. `00014`'s,
+  `00015`'s and `00016`'s are the three that are not bit-exact inverses, and each says
+  exactly where it differs and why. `00013`'s is exact except for column order, which its
+  header explains. `00016`'s is split into six independent sections, `00019`'s into two and
+  `00020`'s into two, smallest first — run the one that unblocks you, not the whole file.
 - `00011` is **APPLIED** to `tayiyczmacvhokdxfqvm`, 2026-09-28 23:31Z, from commit
   `1980e6a` (MEXA-256; Alucard reviewed it on MEXA-259 and MEXA-262, Lelouch approved the
   apply). Consequences anything written after this has to assume:
@@ -199,8 +204,19 @@ Notes on the order:
   INSERT. The same run at 4m and again at 6m passed 14/14 unchanged. Nothing was fixed in
   between. Same behaviour `00018`'s apply saw; do not judge a realtime failure inside
   that window, and do not touch anything to "fix" it.
-- `00019` is **not applied yet** — written and verified, waiting on Guts's review (MEXA-289)
-  and then on Lelouch. It **depends on `00013`** for `is_discoverable_profile()` and
+- `00019` **is applied** — 2026-09-29 02:17:07Z, from `mazal-restart` @ `976fe67` (the
+  reviewed commit, unedited), after Guts's review (MEXA-289 / MEXA-330, PASS) and the apply
+  on MEXA-331. The apply was one transaction holding the file body and the
+  `schema_migrations` insert (`.scratch/mazal-mexa289/APPLIED_00019_TX.sql`), over a
+  pre-apply policy/grant snapshot in `PREAPPLY_SNAPSHOT.json` — both tables held 0 rows.
+  Post-apply against live without a re-apply: **31/31**, plus a rollback rehearsal at
+  **30/30**, rolled back (`.scratch/mazal-mexa289/POSTAPPLY.txt`). Re-confirmed independently
+  while measuring MEXA-297: `user_safta_stats`' only SELECT policy is
+  `"Users can view own safta stats" TO authenticated USING (user_id = current_app_user_id())`
+  and `anon` holds no privilege on it. **To roll it back**, run the rollback file (A+B; B is
+  guarded on `00016`) and `delete from supabase_migrations.schema_migrations where
+  version='00019'` in one transaction.
+  It **depends on `00013`** for `is_discoverable_profile()` and
   `current_app_user_id()`, and on nothing else; `00013` is applied, so there is no unmet
   dependency on the live project. It is independent of `00014`–`00018` (see the `00016` note
   above for the one pair worth spelling out) and of `00015_prompts_badges_visibility`
@@ -212,8 +228,9 @@ Notes on the order:
   narrowing them, and `MEXA-289` was filed assuming otherwise. There is no college screen
   (`education.tsx` is a hardcoded string list, the shidduch one writes
   `shidduch_profiles.college_university`, and `mazal-map.tsx`'s `'college'` is a location
-  type), and `user_safta_stats`' only writer is the broken `update_safta_stats` trigger
-  (MEXA-297). Both tables hold 0 rows, so nothing was exposed in practice.
+  type), and `user_safta_stats`' only writer is the `update_safta_stats` trigger, which was
+  broken outright when `00019` went on and is fixed by `00020` (MEXA-297). Both tables hold
+  0 rows, so nothing was exposed in practice.
   Two deliberate departures from the fix as filed, both argued at length in the header:
   **`user_colleges`' cross-user policy tests `is_visible IS NOT FALSE`** (the column exists
   for exactly this and no policy had ever honoured it), and **`user_safta_stats` gets an
@@ -240,6 +257,64 @@ Notes on the order:
   **`rollback` 30/30** (`ROLLBACK.txt`) — `00019` then its rollback asserted against the
   `before` expectations, so the undo is bit-for-bit and puts the defect back rather than
   landing somewhere in between.
+- `00020` is **not applied yet** — written and verified, waiting on Guts's review (MEXA-297,
+  a function moving to `SECURITY DEFINER`) and then on Lelouch. It **depends on nothing**: it
+  replaces one function defined in `00001` and adds one policy to a table `00002` created,
+  and no other file names either. In particular it is independent of `00016` and changes no
+  grant at all, so `00016`'s post-check section 7c — which raises if
+  `has_table_privilege('authenticated','public.safta_likes','UPDATE')` is false — passes
+  whichever order the two go on in. That constraint is why `00020` does **not** column-scope
+  the `safta_likes` UPDATE grant the way `00015` scopes `users`: measured, a column-level
+  `GRANT UPDATE (sent_to_user, sent_at)` leaves `has_table_privilege` false, so it would
+  abort `00016`'s apply. Column-scoping this table belongs in the same migration that edits
+  that assertion.
+  Two changes on one path. **`update_safta_stats` becomes `SECURITY DEFINER` with
+  `SET search_path = public`** — it was INVOKER and its whole body writes another user's row
+  in `user_safta_stats`, which has no INSERT or UPDATE policy, so the write was `42501` and
+  the `42501` from an AFTER INSERT trigger aborted the `safta_likes` insert that fired it.
+  **No Safta had ever been able to like anyone**, and unlike `check_for_match` this one
+  always threw. And **`safta_likes` gets its first UPDATE policy**, admitting the owning
+  Safta and only while the row is still a draft (`sent_to_user IS NOT TRUE`).
+  Two things the header argues at length and a reviewer should read there rather than here.
+  First, **the "caller" `00016` cites for that policy is not live**:
+  `useUpdateRecommendationStatus` is exported from the Safta hooks barrel and called from no
+  screen, and neither is `useSendRecommendation` beside it — the Safta deck's Recommend
+  button (`app/(safta-tabs)/index.tsx:388`) spends a daily-usage credit, `console.log`s and
+  advances without writing anything. So Safta likes are unbuilt in the client and broken in
+  the database, and `00016`'s note reads as though line 166 were live. Second, **the draft
+  gate is the whole security argument, not tidiness**: flipping `sent_to_user` false → true
+  queues a push to `for_user_id`, `notification_queue`'s only unique constraint is a
+  `uuid_generate_v4()` primary key so `send_push_notification`'s `ON CONFLICT DO NOTHING`
+  deduplicates nothing, and an ownership-only UPDATE policy would hand a Safta a push faucet
+  on one row aimed at a user the INSERT policy never required her to be related to. `USING`
+  sees the OLD row, so admitting drafts only makes the transition one-way.
+  **Nothing decrements `total_safta_likes`**, and `00020` does not add a decrement — see
+  `docs/TRIGGER_FUNCTION_SECURITY_AUDIT.md`. Nothing to backfill: `safta_likes` and
+  `user_safta_stats` hold 0 rows.
+  Its rollback is `00020_safta_likes_actually_save_rollback.sql`, a bit-exact inverse split
+  into B (the policy) and A (the function), smallest first. Note the one thing that is not
+  obvious: `CREATE OR REPLACE FUNCTION` does **not** clear `proconfig`, so the rollback has
+  to `ALTER FUNCTION … RESET search_path` explicitly or the undo leaves
+  `prosecdef = false` next to a pinned `search_path` `00001` never set.
+  Verified against live in rolled-back transactions by `.scratch/mazal-mexa297/verify.mjs`,
+  three modes, nothing left behind (all five fixture tables back to 0 rows in each run).
+  All green: **`before` 23/23** (`BEFORE.txt`) — the like measured failing `42501` from
+  `user_safta_stats` as the real `safta_accounts` owner, `safta_likes` and `user_safta_stats`
+  both still 0 afterwards, and the UPDATE matching 0 rows in silence.
+  **`after` 27/27** (`AFTER.txt`) — the like is written and the counter lands on the person
+  liked rather than the grandchild; a second Safta liking the same person takes it to 2 via
+  the `ON CONFLICT` path; re-liking the same pair is `23505` from `00001`'s UNIQUE constraint,
+  so the counter cannot be doubled; a regular user still gets `42501` inserting a counter and
+  0 rows bumping someone else's, so DEFINER opened nothing; the owning Safta sends her draft
+  (1 row) and queues exactly one notification, un-sending it matches 0 rows and queues none,
+  a NULL `sent_to_user` draft is still sendable, another Safta's draft matches 0 rows, and
+  re-pointing a row at another Safta's account is `42501` from `WITH CHECK`.
+  **`rollback` 23/23** (`ROLLBACK.txt`) — `00020` then its rollback asserted against the
+  `before` expectations, so the undo puts both defects back rather than landing in between.
+  One measured detail worth carrying forward: `anon` still holds SELECT and UPDATE on
+  `safta_likes` until `00016` lands, but both come back `42501: permission denied for table
+  users` rather than 0 rows, because `00002`'s own policies subquery `public.users` and
+  `00013`/`00015` took that away from `anon`.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
 - `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values

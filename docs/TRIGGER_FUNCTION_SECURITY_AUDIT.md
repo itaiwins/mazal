@@ -29,7 +29,7 @@ Touching only `NEW`/`OLD` is always safe: no table is read, so no policy applies
 | Function | Trigger on | Sec | Body touches | Verdict |
 |---|---|---|---|---|
 | `check_for_match` | `swipes` AFTER INSERT | INV | reads `swipes` cross-side, inserts `matches` | **was broken, silently.** MEXA-296 / MEXA-294, fixed by `00017` → DEFINER + `search_path=public` |
-| `update_safta_stats` | `safta_likes` AFTER INSERT | INV | inserts `user_safta_stats` | **broken, loudly.** Every Safta like fails `42501`. MEXA-297 |
+| `update_safta_stats` | `safta_likes` AFTER INSERT | INV | inserts `user_safta_stats` | **was broken, loudly.** Every Safta like failed `42501`. MEXA-297, fixed by `00020` → DEFINER + `search_path=public` |
 | `update_match_last_message` | `messages` AFTER INSERT | INV | updates `matches` | works — but only because `matches` has an UPDATE policy admitting both participants. See below |
 | `update_updated_at` | `users` BEFORE UPDATE | INV | `NEW` only | safe by construction |
 | `update_notification_preferences_updated_at` | `notification_preferences`, `push_tokens` BEFORE UPDATE | INV | `NEW` only | safe by construction |
@@ -108,6 +108,15 @@ this repo controls. Schema-qualify them, or pin `search_path` to `public, extens
 unmatched after `00017` — the trigger only fires on new inserts. Measured on the live
 project: **0 users, 0 swipes, 0 matches, 0 safta_likes**, so there is nothing to backfill
 and `00017` deliberately does not try.
+
+Same for `update_safta_stats` and `00020`: `user_safta_stats` holds 0 rows, and a counter
+nothing ever incremented has no drift to repair. Worth knowing for later, though —
+**nothing decrements that counter.** There is no DELETE or UPDATE trigger on `safta_likes`,
+so a deleted like leaves the count where it was and a `safta_accounts` delete cascades away
+every one of her likes while every counter they raised stays raised. `00016` takes DELETE on
+`safta_likes` away from `authenticated`, which closes the client-driven version; the cascade
+remains. Filed separately — `00020` deliberately does not add a decrement, because what the
+number should mean after a withdrawal is a product decision.
 
 ## Checklist for the next trigger function
 
