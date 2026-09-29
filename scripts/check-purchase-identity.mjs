@@ -101,7 +101,13 @@ function eq(actual, expected, label) {
 function stubStore({ configureResult = true, configureThrows = null, logInThrows = null } = {}) {
   const calls = [];
   const errors = [];
-  let pendingLogIn = null;
+  /**
+   * A list, not one slot. A module that stopped serialising identity changes would put
+   * two logIns in flight at once; with one slot the second would be unreleasable and the
+   * script would stall at a `await Promise.all(...)` *after* recording its failure, exit
+   * 0 on an unsettled top-level await and report nothing. A mutation has to fail loudly.
+   */
+  let pendingLogIns = [];
   let logInFailuresLeft = logInThrows ? logInThrows.times ?? 1 : 0;
 
   const store = {
@@ -110,9 +116,9 @@ function stubStore({ configureResult = true, configureThrows = null, logInThrows
     /** Hold the next logIn open, so an event arriving mid-flight can be tested. */
     hold: false,
     release() {
-      const resolve = pendingLogIn;
-      pendingLogIn = null;
-      resolve?.();
+      const waiting = pendingLogIns;
+      pendingLogIns = [];
+      for (const resolve of waiting) resolve();
     },
     binding: {
       async configure(appUserId) {
@@ -122,7 +128,7 @@ function stubStore({ configureResult = true, configureThrows = null, logInThrows
       },
       async logIn(appUserId) {
         calls.push(`logIn(${appUserId})`);
-        if (store.hold) await new Promise((resolve) => (pendingLogIn = resolve));
+        if (store.hold) await new Promise((resolve) => pendingLogIns.push(resolve));
         if (logInFailuresLeft > 0) {
           logInFailuresLeft -= 1;
           throw new Error(logInThrows.message ?? 'logIn failed');
@@ -141,6 +147,21 @@ function stubStore({ configureResult = true, configureThrows = null, logInThrows
 
 /** Let every queued microtask run. */
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+/**
+ * Await something that is supposed to settle, and record a failure instead of stalling
+ * if it does not. Node exits 0 on an unsettled top-level await, printing no summary, so
+ * without this a module that deadlocks would read as a clean run.
+ */
+function settles(promise, label, ms = 2000) {
+  return Promise.race([
+    promise.then(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), ms)),
+  ]).then((ok) => {
+    if (!ok) record(false, label, `did not settle within ${ms}ms`);
+    return ok;
+  });
+}
 
 console.log(`purchase identity: ${IDENTITY}\n`);
 
@@ -249,7 +270,7 @@ console.log('\nAPPLY - serialisation, retries, and never throwing at the caller'
   eq(s.calls, ['configure(anonymous)', `logIn(${A})`], 'logIn(B) waits rather than racing');
   s.hold = false;
   s.release();
-  await Promise.all([first, second]);
+  await settles(Promise.all([first, second]), 'the held identity changes both settle');
   eq(
     s.calls,
     ['configure(anonymous)', `logIn(${A})`, `logIn(${B})`],
@@ -264,7 +285,7 @@ console.log('\nAPPLY - serialisation, retries, and never throwing at the caller'
   const id = createPurchaseIdentity(s.binding);
   await id.configure();
   const all = [id.setIdentity(A), id.setIdentity(B), id.setIdentity(A)];
-  await Promise.all(all);
+  await settles(Promise.all(all), 'a burst of identity changes settles');
   eq(s.calls, ['configure(anonymous)', `logIn(${A})`], 'A -> B -> A collapses to one logIn(A)');
   eq(id.state().applied, A, 'and the SDK is on A');
 }
@@ -338,7 +359,7 @@ console.log('\nSETTLED - what an entitlement read waits for');
   record(!done, 'settled() waits while an identity change is in flight');
   s.hold = false;
   s.release();
-  await waiting;
+  await settles(waiting, 'settled() resolves once the identity has landed');
   record(done && id.state().applied === A, 'and resolves once it has landed');
 }
 {
