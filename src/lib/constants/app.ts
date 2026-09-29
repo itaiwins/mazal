@@ -21,6 +21,19 @@ export const MAX_BIO_LENGTH = 500;
 export const MAX_PROMPT_ANSWER_LENGTH = 300;
 export const MAX_SAFTA_CONNECTIONS = 5;
 
+/**
+ * Shortest password the app will let someone choose.
+ *
+ * This is a **client-only** rule and it is stricter than the server's: the Supabase
+ * project's own `password_min_length` is 6. So an account created before this, or
+ * through any other route, can legitimately have a 6- or 7-character password —
+ * never gate a *current*-password field on this, only a new one (MEXA-264).
+ *
+ * It used to be declared separately in the two password screens and written as a bare
+ * `8` in three more, which is five places to disagree with each other.
+ */
+export const MIN_PASSWORD_LENGTH = 8;
+
 // Age
 export const MIN_AGE = 18;
 export const MAX_AGE = 99;

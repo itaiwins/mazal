@@ -28,6 +28,7 @@ import * as Crypto from 'expo-crypto';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { MIN_PASSWORD_LENGTH } from '@/lib/constants/app';
 import { supabase } from '@/api/supabase/client';
 import { completeOAuthCallback } from '@/lib/auth/authDeepLink';
 import { EMAIL_CONFIRM_REDIRECT_URL } from '@/lib/auth/authDeepLink';
@@ -49,7 +50,7 @@ export default function SaftaSignupScreen() {
   const setSession = useAuthStore((s) => s.setSession);
   const setCurrentMode = useAuthStore((s) => s.setCurrentMode);
 
-  const isValid = email.includes('@') && password.length >= 8 && password === confirmPassword && isOver18;
+  const isValid = email.includes('@') && password.length >= MIN_PASSWORD_LENGTH && password === confirmPassword && isOver18;
 
   const handleSignup = async () => {
     if (!isValid) return;
@@ -298,7 +299,7 @@ export default function SaftaSignupScreen() {
                   setPassword(text);
                   if (error) setError(null);
                 }}
-                placeholder="At least 8 characters"
+                placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
                 placeholderTextColor={colors.transparent.white30}
                 secureTextEntry={!showPassword}
                 autoComplete="new-password"

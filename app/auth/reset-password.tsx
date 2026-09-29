@@ -44,8 +44,7 @@ import {
 import { useAuthLink } from '@/lib/auth/useAuthLink';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
-
-const MIN_PASSWORD_LENGTH = 8;
+import { MIN_PASSWORD_LENGTH } from '@/lib/constants/app';
 
 type Status = 'verifying' | 'ready' | 'saving' | 'invalid';
 
@@ -269,7 +268,7 @@ export default function ResetPasswordScreen() {
                 style={[styles.input, styles.passwordInput]}
                 value={password}
                 onChangeText={setPassword}
-                placeholder="At least 8 characters"
+                placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
                 placeholderTextColor={colors.transparent.white30}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"

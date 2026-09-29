@@ -31,6 +31,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { DEV_BYPASS_PREMIUM } from '@/lib/config/revenuecat';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { MIN_PASSWORD_LENGTH } from '@/lib/constants/app';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -58,8 +59,8 @@ export default function OrthodoxRegisterScreen() {
       return false;
     }
 
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters');
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
       return false;
     }
 
@@ -295,7 +296,7 @@ export default function OrthodoxRegisterScreen() {
                 style={[styles.input, styles.passwordInput]}
                 value={password}
                 onChangeText={setPassword}
-                placeholder="At least 8 characters"
+                placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
                 placeholderTextColor={colors.neutral[400]}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"

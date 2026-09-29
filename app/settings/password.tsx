@@ -47,6 +47,7 @@ import * as Haptics from 'expo-haptics';
 import { supabase } from '@/api/supabase/client';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { MIN_PASSWORD_LENGTH } from '@/lib/constants/app';
 
 /**
  * The app asks for 8 everywhere it sets a password (register, reset-password).
@@ -54,7 +55,6 @@ import { spacing, borderRadius } from '@/theme/spacing';
  * shorter current password — which is why only the *new* password is held to
  * this, and the current one just has to be non-empty.
  */
-const MIN_PASSWORD_LENGTH = 8;
 
 /**
  * Turn the server's rejection into something a person can act on.
