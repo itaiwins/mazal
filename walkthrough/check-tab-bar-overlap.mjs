@@ -329,12 +329,18 @@ async function run() {
   /**
    * Not covered here: the deck's action buttons, the matches list and the chat composer.
    *
-   * All three need data the live project cannot currently supply — `useDiscoveryProfiles`
-   * filters on `user_public_profiles.age`, which migration 00030 adds and which is **not
-   * applied** to `tayiyczmacvhokdxfqvm`, so the deck query 400s and the screen the
-   * walkthrough photographed draws "You've seen everyone!" instead. The app's own Demo
-   * Mode would supply the data, but it sits behind a five-tap gesture on the version line
-   * that this driver could not make register.
+   * All three needed data the live project could not supply when this was written —
+   * `useDiscoveryProfiles` filters on `user_public_profiles.age`, which migration 00030
+   * adds and which was **not applied** to `tayiyczmacvhokdxfqvm`, so the deck query 400d
+   * and the screen the walkthrough photographed drew "You've seen everyone!" instead. The
+   * app's own Demo Mode would supply the data, but it sits behind a five-tap gesture on
+   * the version line that this driver could not make register.
+   *
+   * **That blocker is gone: 00030 was applied on 2026-09-29 (MEXA-385).** The deck now
+   * fills from two seeded fixtures — `check-discovery-deck.mjs` in this directory does
+   * exactly that and renders a candidate card. So the deck, and with a match and a message
+   * the matches list and the chat, can now be measured here for real. Whoever picks up
+   * MEXA-338 finding 9 next should extend `run()` rather than re-reading this note.
    *
    * What stands in for measuring them: all three pad by the same `useDotNavigatorInset()`
    * the Profile tab does, and that value is asserted against the rendered height above. The

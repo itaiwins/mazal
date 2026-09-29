@@ -68,8 +68,8 @@ is for: it has never been numeric (two `00003`s, two `00004`s, two `00005`s).
 the live set has holes on purpose.** `00016` is reviewed and PASSed but has never been
 carded for an apply, so `00017`, `00018` and everything after went on over the gap — each
 one checked to be independent of it before it was applied, and the per-migration notes
-below say which. `00012`, `00020`, `00026`, `00028`, `00029` and `00030` are likewise
-absent from live. **Do
+below say which. `00012`, `00020`, `00026`, `00028` and `00029` are likewise
+absent from live (`00030` was applied on 2026-09-29, MEXA-385). **Do
 not "fix" the order to close a gap**, and do not read a numeric hole as a mistake: apply
 the full list on a new database, and on live go by the ledger plus the notes below. The
 measured census is in the *ledger lags the repo* note near the end of this section.
@@ -704,8 +704,34 @@ Notes on the order:
   on top of `00030` returns a liker with `age: 29` and no `date_of_birth` key (`AFTER.txt`
   20), and `00026` applied *first* aborts with `user_public_profiles has no column(s) [age]`
   (`BEFORE.txt` 8).
-- `00030` is **NOT applied** — written 2026-09-29 (MEXA-320), waiting on a security review
-  and an apply card. It rebuilds `public.user_public_profiles` so that it publishes an
+- `00030` is **APPLIED** — written 2026-09-29 (MEXA-320), Guts PASSed it on MEXA-382 at
+  `d1f4a17`, Lelouch approved the apply on MEXA-385 under his standing migration authority
+  (MEXA-33), and Violet applied it at **2026-09-29 10:43Z** with
+  `.scratch/mazal-mexa385/apply_00030.mjs --apply` on the session pooler: one transaction,
+  the file's own `BEGIN`/`COMMIT` with its own ledger `INSERT` inside it. Counts across the
+  apply — users/swipes/matches all 0 and unchanged, ledger 24 → 25, functions 42 → 43
+  (`profile_age`), policies 88 → 88, view columns 33 → 33.
+  **It was carded as a privacy fix and it was also an outage fix.** `d1f4a17` merged the
+  client half — `useDiscoveryProfiles` filters `.gte('age', …)` — while the apply stayed
+  blocked, so for as long as the two were apart the deck query came back `42703 column
+  user_public_profiles.age does not exist` and **every user's discovery deck was empty**
+  (MEXA-385). Post-apply that is measured, not inferred: `walkthrough/check-discovery-deck.mjs`
+  signs in against live in a real render and the card reads "Deckhim, 28", with no empty
+  state and no `42703` in the page console — **6/6**. The catalog and the screen came apart
+  once here; check both.
+  Pre-apply snapshot (view definition, owner, reloptions, comment, all 33 columns, the
+  pre-`00030` grant set, the ledger and the row counts) is
+  `archive/backups/mazal-00030-preapply-20260929T103836Z.txt`; the post-check **23/23** is
+  `archive/backups/mazal-00030-postapply-20260929T104709Z.txt`; the rendered deck is
+  `archive/backups/mazal-00030-deck-20260929T104709Z.png`.
+  Two bugs worth carrying forward, both in the *harness* and neither in the migration: the
+  apply script's age probe passed a `timestamp` to `profile_age(date)` and died `42883`
+  **after** the transaction had committed (the apply was sound, but its own log never got
+  written — which is why the post-check is a separate script run against the committed
+  schema), and the post-check's deliberate `42703` probe aborted its own transaction until
+  it was given a `SAVEPOINT`. A probe that is meant to fail needs a savepoint, and a
+  post-check that can crash should not be the only record that an apply happened.
+  What it does: it rebuilds `public.user_public_profiles` so that it publishes an
   `age integer` (from the new `public.profile_age(date)`, STABLE, UTC-pinned) instead of
   `u.date_of_birth`. Everything else about the view is `00013`'s definition byte for byte:
   same 33 columns, same `security_invoker = false` / `security_barrier = true`, same owner,
@@ -751,10 +777,10 @@ Notes on the order:
   every probe afterwards, and the refusal fires when `00026` is on top.
 - **The ledger lags the repo, re-measured 2026-09-29 (MEXA-326; first taken on MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
-  `00017`–`00019`, `00021`, `00023`, `00024`, `00025`, `20250114`, `20250115` (`00025`
-  added 2026-09-29 08:10Z, MEXA-314; `00023` after the MEXA-359 reading, on MEXA-366). So
-  **`00012`, `00016` and `00020` are absent**, and `00026`, `00028`, `00029` and `00030`
-  are written but not applied.
+  `00017`–`00019`, `00021`, `00023`, `00024`, `00025`, `00030`, `20250114`, `20250115`
+  (`00025` added 2026-09-29 08:10Z, MEXA-314; `00023` after the MEXA-359 reading, on
+  MEXA-366; `00030` at 2026-09-29 10:43Z, MEXA-385 — 25 rows). So **`00012`, `00016` and
+  `00020` are absent**, and `00026`, `00028` and `00029` are written but not applied.
   One thing the version column cannot tell you: it keys on the numeric prefix alone, so
   the second file of each colliding pair — `00003_push_tokens`, `00004_safta_messages`,
   `00005_notification_triggers` — has **no row of its own**. `00003`–`00005` being present
