@@ -154,8 +154,9 @@ The screen, its copy, the ID-type list and the photo capture flow are all untouc
 Part B has a UI to reconnect.
 
 **Turning this flag on will not restore verification, and must not be attempted as a
-shortcut.** With the flag on and 00024 applied, the flow reaches its old database write and
-gets `42501: permission denied for table users`. What it needs (MEXA-359 Part B):
+shortcut.** `00024` **is applied to live** (2026-09-29 06:34Z), so with the flag on the flow
+reaches its old database write and gets `42501: permission denied for table users`. What it
+needs (**MEXA-367**, Part B):
 
 1. A Supabase Edge Function that receives the selfie and the ID, calls Rekognition
    **server-side**, and writes `is_verified` as `service_role`.
@@ -166,8 +167,12 @@ gets `42501: permission denied for table users`. What it needs (MEXA-359 Part B)
 4. Deletion of the ID photos after the compare, per the retention rules in MEXA-253. These
    are people's identity documents.
 
-Rekognition is a paid AWS service and there is no Mexant AWS account, so Part B needs Itai's
-spending decision before it can start.
+Rekognition is a paid AWS service and there is no Mexant AWS account, so Part B (**MEXA-367**)
+needs Itai's spending decision before it can start.
+
+Until it lands, **`is_verified` is unreachable: no client can write it and no server does.**
+That is the intended resting state — no badge is better than a badge that lies — but it means
+a `true` in that column today is evidence of a manual write, not of a verification.
 
 `is_photo_verified` is the other half of the pair and needed nothing: no code has ever
 written it, and `authenticated` has never held the privilege. `ONFIDO_API_TOKEN`,

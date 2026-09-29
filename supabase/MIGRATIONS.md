@@ -376,8 +376,19 @@ Notes on the order:
   `instagram_access_token` or `instagram_user_id` — `00013` moved both to `user_integrations`
   — but `src/types/supabase.generated.ts` still lists them on `users`. That is stale drift
   unrelated to this migration; don't repeat the claim that this RPC leaked an Instagram token.
-- `00024` is **not applied yet** — written and verified, waiting on Guts's review (MEXA-359,
-  a trust/auth grant change) and then on Lelouch. One `REVOKE` and one `COMMENT`: it takes
+- `00024` **is applied** — 2026-09-29 06:34Z, from `mazal-restart` @ `1e27d15` (MEXA-359).
+  Guts PASSed it on MEXA-365 with no blockers; Lelouch approved on MEXA-368 and named one
+  applier. Applied by `.scratch/mazal-mexa359/apply_00024.mjs --apply` (log: `APPLIED.txt`),
+  which gated on provenance, file shape, a 0.1-minute-old backup and a live baseline match,
+  then post-checked on a fresh connection: **12/12**, including all 33 of `00015`'s profile
+  columns still writable. Post-apply the exploit itself was re-run against the committed
+  schema as the real `authenticated` role — `verify.mjs --mode applied`, **13/13**
+  (`POSTCHECK_APPLIED.txt`): `is_verified := true` → `42501` and reads back `false`,
+  `is_photo_verified` and `elo_score` → `42501`, `bio`/`first_name`/`current_city` still
+  write, `SELECT` of both columns still works, `anon` refused, ledger carries `00024`, and a
+  fresh connection confirms no fixture survived. A catalog check only proves the privilege is
+  gone; this proves a real caller is refused.
+  One `REVOKE` and one `COMMENT`: it takes
   `UPDATE (is_verified)` away from `authenticated`, leaving the badge writable only by
   `service_role`. It **depends only on `00015`**, whose grant it revokes, and nothing depends
   on it.
@@ -399,8 +410,10 @@ Notes on the order:
   has ever written it and `authenticated` has never held the privilege
   (`has_column_privilege` false before the file runs). It is in the statement so that a
   future migration granting it by accident has to argue with section 3.
-  Live holds **0 users** and **0 rows with `is_verified = true`**, so nothing is mis-badged
-  today and the apply strands nobody.
+  At apply time live held **0 users** and **0 rows with `is_verified = true`**, so nothing was
+  mis-badged and the apply stranded nobody. From here on, `is_verified` can only become true
+  via `service_role`, and nothing writes it until MEXA-367 (Part B) lands — so a `true` in
+  that column is currently evidence of a manual write, not of a verification.
   Its rollback is `00024_revoke_self_awarded_verified_badge_rollback.sql`; it deletes its own
   ledger row and restores only `is_verified` (see the rollback note above).
   Verified against live in rolled-back transactions by `.scratch/mazal-mexa359/verify.mjs`,
@@ -423,8 +436,8 @@ Notes on the order:
   afterwards.
 - **The ledger lags the repo, measured 2026-09-29 (MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
-  `00017`–`00019`, `00021`, `20250114`, `20250115`. So **`00012`, `00016` and `00020` are
-  absent**. `00016` is not merely missing a ledger row, it is **not applied at all**: its
+  `00017`–`00019`, `00021`, `00024`, `20250114`, `20250115`. So **`00012`, `00016` and `00020`
+  are absent**. `00016` is not merely missing a ledger row, it is **not applied at all**: its
   `REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM anon` has not run (`anon` still
   holds 126 table grants), and `colleges`, `swipes`, `user_safta_stats` and
   `notification_queue` all still grant `DELETE,INSERT,SELECT,UPDATE` to `authenticated`.
