@@ -30,6 +30,7 @@ import { colors } from '@/theme/colors';
 import { borderRadius, shadows, spacing } from '@/theme/spacing';
 import { SPRING_CONFIGS, SWIPE_CONFIG, CARD_STACK_CONFIG } from '@/constants/animations';
 import { HapticPatterns } from '@/utils/haptics';
+import { jewishBackgroundLabel, observanceLevelLabel } from '@/lib/constants/jewish';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -356,15 +357,20 @@ export function SwipeableCard({
               </View>
             ) : null}
 
-            {/* Jewish Background Badge */}
+            {/* Jewish Background Badge. Labels, not the raw enum ids these columns
+                store - the card read "modern_orthodox" before MEXA-338. */}
             {profile.jewish_background && (
               <View style={styles.badgeRow}>
                 <View style={styles.backgroundBadge}>
-                  <Text style={styles.badgeText}>{profile.jewish_background}</Text>
+                  <Text style={styles.badgeText}>
+                    {jewishBackgroundLabel(profile.jewish_background)}
+                  </Text>
                 </View>
                 {profile.observance_level && (
                   <View style={styles.backgroundBadge}>
-                    <Text style={styles.badgeText}>{profile.observance_level}</Text>
+                    <Text style={styles.badgeText}>
+                      {observanceLevelLabel(profile.observance_level)}
+                    </Text>
                   </View>
                 )}
               </View>

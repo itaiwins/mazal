@@ -82,6 +82,45 @@ export const BADGES = [
   { id: 'photo_verified', label: 'Photo Verified', emoji: '✓', description: 'Photos verified as real' },
 ] as const;
 
+/**
+ * Label lookups for the lists above (MEXA-338, walkthrough finding 8).
+ *
+ * The columns on `users` store the `id` of an option, not its label, so anything that
+ * renders one straight from the row shows "modern_orthodox" to the user. Every display
+ * site goes through these instead.
+ *
+ * An unknown id gets title-cased rather than dropped: rows written before a list changed
+ * still have to render as something, and a blank chip reads as missing data rather than
+ * stale data.
+ */
+const titleCase = (value: string): string =>
+  value
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+
+type Option = { readonly id: string; readonly label: string; readonly description?: string };
+
+const labelFrom = (options: readonly Option[]) => (id?: string | null): string => {
+  if (!id) return '';
+  return options.find((o) => o.id === id)?.label ?? titleCase(id);
+};
+
+export const jewishBackgroundLabel = labelFrom(JEWISH_BACKGROUNDS);
+export const observanceLevelLabel = labelFrom(OBSERVANCE_LEVELS);
+export const shabbatObservanceLabel = labelFrom(SHABBAT_OBSERVANCE);
+export const kosherLevelLabel = labelFrom(KOSHER_LEVELS);
+export const synagogueAttendanceLabel = labelFrom(SYNAGOGUE_ATTENDANCE);
+export const jewishEducationLabel = labelFrom(JEWISH_EDUCATION);
+export const lookingForLabel = labelFrom(LOOKING_FOR);
+export const wantsChildrenLabel = labelFrom(WANTS_CHILDREN);
+
+/** The one-line description under an observance level, or '' when the id is unknown. */
+export const observanceLevelDescription = (id?: string | null): string => {
+  if (!id) return '';
+  return OBSERVANCE_LEVELS.find((o) => o.id === id)?.description ?? '';
+};
+
 // Holiday greetings for notifications/features
 export const HOLIDAY_GREETINGS = {
   shabbat: 'Shabbat Shalom! 🕯️',

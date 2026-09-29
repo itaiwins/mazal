@@ -12,40 +12,16 @@ import Animated, { FadeInUp } from 'react-native-reanimated';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { StarOfDavid } from '@/components/icons/StarOfDavid';
-import { JEWISH_BACKGROUNDS, OBSERVANCE_LEVELS } from '@/lib/constants/jewish';
+import {
+  jewishBackgroundLabel,
+  observanceLevelLabel,
+  observanceLevelDescription,
+} from '@/lib/constants/jewish';
 
 interface JewishLifeProps {
   jewishBackground?: string;
   observanceLevel?: string;
 }
-
-// Get label from constants
-const getBackgroundLabel = (id?: string): string => {
-  if (!id) return '';
-  const bg = JEWISH_BACKGROUNDS.find((b) => b.id === id);
-  return bg?.label || formatValue(id);
-};
-
-const getObservanceLabel = (id?: string): string => {
-  if (!id) return '';
-  const obs = OBSERVANCE_LEVELS.find((o) => o.id === id);
-  return obs?.label || formatValue(id);
-};
-
-const getObservanceDescription = (id?: string): string => {
-  if (!id) return '';
-  const obs = OBSERVANCE_LEVELS.find((o) => o.id === id);
-  return obs?.description || '';
-};
-
-// Fallback format for legacy data
-const formatValue = (value?: string): string => {
-  if (!value) return '';
-  return value
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-};
 
 export function JewishLife({
   jewishBackground,
@@ -57,9 +33,9 @@ export function JewishLife({
     return null;
   }
 
-  const backgroundLabel = getBackgroundLabel(jewishBackground);
-  const observanceLabel = getObservanceLabel(observanceLevel);
-  const observanceDesc = getObservanceDescription(observanceLevel);
+  const backgroundLabel = jewishBackgroundLabel(jewishBackground);
+  const observanceLabel = observanceLevelLabel(observanceLevel);
+  const observanceDesc = observanceLevelDescription(observanceLevel);
 
   return (
     <Animated.View entering={FadeInUp.delay(500)} style={styles.container}>

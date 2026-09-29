@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { LikeAnimation } from './LikeAnimation';
+import { jewishBackgroundLabel } from '@/lib/constants/jewish';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const HERO_HEIGHT = SCREEN_HEIGHT * 0.75;
@@ -159,7 +160,7 @@ export function HeroPhoto({
         <View style={styles.badges}>
           {jewishBackground && (
             <View style={styles.badge}>
-              <Text style={styles.badgeText}>{jewishBackground}</Text>
+              <Text style={styles.badgeText}>{jewishBackgroundLabel(jewishBackground)}</Text>
             </View>
           )}
         </View>

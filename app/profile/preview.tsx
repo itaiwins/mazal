@@ -15,6 +15,16 @@ import { spacing, borderRadius } from '@/theme/spacing';
 import { useAuthStore } from '@/stores/authStore';
 import { useUserProfile } from '@/api/queries/useUserProfile';
 import { getPromptById } from '@/lib/constants/prompts';
+import {
+  jewishBackgroundLabel,
+  observanceLevelLabel,
+  shabbatObservanceLabel,
+  kosherLevelLabel,
+  synagogueAttendanceLabel,
+  jewishEducationLabel,
+  lookingForLabel,
+  wantsChildrenLabel,
+} from '@/lib/constants/jewish';
 
 const { width } = Dimensions.get('window');
 
@@ -178,7 +188,9 @@ export default function ProfilePreviewScreen() {
               <View style={[styles.badge, { backgroundColor: colors.transparent.gold20 }]}>
                 <Text style={styles.badgeEmoji}>✡️</Text>
                 <Text style={[styles.badgeText, { color: theme.colors.text }]}>
-                  {profileData?.jewish_background || user?.jewish_background || 'Jewish'}
+                  {jewishBackgroundLabel(
+                    profileData?.jewish_background || user?.jewish_background
+                  ) || 'Jewish'}
                 </Text>
               </View>
               {/* Observance Level */}
@@ -186,7 +198,9 @@ export default function ProfilePreviewScreen() {
                 <View style={[styles.badge, { backgroundColor: colors.transparent.gold20 }]}>
                   <Text style={styles.badgeEmoji}>📿</Text>
                   <Text style={[styles.badgeText, { color: theme.colors.text }]}>
-                    {profileData?.observance_level || user?.observance_level}
+                    {observanceLevelLabel(
+                      profileData?.observance_level || user?.observance_level
+                    )}
                   </Text>
                 </View>
               )}
@@ -195,7 +209,10 @@ export default function ProfilePreviewScreen() {
                 <View style={[styles.badge, { backgroundColor: colors.transparent.gold20 }]}>
                   <Text style={styles.badgeEmoji}>🕯️</Text>
                   <Text style={[styles.badgeText, { color: theme.colors.text }]}>
-                    Shabbat: {profileData?.keeps_shabbat || user?.keeps_shabbat}
+                    Shabbat:{' '}
+                    {shabbatObservanceLabel(
+                      profileData?.keeps_shabbat || user?.keeps_shabbat
+                    )}
                   </Text>
                 </View>
               )}
@@ -204,7 +221,8 @@ export default function ProfilePreviewScreen() {
                 <View style={[styles.badge, { backgroundColor: colors.transparent.gold20 }]}>
                   <Text style={styles.badgeEmoji}>🍽️</Text>
                   <Text style={[styles.badgeText, { color: theme.colors.text }]}>
-                    Kosher: {profileData?.keeps_kosher || user?.keeps_kosher}
+                    Kosher:{' '}
+                    {kosherLevelLabel(profileData?.keeps_kosher || user?.keeps_kosher)}
                   </Text>
                 </View>
               )}
@@ -213,7 +231,10 @@ export default function ProfilePreviewScreen() {
                 <View style={[styles.badge, { backgroundColor: colors.transparent.gold20 }]}>
                   <Text style={styles.badgeEmoji}>🕍</Text>
                   <Text style={[styles.badgeText, { color: theme.colors.text }]}>
-                    Shul: {profileData?.synagogue_attendance || user?.synagogue_attendance}
+                    Shul:{' '}
+                    {synagogueAttendanceLabel(
+                      profileData?.synagogue_attendance || user?.synagogue_attendance
+                    )}
                   </Text>
                 </View>
               )}
@@ -222,7 +243,9 @@ export default function ProfilePreviewScreen() {
                 <View style={[styles.badge, { backgroundColor: colors.transparent.gold20 }]}>
                   <Text style={styles.badgeEmoji}>📚</Text>
                   <Text style={[styles.badgeText, { color: theme.colors.text }]}>
-                    {profileData?.jewish_education || user?.jewish_education}
+                    {jewishEducationLabel(
+                      profileData?.jewish_education || user?.jewish_education
+                    )}
                   </Text>
                 </View>
               )}
@@ -237,7 +260,7 @@ export default function ProfilePreviewScreen() {
                 <View style={[styles.badge, { backgroundColor: colors.transparent.gold20 }]}>
                   <Text style={styles.badgeEmoji}>💕</Text>
                   <Text style={[styles.badgeText, { color: theme.colors.text }]}>
-                    {profileData?.looking_for || user?.looking_for}
+                    {lookingForLabel(profileData?.looking_for || user?.looking_for)}
                   </Text>
                 </View>
               )}
@@ -245,7 +268,10 @@ export default function ProfilePreviewScreen() {
                 <View style={[styles.badge, { backgroundColor: colors.transparent.gold20 }]}>
                   <Text style={styles.badgeEmoji}>👶</Text>
                   <Text style={[styles.badgeText, { color: theme.colors.text }]}>
-                    Kids: {profileData?.wants_children || user?.wants_children}
+                    Kids:{' '}
+                    {wantsChildrenLabel(
+                      profileData?.wants_children || user?.wants_children
+                    )}
                   </Text>
                 </View>
               )}
