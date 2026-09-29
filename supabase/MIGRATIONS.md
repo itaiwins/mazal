@@ -56,7 +56,46 @@ Apply exactly this sequence:
 00032_has_entitlement.sql
 00033_rewind_retracts_super_like_notification.sql
 00034_messages_are_not_rewritable.sql
+00035_server_side_swipe_quota.sql
 ```
+
+**`00035` has to come after `00033`, and its guard 0c aborts if it does not.**
+`00035_server_side_swipe_quota.sql` (MEXA-373 items 2, 3, 5) `CREATE OR REPLACE`s
+`public.undo_last_swipe()` to add the Rewind entitlement gate, and the body it writes is
+`00033`'s — MEXA-401's retraction of the still-pending super-like push included. Applied the
+other way round, `00033` would overwrite the gate with its own ungated body and hand a paid
+feature back to every free client with nothing failing. So guard 0c is a hard `RAISE`, not a
+warning, and it is also what makes `00035`'s rollback deterministic: because `00033` is
+guaranteed applied, the rollback knows exactly which body to restore instead of branching on
+the ledger the way `00025`'s comment restore has to. Post-check 5e asserts
+`notification_queue` is still named in the body it just wrote, so an accidental overwrite
+fails loudly on the way in as well.
+
+It also depends on `00032` (guard 0b): it re-creates `has_entitlement(text)` as a wrapper
+over a new internal `public.user_has_entitlement(uuid, text)`, so the entitlement predicate
+has exactly one copy. The trigger cannot use `has_entitlement(text)` — that one answers about
+*the caller* and takes no user id by design, while a quota belongs to `NEW.swiper_id`.
+`user_has_entitlement` does take a user id, so it is revoked from PUBLIC, `anon`,
+`authenticated` **and** `service_role`; it is only ever called from other DEFINER functions.
+
+What it enforces, from `FEATURE_LIMITS` in `src/lib/config/revenuecat.ts`: free = 25 swipes
+per UTC day (**every** action, passes included, because the device counts passes) and 1 super
+like per week; `mazal_gold`/`mazal_platinum` = unlimited swipes and 5 super likes per week.
+The week starts at Monday 00:00 UTC **minus 14 hours**, which is earlier than Monday 00:00 in
+every timezone, so the server has always reset before any device has and can never refuse a
+super like the user's own app is offering. Refusals are `RAISE` with `ERRCODE = P0001` and a
+stable token in `DETAIL` (`swipe_daily_cap`, `super_like_weekly_cap`); the client branches on
+the token, never on the HTTP status.
+
+**Read the header before approving: the daily cap is *not* "what the device already
+enforces".** `resetDailySwipes()` in `premiumStore` is defined and never called, and
+`resetWeeklyLimits()` does not touch `dailySwipesRemaining` — what actually refills the free
+allowance is `setEntitlements()`, which runs from `usePremium()`'s mount effect. So today the
+device's cap is effectively *per app launch*, which a server cannot express. `00035` enforces
+the rule Gojo stated in words (25 a day), and that is a real tightening for a heavy free
+user. 0 users and no TestFlight build, so nothing is taken from anybody today. The client
+reset bug is filed separately, because fixing it makes the *device* stricter and that is a
+product change rather than a migration.
 
 **`00034` has no ordering dependency beyond `00001`, and is listed last because it only
 narrows.** `00034_messages_are_not_rewritable.sql` (MEXA-406) swaps `authenticated`'s
@@ -186,7 +225,17 @@ Notes on the order:
   `00031_safta_like_needs_a_connection_rollback.sql` and
   `00032_has_entitlement_rollback.sql` and
   `00033_rewind_retracts_super_like_notification_rollback.sql` and
-  `00034_messages_are_not_rewritable_rollback.sql`; read each one's header.
+  `00034_messages_are_not_rewritable_rollback.sql` and
+  `00035_server_side_swipe_quota_rollback.sql`; read each one's header.
+  `00035`'s **restores MEXA-373 in full** and says so at the top: with the trigger gone
+  `public.swipes` has no cap of any kind again, so unlimited swipes, unlimited super-likes
+  (and therefore unlimited push notifications at whoever is swiped on), and Rewind stops
+  checking the entitlement. It is otherwise a true inverse — it restores `00032`'s
+  `has_entitlement` body and `00033`'s `undo_last_swipe` body verbatim, drops the helper, and
+  asserts on the way out that the gate is gone *and* that MEXA-401's retraction survived. Its
+  section 0d refuses if anything other than the two functions it rewrites has come to call
+  `user_has_entitlement`, since a string-body call leaves no `pg_depend` edge for
+  `DROP ... RESTRICT` to catch.
   `00034`'s **names what it restores** — the measured pre-apply `relacl`, the nine
   `attacl`s (all NULL: there were no column grants on that table at all), and the nine NULL
   column comments — rather than deriving any of it at run time, because by the time a

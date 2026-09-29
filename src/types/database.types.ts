@@ -121,12 +121,17 @@ export type SaftaPublicProfile = Pick<
  * These strings are the contract with `public.undo_last_swipe()` in
  * supabase/migrations/00025_rewind_undo_last_swipe.sql - keep the two in step.
  *
+ *  - `not_entitled` Rewind is a Gold/Platinum feature and the caller holds neither. Added by
+ *                00035 (MEXA-373): before it, the only thing standing between a free client
+ *                and the paid feature was `useCanRewind()` on the device. Checked first, so
+ *                it is the same answer whether or not there is a recent swipe and it
+ *                discloses nothing about the caller's history.
  *  - `no_swipe`  the caller has no swipe to undo, or lost a race for it
  *  - `too_old`   outside the 30-second window, measured server-side
  *  - `matched`   the pair has already matched, so deleting the swipe would strand the
  *                match row; unmatching is the way out of a match, rewind is not
  */
-export type UndoSwipeRefusal = 'no_swipe' | 'too_old' | 'matched';
+export type UndoSwipeRefusal = 'not_entitled' | 'no_swipe' | 'too_old' | 'matched';
 
 /**
  * The single row `public.undo_last_swipe()` returns.

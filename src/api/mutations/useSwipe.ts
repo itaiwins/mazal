@@ -8,6 +8,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/api/supabase/client';
 import { queryKeys } from '@/lib/config/queryClient';
 import { useAuthStore } from '@/stores/authStore';
+import { usePremiumStore } from '@/stores/premiumStore';
 import type {
   SwipeAction,
   UndoLastSwipeResult,
@@ -26,6 +27,49 @@ interface SwipeResult {
 }
 
 /**
+ * The caps `public.swipes_enforce_quota()` enforces (migration 00035, MEXA-373).
+ *
+ * Until 00035 the limits were a zustand counter and nothing else, so a client that did not
+ * enforce them had none. The trigger refuses with `ERRCODE = P0001` and a stable token in
+ * `DETAIL`, which PostgREST hands back as `error.details`.
+ *
+ * **Branch on the token, never on the HTTP status or the message.** The status is PostgREST's
+ * mapping of a SQLSTATE and the message carries the counts, so both are free to change; the
+ * token is the contract, and the migration's COMMENT on the trigger function says so too.
+ */
+export type SwipeCapRefusal = 'swipe_daily_cap' | 'super_like_weekly_cap';
+
+const SWIPE_CAP_MESSAGES: Record<SwipeCapRefusal, string> = {
+  swipe_daily_cap:
+    "You've used all your daily swipes! Upgrade to Mazal Gold for unlimited swipes.",
+  super_like_weekly_cap:
+    "You've used your Super Likes for this week. Gold and Platinum get 5 a week.",
+};
+
+/**
+ * The cap token in a PostgREST error, or null when the error is something else.
+ *
+ * Exported because a second copy of these strings is exactly how the client and the migration
+ * drift apart.
+ */
+export function swipeCapRefusalOf(error: unknown): SwipeCapRefusal | null {
+  const details = (error as { details?: unknown } | null)?.details;
+  if (typeof details !== 'string') return null;
+  return details === 'swipe_daily_cap' || details === 'super_like_weekly_cap' ? details : null;
+}
+
+/** A cap refusal, carrying the token so callers never re-parse the error. */
+export class SwipeCapError extends Error {
+  readonly refusal: SwipeCapRefusal;
+
+  constructor(refusal: SwipeCapRefusal) {
+    super(SWIPE_CAP_MESSAGES[refusal]);
+    this.name = 'SwipeCapError';
+    this.refusal = refusal;
+  }
+}
+
+/**
  * Record a swipe and check for match
  */
 async function performSwipe(
@@ -41,6 +85,13 @@ async function performSwipe(
   });
 
   if (swipeError) {
+    // A cap refusal is not "the swipe failed to record", it is the server saying no. Give it
+    // its own type so `onError` can put the paywall up rather than log a generic failure.
+    const refusal = swipeCapRefusalOf(swipeError);
+    if (refusal) {
+      throw new SwipeCapError(refusal);
+    }
+
     console.error('Error recording swipe:', swipeError);
     throw swipeError;
   }
@@ -132,6 +183,27 @@ export function useSwipe() {
         queryClient.invalidateQueries({ queryKey: queryKeys.matches.all });
       }
     },
+    // The server cap has to reach the user as something, and this is the only place that can
+    // guarantee it does. Every one of the five swipe handlers in `app/(tabs)/index.tsx` calls
+    // `swipeMutation.mutate(..., { onSettled })` and **none of them passes `onError`** - so
+    // before this, a refused swipe threw, `onSettled` advanced the deck anyway, and the user
+    // saw a card disappear on a swipe that was never recorded. That is the silent no-op
+    // MEXA-373 item 5 is about.
+    //
+    // It lives on the hook rather than at the call sites for the same reason: a sixth handler
+    // added later gets this for free instead of having to remember.
+    //
+    // The client's own counter normally refuses first (`canSwipe` is false at zero), so an
+    // honest client should never see this. It is the belt for a client whose counter has
+    // drifted - and for one that is not enforcing at all, which is the whole point of 00035.
+    onError: (error) => {
+      const refusal = swipeCapRefusalOf(error) ?? (error as SwipeCapError)?.refusal;
+      if (!refusal) return;
+
+      usePremiumStore
+        .getState()
+        .showPaywallModal(SWIPE_CAP_MESSAGES[refusal], 'gold');
+    },
   });
 }
 
@@ -140,6 +212,11 @@ export function useSwipe() {
  * none of them is a silent success.
  */
 const UNDO_REFUSAL_MESSAGES: Record<UndoSwipeRefusal, string> = {
+  // Rewind is a Gold/Platinum feature and, since 00035 (MEXA-373), the server says so too
+  // rather than trusting `useCanRewind()` on the device. `handleRewind` already shows the
+  // paywall when `!canRewind`, so an honest client does not reach this - it is what a client
+  // whose entitlement state has drifted, or one that is not enforcing, gets told.
+  not_entitled: 'Rewind is a Gold and Platinum feature.',
   no_swipe: 'No swipe to undo',
   too_old: 'Swipe is too old to undo',
   matched: "You've already matched - rewind can't undo that. Unmatch them instead.",

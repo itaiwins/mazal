@@ -57,13 +57,21 @@ export const ANIMATION = {
   cardSwipe: 250,
 } as const;
 
-// Free tier limits
-export const FREE_TIER = {
-  dailyLikes: 25,
-  superLikesPerDay: 1,
-  rewinds: 0,
-  boostsPerMonth: 0,
-} as const;
+// DEAD. The free tier lives in `FEATURE_LIMITS.free` in `src/lib/config/revenuecat.ts`.
+//
+// Removed rather than left in place (MEXA-373): `git grep FREE_TIER` found only this
+// definition - nothing has ever imported it - and it disagreed with the live tier on both
+// axes. It said `dailyLikes: 25` where `FEATURE_LIMITS.free` says `dailySwipes: 25` (a cap on
+// *likes* and a cap on *swipes* are different products, because passes count), and
+// `superLikesPerDay: 1` where the real limit is `superLikesPerWeek: 1`.
+//
+// That cost real time: Gojo's MEXA-373 scope quoted this constant, which made item 2 look
+// like it needed a product decision between two rival free tiers, and `rewinds: 0` made
+// item 3 look like it would refuse every caller. Both readings came from a constant no code
+// has ever run. Migration 00035 enforces `FEATURE_LIMITS.free` server-side.
+//
+// If you are looking for the free tier: `FEATURE_LIMITS` in `src/lib/config/revenuecat.ts`
+// is what `premiumStore` counts against and what `00035_server_side_swipe_quota.sql` encodes.
 
 // Premium tiers
 export const PREMIUM_TIERS = {
