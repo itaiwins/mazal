@@ -221,5 +221,30 @@ free — so never point a test loop at it.
   MEXA-264 (2026-09-28). A password change now emails the account holder, which is
   the main way someone notices a takeover. Subject and body are Supabase's
   defaults, listed under Auth → Emails.
-- `app/settings/password.tsx` ("Change Password" in Settings) does not call
-  Supabase at all — it shows a success alert and changes nothing.
+- ~~`app/settings/password.tsx` ("Change Password" in Settings) does not call
+  Supabase at all — it shows a success alert and changes nothing.~~ — fixed in
+  MEXA-257; it now reauthenticates and then really calls `updateUser`.
+- ~~`security_update_password_require_current_password` is off, so that
+  reauthentication is client-side only~~ — **on** since 2026-09-29 (MEXA-369,
+  Lelouch approved, Guts reviewed the client half on MEXA-284). GoTrue itself now
+  refuses a password update that carries no `current_password`, so a modified
+  client holding a stolen session can no longer take an account over from that
+  screen. **Which sessions that covers is a property of the flow, and moving to
+  PKCE changed the answer** — measured live with the flag on by
+  `scripts/e2e/mexa369-pkce-password-update.py`:
+
+  | Session a real Mazal user can hold | AMR | Covered by the flag |
+  |---|---|---|
+  | signed in with a password | `password` | **yes** |
+  | just confirmed the signup email | `email/signup` | **yes** (was `otp`, and exempt, under implicit) |
+  | arrived on a password-reset link | `recovery` | no — **by design**; this exemption is what keeps reset working |
+  | magic link | `magiclink` under PKCE, `otp` under implicit | no, and Mazal has no email magic-link sign-in |
+  | phone OTP | `otp` | no, and phone auth is off on the project |
+
+  Recorded as a **partial** fix of MEXA-263 finding 1, not a closed one: the
+  exemption list is hardcoded in GoTrue (`Session.IsRecovery()`,
+  `internal/models/factor.go`), so a stolen *recovery* session is still enough to
+  change a password. `eef90b8` bounds that session to a single visit rather than
+  closing the hole. Closing it completely means not relying on GoTrue for the
+  check — an edge function in front of the update — which Guts and I both judged
+  not worth building pre-TestFlight.

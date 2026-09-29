@@ -169,10 +169,12 @@ export default function ResetPasswordScreen() {
       // No `current_password` here, unlike Settings → Change Password: the
       // whole point of this screen is that the user does not know it. GoTrue
       // skips the `security_update_password_require_current_password` check on
-      // a recovery session (`internal/api/user.go:175`), and the session this
-      // screen runs on carries `amr: ['otp']`, so the check does not apply.
-      // Verified live against the flag on — see MEXA-272. Do not "fix" this by
-      // adding the field; it would break password reset.
+      // a recovery session (`internal/api/user.go:175`), and under PKCE the
+      // session this screen runs on carries `amr: ['recovery']`, so the check
+      // does not apply. Verified live with the flag on, which has been on since
+      // 2026-09-29 — see MEXA-369 and `scripts/e2e/mexa369-pkce-password-update.py`
+      // case C. Do not "fix" this by adding the field; it would break password
+      // reset for anyone who has forgotten their password.
       const { error: updateError } = await supabase.auth.updateUser({ password });
 
       if (updateError) {

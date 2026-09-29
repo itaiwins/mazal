@@ -14,17 +14,26 @@
  * `security_update_password_require_current_password` only when the session is
  * *not* a recovery-ish one, and `Session.IsRecovery()` counts `otp`, `magiclink`
  * and `recovery` as recovery-ish (`internal/api/user.go:175` and
- * `internal/models/factor.go:66`, v2.197.0). A Mazal user who just confirmed a
- * signup email holds an `amr: ['otp']` session, which the server check skips
- * entirely. Signing in first is what guarantees the check engages — it is not
- * only here for the nicer error message.
+ * `internal/models/factor.go:66`, v2.197.0). So signing in first is what makes
+ * the server check engage for certain, whatever session the user arrived on — it
+ * is not only here for the nicer error message.
  *
  * We then also send `current_password`, so GoTrue verifies the old password
  * itself rather than trusting this screen to have done it. That is what closes
  * the hole a modified client opens by calling `updateUser({ password })`
- * directly. It only has teeth once the project flag is on; sending the field
- * while the flag is off is harmless (GoTrue ignores it), so this can ship
- * before the flag flips.
+ * directly. **The flag is ON** on `tayiyczmacvhokdxfqvm` as of 2026-09-29
+ * (MEXA-369, approved by Lelouch), so the field is load-bearing now: drop it and
+ * this screen starts failing with `current_password_required`.
+ *
+ * Which sessions the server check covers is a property of the FLOW, not of this
+ * screen, and it changed under our feet: the client runs `flowType: 'pkce'`
+ * (`5d063c4`), and under PKCE the session is minted by `token?grant_type=pkce`
+ * from the flow state, so its AMR is the originating request's
+ * (`email/signup` for a signup confirmation, `recovery` for a reset) rather than
+ * the flat `otp` every `/verify` session got under implicit. Measured live with
+ * the flag on, `scripts/e2e/mexa369-pkce-password-update.py`: a just-confirmed
+ * signup session is `['email/signup']` and IS covered; a reset session is
+ * `['recovery']` and stays exempt, which is what keeps reset working.
  */
 
 import { useEffect, useState } from 'react';
