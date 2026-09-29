@@ -206,6 +206,16 @@ export function useUndoSwipe() {
     onSuccess: () => {
       // Invalidate discovery to bring back the user
       queryClient.invalidateQueries({ queryKey: queryKeys.discovery.all });
+
+      // ...and put them back on "See who likes you" if that is where they came from.
+      // `get_who_liked_me` (00026, MEXA-315) excludes anybody the caller has already swiped
+      // on, so answering an incoming like drops them off the list and the badge - which
+      // means undoing that answer has to put them back. `useSwipe` invalidates this key on
+      // the way in; this is the matching invalidation on the way out. Unconditional, for the
+      // same reason it is there: a rewound `pass` on somebody who liked us is exactly the
+      // case that needs it, and when they never liked us it costs one refetch of a list the
+      // user is not looking at.
+      queryClient.invalidateQueries({ queryKey: queryKeys.swipes.whoLikedMe() });
     },
   });
 }

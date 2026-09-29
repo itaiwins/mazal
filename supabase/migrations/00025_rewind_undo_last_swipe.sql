@@ -78,6 +78,22 @@
 -- there is at most one swipe per pair and "a match exists for this pair" cannot be about
 -- some other swipe.
 --
+-- **Known corner: the `matched` check and the DELETE are not under one lock** (Guts,
+-- MEXA-371, reviewed and PASSed at `af58137`; recorded here on Lelouch's instruction).
+-- Only the caller's own swipe row is `FOR UPDATE`, and `check_for_match()` reads the other
+-- side with a plain `SELECT`. So if the reciprocal swipe's INSERT and trigger commit in the
+-- window between this function's `EXISTS` on `matches` and its `DELETE`, the match is
+-- created for real and then the originating swipe row is deleted a moment later. It is not
+-- harmful: both people did mutually like each other at that instant so the match is
+-- honestly earned, and `matches` has **no foreign key back to `swipes`**, so nothing
+-- orphans - what is lost is the cosmetic provenance of one side. It needs two commits
+-- landing in a specific few-millisecond order inside a single plpgsql body with no network
+-- I/O in between. Left as documented rather than fixed with `FOR UPDATE` on the other
+-- side's swipe or an advisory lock, because the fix would serialise every rewind against
+-- every incoming swipe for a case whose only symptom is a missing audit trail. If a
+-- `swipes` row ever becomes load-bearing for anything other than the deck filter, revisit
+-- this first.
+--
 -- =====================================================
 -- What this file deliberately does NOT do
 -- =====================================================

@@ -73,19 +73,34 @@ DROP FUNCTION public.undo_last_swipe();
 -- 2. Put the table comment back
 -- =====================================================
 
+-- **Three** files write this comment now, not two: `00016`, this migration and `00026`
+-- (MEXA-315, which landed on `mazal-restart` after Guts PASSed 00025). Whichever ran last
+-- owns the text, so "put it back" has to read the ledger. `00016` first because it is the
+-- later writer in the runbook's apply order and is the one still pending; `00026`'s own
+-- rollback uses the same precedence, so the two files agree.
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '00016') THEN
     -- 00016's text, verbatim from supabase/migrations/00016_client_role_write_privileges.sql.
-    -- Note it still says "add a DELETE policy AND a GRANT DELETE", which is the advice
-    -- MEXA-314 decided against; restoring it verbatim is the job of a rollback, and
-    -- 00025's header is where the argument lives.
     COMMENT ON TABLE public.swipes IS
       'Append-only record of a swipe (MEXA-274). authenticated holds INSERT and SELECT only. '
       'Rewind goes through public.undo_last_swipe(), a SECURITY DEFINER function added by '
       '00025 (MEXA-314), so this grant can stay revoked. Do not add a DELETE policy or a '
       'client DELETE grant here.';
+  ELSIF EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '00026') THEN
+    -- 00026's text, verbatim from supabase/migrations/00026_who_liked_me.sql. Without this
+    -- branch, rolling 00025 back on a database that has 00026 would blank a comment 00026
+    -- wrote and leave the table describing a state it is not in.
+    COMMENT ON TABLE public.swipes IS
+      'Append-only record of a swipe. Clients hold INSERT and SELECT only, and the SELECT '
+      'policy is own-swiper-only on purpose: a policy admitting swiped_id = <me> would publish '
+      '"who passed on you" along with "who liked you" (00017, MEXA-294). Rewind goes through '
+      'public.undo_last_swipe() (00025); "see who likes you" goes through '
+      'public.get_who_liked_me() and public.count_who_liked_me() (00026), which read the like '
+      'side and never the pass side. Do not add a DELETE policy, a cross-side SELECT policy or '
+      'a client write grant here: 00016 revokes those grants and asserts they stayed revoked.';
   ELSE
+    -- Nothing had written a comment before 00025 did. Measured on live 2026-09-29: NULL.
     COMMENT ON TABLE public.swipes IS NULL;
   END IF;
 END
@@ -117,14 +132,22 @@ BEGIN
     RAISE EXCEPTION 'MEXA-314 rollback: % function(s) named undo_last_swipe remain in public', v_n;
   END IF;
 
-  -- The comment matches the 00016 state, whichever that is.
+  -- The comment matches whichever of 00016 / 00026 is applied, and mentions the right
+  -- function. Asserting the *content*, not just NULL-ness, is what catches the branch above
+  -- picking the wrong string.
   IF EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '00016') THEN
-    IF obj_description('public.swipes'::regclass, 'pg_class') IS NULL THEN
-      RAISE EXCEPTION 'MEXA-314 rollback: 00016 is applied but the public.swipes comment is NULL';
+    IF coalesce(obj_description('public.swipes'::regclass, 'pg_class'), '') NOT LIKE '%MEXA-274%' THEN
+      RAISE EXCEPTION 'MEXA-314 rollback: 00016 is applied, so the public.swipes comment should be 00016''s, not [%]',
+        obj_description('public.swipes'::regclass, 'pg_class');
+    END IF;
+  ELSIF EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '00026') THEN
+    IF coalesce(obj_description('public.swipes'::regclass, 'pg_class'), '') NOT LIKE '%get_who_liked_me()%' THEN
+      RAISE EXCEPTION 'MEXA-314 rollback: 00026 is applied, so the public.swipes comment should be 00026''s, not [%]',
+        obj_description('public.swipes'::regclass, 'pg_class');
     END IF;
   ELSE
     IF obj_description('public.swipes'::regclass, 'pg_class') IS NOT NULL THEN
-      RAISE EXCEPTION 'MEXA-314 rollback: 00016 is not applied, so the public.swipes comment should be NULL, not [%]',
+      RAISE EXCEPTION 'MEXA-314 rollback: neither 00016 nor 00026 is applied, so the public.swipes comment should be NULL, not [%]',
         obj_description('public.swipes'::regclass, 'pg_class');
     END IF;
   END IF;

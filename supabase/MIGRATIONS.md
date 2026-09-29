@@ -465,9 +465,23 @@ Notes on the order:
   UPDATE policy for exactly this. The rule lives in the function, **not** in a `BEFORE DELETE`
   trigger, because such a trigger would also fire on the `ON DELETE CASCADE` from `users` and
   would block account deletion.
+  **Known corner, documented rather than fixed** (Guts, MEXA-371, on Lelouch's instruction):
+  the `matched` check and the `DELETE` are not under one lock — only the caller's own swipe row
+  is `FOR UPDATE`, and `check_for_match()` reads the other side with a plain `SELECT`. If the
+  reciprocal swipe commits in between, the match is created and the originating swipe row is
+  deleted a moment later. Harmless: the match is honestly earned and `matches` has **no foreign
+  key back to `swipes`**, so nothing orphans; what is lost is one side's cosmetic provenance.
+  Fixing it would serialise every rewind against every incoming swipe. Revisit if a `swipes` row
+  ever becomes load-bearing for more than the deck filter.
   Its rollback is `00025_rewind_undo_last_swipe_rollback.sql`; it deletes its own ledger row,
-  and the `swipes` comment it restores is **conditional on `00016`** (00016 writes a comment on
-  that table too), so it reads the ledger instead of hardcoding either string.
+  and the `swipes` comment it restores is **conditional on `00016` and `00026`** — three files
+  write that comment now, so it reads the ledger instead of hardcoding one string, with the same
+  precedence `00026`'s rollback uses. Its post-check asserts the comment's *content*, not just
+  that it is non-NULL, which is what catches the branch picking the wrong string. The `00026`
+  branch and that assertion were added **after** Guts's PASS, because `00026` landed on
+  `mazal-restart` in between; they change only the undo path, not what the apply does, and
+  `dryrun.mjs` case 9b proves them by execution (apply 00025 → apply 00026 → roll back 00025 →
+  the comment is `00026`'s, and the function is gone).
   Verified against live in rolled-back transactions by `.scratch/mazal-mexa314/verify.mjs`,
   three modes, nothing left behind (checked on a fresh connection each run — objects, row
   counts, policies, ledger and the table comment). Every behavioural claim is a statement run
@@ -493,7 +507,11 @@ Notes on the order:
   dropped, and RLS disabled; the rollback refused against an unapplied database and refused
   when an overload exists; and apply→rollback→apply all clean, with live untouched afterwards.
   **Client half, same commit:** `useUndoSwipe` now calls the RPC and throws on `ok = false`; the
-  device-clock arithmetic is gone. `undo_last_swipe` is declared by hand in
+  device-clock arithmetic is gone. Its `onSuccess` also invalidates
+  `queryKeys.swipes.whoLikedMe()`, because `get_who_liked_me` (`00026`) excludes anybody the
+  caller has already swiped on — so undoing an answer has to put that person back on the list and
+  the badge. That line was added after `00026` landed; `useSwipe` already had the matching
+  invalidation on the way in. `undo_last_swipe` is declared by hand in
   `src/types/database.types.ts` (same reason as the `00013` view — `supabase gen types` needs
   Docker), so `npx tsc --noEmit` covers the call. **Keep the `UndoSwipeRefusal` union in that
   file in step with the `reason` strings in the migration.**
