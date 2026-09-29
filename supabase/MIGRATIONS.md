@@ -1100,8 +1100,21 @@ Notes on the order:
   only change to the file since the PASS, it is pre-flight only and changes no statement, and
   `undo_last_swipe()`'s own `prosrc` md5 is unchanged at `b547a17b…007a` — so the rollback's
   pin still holds.
-- `00034` is **NOT applied** — written 2026-09-29 (MEXA-406), waiting on Guts's security
-  review and an apply card for Lelouch. **Either participant in a match can rewrite the other
+- `00034` is **NOT applied** — written 2026-09-29 (MEXA-406). **Guts PASSed it with no
+  findings** on MEXA-413 (commit `1a5f087`); the apply card is with Lelouch on MEXA-415.
+  He re-derived the mechanism correction himself before reading the conclusion, confirmed no
+  SECURITY DEFINER function anywhere writes `content`/`sender_id` on a client's behalf (so
+  there is no RPC bypass around the new column grant), and checked the `00016` independence
+  claim against `00016`'s own text rather than this file's summary of it — both apply orders
+  are safe. His one non-blocking note: **no migration in this repo sends
+  `NOTIFY pgrst, 'reload schema'` after a grant change** (he checked all 41), so `00034` does
+  not add it alone; the applier sends it and then proves it over HTTP. That check asserts on
+  the **table named** in the error, not on the `42501` code, because `anon` is already
+  refused today for a different reason — the UPDATE policy's subquery reads `public.users`,
+  which `00013` closed to `anon`, so the pre-apply answer is *permission denied for table
+  **users***. Measured both sides: before the REVOKE the error names `users`, after it names
+  `messages`. A gate that accepted any `42501` would have passed identically before and
+  after and proved nothing. **Either participant in a match can rewrite the other
   person's chat messages, and can reassign authorship of them to themselves.** Measured by
   execution on `tayiyczmacvhokdxfqvm`, not read off the catalog: as a real `authenticated`
   u1, `UPDATE messages SET content = 'I never said this'` on a message **u2 sent** affects
