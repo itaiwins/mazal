@@ -190,6 +190,12 @@ REVOKE INSERT, UPDATE, DELETE ON TABLE public.subscriptions FROM authenticated;
 -- deletes 0 rows while reporting success. Revoking turns that silent lie into 42501.
 -- To build Rewind for real: add a DELETE policy AND `GRANT DELETE ON swipes TO authenticated`
 -- in the same migration.
+--   **Superseded by 00025 (MEXA-314), and this REVOKE is deliberately unchanged.** Rewind
+--   was built the other way: `public.undo_last_swipe()`, a SECURITY DEFINER function that
+--   checks ownership, the 30-second window and "has this pair already matched" in one
+--   place. So the client never deletes from this table, `authenticated` does not need the
+--   grant back, and section 7b below keeps asserting it is gone. Only the comment text in
+--   section 5 changed, to stop sending the next reader after a DELETE policy.
 REVOKE UPDATE, DELETE ON TABLE public.swipes                 FROM authenticated;
 REVOKE UPDATE, DELETE ON TABLE public.shidduch_profile_views FROM authenticated;
 REVOKE UPDATE         ON TABLE public.blocks                 FROM authenticated;
@@ -313,8 +319,9 @@ COMMENT ON TABLE public.subscriptions IS
   'that could write here could grant itself premium.';
 COMMENT ON TABLE public.swipes IS
   'Append-only record of a swipe (MEXA-274). authenticated holds INSERT and SELECT only. '
-  'Undo/Rewind needs a DELETE policy AND a GRANT DELETE in the same migration; the grant '
-  'was removed precisely so that adding the policy alone fails loudly.';
+  'Rewind goes through public.undo_last_swipe(), a SECURITY DEFINER function added by '
+  '00025 (MEXA-314), so this grant can stay revoked. Do not add a DELETE policy or a '
+  'client DELETE grant here.';
 COMMENT ON TABLE public.matches IS
   'A match is deactivated (is_active = false), never deleted - DELETE revoked from '
   'authenticated (MEXA-274). INSERT is still granted on purpose: there is no INSERT policy, '

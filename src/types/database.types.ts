@@ -73,8 +73,46 @@ export type PublicProfile = Pick<
   distance_miles: number | null;
 };
 
+// ============================================================================
+// Rewind (migration 00025, MEXA-314)
+// ============================================================================
+
 /**
- * The generated schema plus the `user_public_profiles` view added by migration 00013.
+ * Why a rewind was refused. `null` on success.
+ *
+ * These strings are the contract with `public.undo_last_swipe()` in
+ * supabase/migrations/00025_rewind_undo_last_swipe.sql - keep the two in step.
+ *
+ *  - `no_swipe`  the caller has no swipe to undo, or lost a race for it
+ *  - `too_old`   outside the 30-second window, measured server-side
+ *  - `matched`   the pair has already matched, so deleting the swipe would strand the
+ *                match row; unmatching is the way out of a match, rewind is not
+ */
+export type UndoSwipeRefusal = 'no_swipe' | 'too_old' | 'matched';
+
+/**
+ * The single row `public.undo_last_swipe()` returns.
+ *
+ * It reports a refusal as data (`ok: false` plus a `reason`) rather than raising, so the
+ * client does not have to read anything into PostgREST's SQLSTATE-to-HTTP mapping. The
+ * swipe's identity comes back in the refusal cases too, except `no_swipe`, where there is
+ * no swipe to name.
+ *
+ * (`SwipeAction` is declared further down this file; type declarations do not care about
+ * order.)
+ */
+export interface UndoLastSwipeResult {
+  ok: boolean;
+  reason: UndoSwipeRefusal | null;
+  swipe_id: string | null;
+  swiped_id: string | null;
+  action: SwipeAction | null;
+  swiped_at: string | null;
+}
+
+/**
+ * The generated schema plus the `user_public_profiles` view added by migration 00013 and
+ * the `undo_last_swipe` function added by migration 00025.
  *
  * The view is declared here by hand instead of being regenerated into
  * src/types/supabase.generated.ts, because `supabase gen types` shells out to Docker and
@@ -88,11 +126,17 @@ export type PublicProfile = Pick<
  *    the truthful one, read off the base columns; prefer it and delete the generated entry.
  */
 export type Database = Omit<GeneratedDatabase, 'public'> & {
-  public: Omit<GeneratedDatabase['public'], 'Views'> & {
+  public: Omit<GeneratedDatabase['public'], 'Views' | 'Functions'> & {
     Views: {
       user_public_profiles: {
         Row: PublicProfile;
         Relationships: [];
+      };
+    };
+    Functions: GeneratedDatabase['public']['Functions'] & {
+      undo_last_swipe: {
+        Args: Record<PropertyKey, never>;
+        Returns: UndoLastSwipeResult[];
       };
     };
   };

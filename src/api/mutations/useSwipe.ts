@@ -8,7 +8,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/api/supabase/client';
 import { queryKeys } from '@/lib/config/queryClient';
 import { useAuthStore } from '@/stores/authStore';
-import type { SwipeAction } from '@/types/database.types';
+import type {
+  SwipeAction,
+  UndoLastSwipeResult,
+  UndoSwipeRefusal,
+} from '@/types/database.types';
 
 interface SwipeParams {
   swipedUserId: string;
@@ -120,7 +124,35 @@ export function useSwipe() {
 }
 
 /**
+ * What to show the user when the server refuses a rewind. Every refusal has a message;
+ * none of them is a silent success.
+ */
+const UNDO_REFUSAL_MESSAGES: Record<UndoSwipeRefusal, string> = {
+  no_swipe: 'No swipe to undo',
+  too_old: 'Swipe is too old to undo',
+  matched: "You've already matched - rewind can't undo that. Unmatch them instead.",
+};
+
+/**
  * Hook to undo the last swipe (premium feature)
+ *
+ * This used to do the work itself: read the newest `swipes` row, check its age against the
+ * device clock, then `delete().eq('id', ...)`. Both halves were wrong (MEXA-314).
+ *
+ *   * `swipes` has no DELETE policy - only the INSERT and SELECT ones from 00002 - and a
+ *     DELETE that RLS filters to zero rows **is not an error**. So `deleteError` was null,
+ *     this hook returned `{ undoneSwipe }`, the deck was invalidated, and the UI reported a
+ *     successful rewind while the row sat there and the person stayed out of the deck.
+ *     Rewind is sold as a Gold/Platinum feature, so it was a paid feature that did nothing
+ *     and said nothing.
+ *   * The 30-second window compared `Date.now()` with a server `created_at`, so a wrong
+ *     device clock either let an old swipe through or refused a fresh one.
+ *
+ * Migration 00025 replaces it with `public.undo_last_swipe()`, a SECURITY DEFINER function
+ * that takes no arguments. Ownership, the window (server-side `now()`) and the
+ * already-matched rule are all decided there, in one round trip, and `swipes` stays
+ * append-only for clients - no DELETE policy, no DELETE grant. All this hook does is
+ * translate the outcome.
  */
 export function useUndoSwipe() {
   const queryClient = useQueryClient();
@@ -128,42 +160,36 @@ export function useUndoSwipe() {
 
   return useMutation({
     mutationFn: async () => {
+      // The function derives the caller from current_app_user_id(), so this is only here to
+      // avoid a pointless request - and to keep the thrown error the same as before for a
+      // signed-out caller.
       if (!user?.id) {
         throw new Error('User not authenticated');
       }
 
-      // Get the most recent swipe
-      const { data: lastSwipe, error: fetchError } = await supabase
-        .from('swipes')
-        .select('*')
-        .eq('swiper_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+      const { data, error } = await supabase.rpc('undo_last_swipe');
 
-      if (fetchError || !lastSwipe) {
-        throw new Error('No swipe to undo');
+      if (error) {
+        console.error('Error undoing swipe:', error);
+        throw error;
       }
 
-      // Check if swipe is recent enough (within 30 seconds)
-      const swipeTime = new Date(lastSwipe.created_at).getTime();
-      const now = Date.now();
-      if (now - swipeTime > 30000) {
-        throw new Error('Swipe is too old to undo');
+      // `RETURNS TABLE` comes back as an array of one. An empty array would mean the
+      // function returned no row at all, which it is written never to do - treat it as a
+      // failure rather than inventing a success.
+      const result: UndoLastSwipeResult | undefined = data?.[0];
+      if (!result) {
+        throw new Error('Rewind failed: undo_last_swipe returned no row');
       }
 
-      // Delete the swipe
-      const { error: deleteError } = await supabase
-        .from('swipes')
-        .delete()
-        .eq('id', lastSwipe.id);
-
-      if (deleteError) {
-        console.error('Error undoing swipe:', deleteError);
-        throw deleteError;
+      if (!result.ok) {
+        throw new Error(
+          (result.reason && UNDO_REFUSAL_MESSAGES[result.reason]) ??
+            `Rewind failed${result.reason ? `: ${result.reason}` : ''}`
+        );
       }
 
-      return { undoneSwipe: lastSwipe };
+      return { undoneSwipe: result };
     },
     onSuccess: () => {
       // Invalidate discovery to bring back the user

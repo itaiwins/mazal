@@ -48,6 +48,7 @@ Apply exactly this sequence:
 00021_drop_orthodox_discovery_rpc.sql
 00023_safta_connection_consent.sql
 00024_revoke_self_awarded_verified_badge.sql
+00025_rewind_undo_last_swipe.sql
 ```
 
 There is no `00022` in this repo. `00022_safta_public_profiles.sql` is MEXA-302's and is
@@ -79,8 +80,9 @@ Notes on the order:
   `00019_college_and_safta_stats_visibility_rollback.sql`,
   `00020_safta_likes_actually_save_rollback.sql`,
   `00021_drop_orthodox_discovery_rpc_rollback.sql`,
-  `00023_safta_connection_consent_rollback.sql` and
-  `00024_revoke_self_awarded_verified_badge_rollback.sql`; read each one's header. `00014`'s,
+  `00023_safta_connection_consent_rollback.sql`,
+  `00024_revoke_self_awarded_verified_badge_rollback.sql` and
+  `00025_rewind_undo_last_swipe_rollback.sql`; read each one's header. `00014`'s,
   `00015`'s and `00016`'s are the three that are not bit-exact inverses, and each says
   exactly where it differs and why. `00013`'s is exact except for column order, which its
   header explains. `00016`'s is split into six independent sections, `00019`'s into two and
@@ -434,6 +436,71 @@ Notes on the order:
   missing, a refusal when an unexpected role can write the column, the rollback refused
   against an unapplied database, and apply→rollback→apply all clean, with live untouched
   afterwards.
+- `00025` is **NOT applied** — written 2026-09-29 (MEXA-314), waiting on a security review and
+  an apply card. It makes **Rewind** real. `public.swipes` had no DELETE policy, so
+  `useUndoSwipe`'s `delete().eq('id', ...)` matched zero rows — which **is not an error** — and
+  the hook reported a successful rewind while the row sat there and the person stayed out of
+  the deck. Measured on live: the client DELETE returns `code=null, rowCount=0`
+  (`.scratch/mazal-mexa314/BEFORE.txt`). Rewind is sold on the paywall, so it was a paid
+  feature that did nothing and said nothing.
+  **It does not add a DELETE policy, and does not touch a single grant.** Rewind goes through
+  `public.undo_last_swipe()`, SECURITY DEFINER, **no arguments**, `SET search_path = public`,
+  `EXECUTE` to `authenticated` only. Three reasons the policy route was wrong here, all in the
+  file's header: `00016` revokes `DELETE ON swipes FROM authenticated` and its section 7b
+  *asserts* it stayed revoked, so policy+grant would either be undone or make `00016` abort;
+  the 30-second window cannot be enforced against a device clock; and a zero-row DELETE cannot
+  say *why* it refused. The function returns one row — `ok`, plus `reason` in
+  (`no_swipe`, `too_old`, `matched`) — so every refusal is a message and none is a silent
+  success. **`swipes` stays append-only for clients**, which is what `00016` wants, and `00016`
+  can be applied before or after this file in any order. That last claim is measured, not
+  reasoned: the rehearsal revokes the grant mid-transaction and Rewind still works.
+  **A rewind refuses once the pair has matched** (`reason = 'matched'`). Since `00017`,
+  `swipes_check_match` really does create the `matches` row, so inside 30 seconds a like can
+  already have matched; deleting the swipe then would leave the match row behind, with
+  `messages` still accepting posts into it. Deleting the match instead is worse and is a
+  different feature — `trigger_notify_new_match` has already queued a push to **both** people,
+  `messages.match_id` cascades, and Mazal already has `is_active` / `user*_unmatched` with an
+  UPDATE policy for exactly this. The rule lives in the function, **not** in a `BEFORE DELETE`
+  trigger, because such a trigger would also fire on the `ON DELETE CASCADE` from `users` and
+  would block account deletion.
+  Its rollback is `00025_rewind_undo_last_swipe_rollback.sql`; it deletes its own ledger row,
+  and the `swipes` comment it restores is **conditional on `00016`** (00016 writes a comment on
+  that table too), so it reads the ledger instead of hardcoding either string.
+  Verified against live in rolled-back transactions by `.scratch/mazal-mexa314/verify.mjs`,
+  three modes, nothing left behind (checked on a fresh connection each run — objects, row
+  counts, policies, ledger and the table comment). Every behavioural claim is a statement run
+  as the real `authenticated` / `anon` role.
+  All green: **`before` 18/18** (`BEFORE.txt`) — the defect reproduced, and it is RLS rather
+  than privilege that filters it (`authenticated` does hold the DELETE grant today).
+  **`after` 41/41** (`AFTER.txt`) — a fresh like and a fresh pass are both undone and the rows
+  are really gone; a second call right away says `no_swipe`; 31s old is `too_old` and survives
+  while 29s old still works (the boundary is exact, because `now()` is the transaction
+  timestamp); a like that produced a match is refused with `matched` and **both** the swipe and
+  the match survive; a caller with no swipe of their own gets `no_swipe` rather than somebody
+  else's newest swipe, and that swipe is untouched; `anon` is `42501` (`permission denied for
+  function`); a JWT with no `public.users` row is `42501` from the body; a direct client DELETE
+  **still** touches 0 rows, so no direct path was opened; Rewind still works with
+  `DELETE ON swipes` revoked from `authenticated`; and `EXECUTE` is held by exactly
+  `authenticated` and the owner.
+  **`rollback` 22/22** (`ROLLBACK.txt`) — identical to `before` on every probe, the function
+  gone, the ledger row gone, the comment back to NULL.
+  The pre-flight guards are proven to bite, not just present: `.scratch/mazal-mexa314/dryrun.mjs`
+  **23/23** (`DRYRUN.txt`) — a clean apply, then a refusal (with the right message each time)
+  for a second apply, a DELETE policy already on `swipes`, `check_for_match` back to
+  `SECURITY INVOKER`, `current_app_user_id()` no longer DEFINER, `UNIQUE (swiper_id, swiped_id)`
+  dropped, and RLS disabled; the rollback refused against an unapplied database and refused
+  when an overload exists; and apply→rollback→apply all clean, with live untouched afterwards.
+  **Client half, same commit:** `useUndoSwipe` now calls the RPC and throws on `ok = false`; the
+  device-clock arithmetic is gone. `undo_last_swipe` is declared by hand in
+  `src/types/database.types.ts` (same reason as the `00013` view — `supabase gen types` needs
+  Docker), so `npx tsc --noEmit` covers the call. **Keep the `UndoSwipeRefusal` union in that
+  file in step with the `reason` strings in the migration.**
+  **Still open after this, both filed:** there is **no Rewind button** — nothing in `app/` or
+  `src/` calls `useUndoSwipe`, while the paywall and the plan comparison both sell it; and the
+  premium gate is still `useCanRewind()` on the device only, because `public.subscriptions` has
+  a SELECT policy and no writer anywhere in the repo, so there is no server-side entitlement to
+  check. A queued super-like notification is also not retracted by a rewind (moot today —
+  `send-notification` is not deployed).
 - **The ledger lags the repo, measured 2026-09-29 (MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
   `00017`–`00019`, `00021`, `00024`, `20250114`, `20250115`. So **`00012`, `00016` and `00020`
