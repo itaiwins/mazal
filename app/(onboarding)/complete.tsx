@@ -45,11 +45,35 @@ import {
   uploadToStorage,
   getStoragePublicUrl,
 } from '@/api/supabase/directApi';
+import { describePhotoUploadOutcome } from '@/lib/onboarding/photoUploadOutcome';
 import * as FileSystem from 'expo-file-system/legacy';
 import { decode } from 'base64-arraybuffer';
 
 // FileSystem encoding type
 const Base64Encoding = 'base64' as const;
+
+/**
+ * Ask about a photo upload that failed, and wait for the answer (MEXA-338, finding 13).
+ *
+ * `Alert.alert` is callback-based, so without this the save would race past the dialog
+ * and navigate into the deck while the user was still reading it. Resolves true to carry
+ * on into the app, false to stay here so "Continue" can retry.
+ *
+ * Note the cancel button resolves *false* on both paths: a dismissal that is not a
+ * deliberate "continue anyway" must not be read as consent to a photoless profile.
+ */
+const askAboutFailedPhotos = (title: string, message: string): Promise<boolean> =>
+  new Promise((resolve) => {
+    Alert.alert(
+      title,
+      message,
+      [
+        { text: 'Try again', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Continue anyway', onPress: () => resolve(true) },
+      ],
+      { onDismiss: () => resolve(false) }
+    );
+  });
 
 const CELEBRATION_EMOJIS = ['✨', '🎉', '💫', '⭐', '💛'];
 
@@ -393,6 +417,10 @@ export default function CompleteScreen() {
       console.log('[Complete] Photos count:', data?.photos?.length || 0);
       // Upload and save photos if any
       if (data?.photos && data.photos.length > 0) {
+        // Held in a local because the `await`s below widen `data?.photos` back to
+        // possibly-undefined, and the reporting at the end of the block needs the count.
+        const photosPicked = data.photos.length;
+
         // Delete existing photos first using direct API
         console.log('[Complete] Deleting existing photos...');
         const { error: deletePhotosErr } = await deleteUserPhotos(userId);
@@ -403,6 +431,9 @@ export default function CompleteScreen() {
 
         // Upload photos to Supabase storage and collect URLs
         const uploadedPhotos: Array<{ url: string; order: number }> = [];
+        // Why a photo was dropped, so the user hears about it below instead of the
+        // failure living only in a console line nobody reads (MEXA-338, finding 13).
+        const photoFailures: string[] = [];
 
         console.log('[Complete] Starting photo upload loop...');
         for (let i = 0; i < data.photos.length; i++) {
@@ -412,6 +443,7 @@ export default function CompleteScreen() {
 
           if (!photoUri) {
             console.log(`[Complete] Photo ${i}: skipping - no URI`);
+            photoFailures.push(`Photo ${i + 1}: the file is no longer on this device`);
             continue;
           }
 
@@ -448,6 +480,7 @@ export default function CompleteScreen() {
 
             if (uploadError) {
               console.error('Error uploading photo:', uploadError);
+              photoFailures.push(`Photo ${i + 1}: ${uploadError.message}`);
               continue;
             }
 
@@ -455,11 +488,17 @@ export default function CompleteScreen() {
             const publicUrl = getStoragePublicUrl('profile-photos', fileName);
             console.log(`[Complete] Photo ${i}: public URL:`, publicUrl.substring(0, 80) + '...');
             uploadedPhotos.push({ url: publicUrl, order: i });
-          } catch (err) {
+          } catch (err: any) {
             console.error('Error processing photo:', err);
-            // Continue with other photos
+            photoFailures.push(`Photo ${i + 1}: ${err?.message || 'could not be read'}`);
+            // Carry on with the other photos; the total is reported after the loop.
           }
         }
+
+        // How many photos are actually on the profile once this block is done. The
+        // uploads can all succeed and the row insert still fail, which leaves the same
+        // empty profile, so this is counted after the insert and not from the loop.
+        let photosLanded = 0;
 
         // Insert photo records using direct API
         if (uploadedPhotos.length > 0) {
@@ -474,10 +513,46 @@ export default function CompleteScreen() {
 
           if (photosError) {
             console.error('[Complete] Error saving photo records:', photosError.message);
-            // Continue anyway - photos are not critical for the profile
+            photoFailures.push(`Saving your photos failed: ${photosError.message}`);
           } else {
+            photosLanded = uploadedPhotos.length;
             console.log('[Complete] Photos saved successfully');
           }
+        }
+
+        /**
+         * Say something when a photo did not make it (MEXA-338, finding 13).
+         *
+         * Every path above used to swallow its failure into a `console.error`, so a flaky
+         * network or a storage 4xx finished onboarding and dropped the user into the deck
+         * with a profile nobody will swipe on, with no error shown. Which message, and
+         * whether it blocks, is `describePhotoUploadOutcome` — kept out of this component
+         * so `scripts/check-photo-upload-outcome.mjs` can drive every case offline.
+         *
+         * Retrying is safe and needs no extra state: nothing below has run yet, so the
+         * onboarding store still holds the photo URIs and pressing Continue again takes
+         * the update path over the row that was just written.
+         */
+        console.log(`[Complete] ${photosLanded}/${photosPicked} photos landed`);
+        const outcome = describePhotoUploadOutcome(photosPicked, photosLanded, photoFailures);
+
+        if (outcome.kind === 'blocking') {
+          const carryOn = await askAboutFailedPhotos(outcome.title, outcome.message);
+          if (!carryOn) {
+            setIsSaving(false);
+            return;
+          }
+        } else if (outcome.kind === 'notice') {
+          // Awaited too: `router.replace` below would otherwise tear this down before
+          // it was read.
+          await new Promise<void>((resolve) =>
+            Alert.alert(
+              outcome.title,
+              outcome.message,
+              [{ text: 'OK', onPress: () => resolve() }],
+              { onDismiss: () => resolve() }
+            )
+          );
         }
       }
 

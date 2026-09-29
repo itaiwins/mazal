@@ -26,9 +26,11 @@ import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { useOnboardingStore } from '@/stores/onboardingStore';
+// Shared with the onboarding store's step validation and with `complete.tsx`, which has
+// to enforce the same floor once the uploads have actually run (MEXA-338).
+import { MAX_PHOTOS, MIN_PHOTOS } from '@/lib/constants/app';
 
-const PHOTO_SLOTS = 6;
-const MIN_PHOTOS = 2;
+const PHOTO_SLOTS = MAX_PHOTOS;
 
 export default function PhotosScreen() {
   const theme = useTheme();

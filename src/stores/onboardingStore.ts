@@ -9,6 +9,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { OnboardingData, PhotoUpload, PromptAnswer } from '@/types/user.types';
 import type { Gender, JewishBackground, ObservanceLevel, LookingFor, WantsChildren } from '@/types/database.types';
+import { MIN_PHOTOS } from '@/lib/constants/app';
 
 interface OnboardingState {
   // Current step
@@ -279,7 +280,8 @@ export const useOnboardingStore = create<OnboardingState>()(
             if ((data.gender_preference || []).length === 0) errors.push('Select who you\'re interested in');
             break;
           case 2: // Photos
-            if ((data.photos || []).length < 2) errors.push('Add at least 2 photos');
+            if ((data.photos || []).length < MIN_PHOTOS)
+              errors.push(`Add at least ${MIN_PHOTOS} photos`);
             break;
           case 3: // Jewish Identity
             if (!data.jewish_background) errors.push('Select your Jewish background');
