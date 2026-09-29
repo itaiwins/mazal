@@ -7,8 +7,9 @@
 -- =====================================================
 --
 -- Measured by execution against `tayiyczmacvhokdxfqvm` on 2026-09-29, as a real
--- `authenticated` caller inside one rolled-back transaction
--- (`.scratch/mazal-mexa373/probe_messages.mjs`), not inferred from the catalog:
+-- `authenticated` caller inside rolled-back transactions
+-- (`.scratch/mazal-mexa373/probe_messages.mjs`, then `.scratch/mazal-mexa406/`), not
+-- inferred from the catalog:
 --
 --   * u1 sets `content` on a message **u2 sent**        -> UPDATE affected 1 row
 --   * u1 sets `sender_id` on u2's message to u1         -> UPDATE affected 1 row
@@ -19,38 +20,57 @@
 -- and can reassign authorship of a message to themselves. `messages` has no audit column,
 -- so afterwards nothing in the database says which version was real.
 --
--- The pair that allows it:
---
---   * `public.messages` grants table-wide SELECT, INSERT, UPDATE, DELETE to BOTH
---     `authenticated` and `anon` (relacl measured: anon=arwd, authenticated=arwd).
---   * its UPDATE policy `Users can update messages` (00002) has
---       qual       = "I am user1 or user2 of this message's match"
---       with_check = NULL
---     `qual` gates *which rows* you may touch; `with_check` gates *what you may turn them
---     into*, and when it is NULL the USING clause is **not** reused for the new row. So
---     membership of the match is the whole rule and the resulting row is never checked.
---
--- Third instance of this defect class in Mazal: `safta_accounts.subscription_status`
--- (MEXA-345) and `users.orthodox_subscription_status` (MEXA-292, inert because 00015 had
--- already taken the grant). The full sweep of every UPDATE policy in `public` with a NULL
--- `with_check` is recorded on MEXA-406 and carries its own follow-ups; this file closes the
--- one that is proven exploitable on the product's core surface.
---
 -- =====================================================
--- WHY THE GRANT IS THE FIX AND THE POLICY IS NOT
+-- WHY IT IS POSSIBLE - AND NOT FOR THE REASON THE ISSUE FIRST GAVE
 -- =====================================================
 --
--- The obvious-looking fix - "give the policy a WITH CHECK that pins everything except the
--- read-receipt columns" - cannot be written. An RLS `WITH CHECK` expression sees only the
--- NEW row; there is no `OLD` in a policy. So no policy can say "content must not change".
--- Column immutability is expressible in exactly two places: a column privilege, or a
--- `BEFORE UPDATE` trigger.
+-- MEXA-406 was filed saying the cause was the UPDATE policy's NULL `with_check`, on the
+-- reading that "`qual` gates which rows you may touch, `with_check` gates what you may turn
+-- them into, and when it is NULL the USING clause is **not** reused for the new row".
+--
+-- **That is backwards, and it was settled by execution rather than by argument**
+-- (`.scratch/mazal-mexa406/semantics.mjs`, PostgreSQL 17.6). For an UPDATE policy a NULL
+-- `with_check` means the `USING` expression **is** applied to the new row as well. The
+-- discriminating test is a write that changes the one column `USING` actually reads:
+--
+--   as u1, UPDATE messages SET match_id = <a match u1 is NOT in>
+--     -> 42501, "new row violates row-level security policy for table messages"
+--   as u1, UPDATE messages SET content = 'rewritten'   (match_id untouched)
+--     -> ALLOWED, 1 row
+--
+-- So the new row *is* checked. The reason the rewrite gets through is different, and it
+-- matters because it changes what the fix has to be:
+--
+--   **the policy's row filter is MATCH MEMBERSHIP, and a content rewrite does not change
+--   match membership.** The check passes because it is true both before and after. The
+--   expression says nothing about `content` or `sender_id`, so it cannot refuse a change
+--   to either.
+--
+-- The same script proves the corollary directly: adding a `WITH CHECK` that mirrors the
+-- `USING` clause changes **nothing** - both probes return identical results with and
+-- without it. An earlier draft of this migration added exactly that mirror and called it
+-- defence in depth. It was removed, because a no-op statement in a security migration is
+-- worse than no statement: the next reader believes it is doing work.
+--
+-- This file therefore **does not touch the policy at all**, and section 4a asserts that.
+--
+-- =====================================================
+-- WHY THE GRANT IS THE ONLY MECHANISM THAT CAN CLOSE IT
+-- =====================================================
+--
+-- An RLS `WITH CHECK` expression sees only the NEW row; there is no `OLD` in a policy. So
+-- no policy, however written, can say "content must not change". Column immutability is
+-- expressible in exactly two places: a column privilege, or a `BEFORE UPDATE` trigger.
 --
 -- This file uses the column privilege. It is declarative, it is visible in the catalog and
 -- in `information_schema.column_privileges`, it costs nothing per row, and it is the same
--- mechanism 00015 already uses on `public.users`. A trigger was considered and rejected:
+-- mechanism `00015` already uses on `public.users`. A trigger was considered and rejected:
 -- it would add a per-row function to the one table that is also published to realtime and
 -- cascade-deleted from `matches`, to enforce a rule the privilege system enforces for free.
+--
+-- The other half of the pair, also measured: `public.messages` grants table-wide SELECT,
+-- INSERT, UPDATE, DELETE to BOTH `authenticated` and `anon` (relacl: anon=arwd,
+-- authenticated=arwd). That is the grant this file narrows.
 --
 -- WHAT THE CLIENT ACTUALLY WRITES
 --
@@ -61,32 +81,31 @@
 -- So `GRANT UPDATE (is_read, read_at)` is the whole write surface the app needs, measured
 -- against the code rather than assumed.
 --
--- WHY THE POLICY STILL GETS A `WITH CHECK`
---
--- Section 2 is defence in depth, and this file says so rather than overselling it. With the
--- grant narrowed, `match_id` is not writable, so a mirrored `WITH CHECK` can never fail
--- where `USING` passed: it is a no-op **today**, proven so by the rehearsal. It exists
--- because a table-wide `GRANT UPDATE` reappearing is not hypothetical here - Supabase's
--- `ALTER DEFAULT PRIVILEGES` on `public` re-grants all four verbs to `anon` and
--- `authenticated` on any newly created object, and a migration that rebuilds a table or a
--- view has already re-opened that door once in this repo (00030, MEXA-320). If the grant
--- ever comes back, the policy that is left should not be one that checks nothing.
---
 -- =====================================================
--- `anon`
+-- WHAT THIS MEANS FOR THE OTHER "NULL with_check" FINDINGS
 -- =====================================================
 --
--- `anon` holds table-wide UPDATE on `messages` today and is revoked here with no re-grant.
--- The anon key ships inside the app binary, so `anon` is the whole internet; it has no
--- business writing a two-person chat thread. 00016 (reviewed, on `mazal-restart`, NOT
--- applied) revokes every `anon` table privilege in `public` and asserts it in its section
--- 7a - this file does not wait for that, and revoking twice is a no-op in either order.
+-- Recorded here because the same wrong reading is written into two earlier issues. The
+-- sweep MEXA-406 asked for - "every UPDATE policy in `public` with a NULL `with_check`" -
+-- is **not** the right sweep: 19 policies match it and most are not findings at all,
+-- because their `USING` clause is own-row (`user_id = me`) and therefore *does* refuse a
+-- row that moves to another owner. Measured on three of them: repointing a `matches` row
+-- at a stranger, moving a `user_photos` row onto another profile, and re-registering a
+-- `push_tokens` row as the victim's are **all refused**, "new row violates row-level
+-- security policy".
+--
+-- The real defect class, and the one worth sweeping for, is: **a client role holds an
+-- over-broad UPDATE grant on a table whose policy `USING` expression is invariant under
+-- changing a security-relevant column.** That is what `messages` is (membership-scoped
+-- filter, free-text body), and it is also what `safta_accounts.subscription_status`
+-- (MEXA-345) and `users.orthodox_subscription_status` (MEXA-292) are (own-row filter,
+-- entitlement column). Same class, correctly stated. Follow-ups are on MEXA-406.
 --
 -- =====================================================
 -- ORDER, AND THE OTHER MIGRATIONS THAT TOUCH THIS TABLE
 -- =====================================================
 --
--- Depends on 00001 (the table) and 00002 (the policy). Both are applied.
+-- Depends on 00001 (the table). Applied.
 --
 -- Checked against every migration in the repo that names `messages`, because a grant
 -- narrowing is exactly the change that makes someone else's post-check abort:
@@ -100,8 +119,8 @@
 --     writes COLUMN comments instead, so the two do not overwrite each other and neither
 --     rollback has to know about the other (MEXA-361's lesson on 00025/00026).
 --   * 00018 publishes `messages` to `supabase_realtime`. Replication does not run as
---     `authenticated`, so a client grant change does not affect it; asserted in 5g anyway.
---   * 00005 / 00001 put two AFTER INSERT triggers on the table. Untouched, asserted in 5h.
+--     `authenticated`, so a client grant change does not affect it; asserted in 4f anyway.
+--   * 00005 / 00001 put two AFTER INSERT triggers on the table. Untouched, asserted in 4g.
 --
 -- `useDeleteMessage` (src/api/mutations/useMessage.ts:122) is dead code either way: there
 -- is no DELETE policy on `messages`, so RLS refuses every delete regardless of the grant.
@@ -113,43 +132,45 @@ BEGIN;
 -- 0. Pre-flight
 -- =====================================================
 --
--- Deliberately not idempotent. The ledger row in section 4 is what stops a re-apply; a
--- second run should say so loudly rather than quietly re-revoking.
+-- Deliberately not idempotent. The ledger row in section 3 is what records the apply; a
+-- second run should say so loudly rather than quietly re-revoking and re-granting, which on
+-- a live project is a privilege flap rather than a no-op.
 
 DO $$
 DECLARE
-  v_qual  TEXT;
-  v_check TEXT;
-  v_bad   TEXT;
+  v_bad TEXT;
 BEGIN
   -- 0a. The objects this file edits.
   IF to_regclass('public.messages') IS NULL THEN
     RAISE EXCEPTION 'MEXA-406: public.messages does not exist';
   END IF;
 
-  SELECT qual, with_check INTO v_qual, v_check
-    FROM pg_policies
-   WHERE schemaname = 'public' AND tablename = 'messages'
-     AND policyname = 'Users can update messages';
-  IF v_qual IS NULL THEN
-    RAISE EXCEPTION 'MEXA-406: the UPDATE policy "Users can update messages" is not on public.messages';
+  IF EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '00034') THEN
+    RAISE EXCEPTION 'MEXA-406: 00034 is already in the ledger';
   END IF;
 
-  -- 0b. The defect, as it is on live right now. If the WITH CHECK is already there, this
-  -- file has been applied or superseded and must not run again.
-  IF v_check IS NOT NULL THEN
-    RAISE EXCEPTION 'MEXA-406: "Users can update messages" already has a WITH CHECK; 00034 looks applied';
-  END IF;
-
-  -- 0c. The other half of the defect. A column-level REVOKE cannot cut a table-wide grant
-  -- (MEXA-359), which is why section 1 revokes at the TABLE level first - but if the table
-  -- grant is already gone then this database is not the one measured and section 1's
-  -- re-grant would be handing out a privilege rather than narrowing one.
+  -- 0b. The defect, as it is on live right now, and the second-apply guard. This is also
+  -- the MEXA-359 trap in its other direction: a column-level REVOKE cannot cut back a
+  -- table-wide GRANT, which is why section 1 revokes at the TABLE level first - but if the
+  -- table grant is already gone then this database is not the one that was measured, and
+  -- section 1's re-grant would be handing out a privilege rather than narrowing one.
   IF NOT has_table_privilege('authenticated', 'public.messages', 'UPDATE') THEN
-    RAISE EXCEPTION 'MEXA-406: authenticated has no TABLE-level UPDATE on public.messages; refusing to guess what this database is';
+    RAISE EXCEPTION 'MEXA-406: authenticated has no TABLE-level UPDATE on public.messages; either 00034 is applied or this is not the database that was measured';
   END IF;
 
-  -- 0d. The columns section 1 grants back must exist and must be the read-receipt pair.
+  -- 0c. The policy this file relies on and must not change. If the row filter is not the
+  -- membership test any more, the reasoning in the header no longer describes this
+  -- database and the grant narrowing should be re-argued, not applied blind.
+  IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+       WHERE schemaname = 'public' AND tablename = 'messages'
+         AND policyname = 'Users can update messages'
+         AND qual LIKE '%m.id = messages.match_id%'
+         AND qual LIKE '%users.auth_id = auth.uid()%') THEN
+    RAISE EXCEPTION 'MEXA-406: the UPDATE policy "Users can update messages" is missing or is no longer the match-membership filter';
+  END IF;
+
+  -- 0d. The columns section 1 names must exist.
   SELECT string_agg(c, ', ') INTO v_bad
     FROM unnest(ARRAY['is_read','read_at','content','sender_id','match_id']) AS c
    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns
@@ -171,13 +192,16 @@ BEGIN
     RAISE EXCEPTION 'MEXA-406: an unexpected role can write public.messages: %', v_bad;
   END IF;
 
-  -- Before-picture, so section 5 can prove this file moved exactly what it names.
+  -- Before-picture, so section 4 can prove this file moved exactly what it names.
   PERFORM set_config('mexa406.colprivs',
     (SELECT coalesce(string_agg(format('%s:%s:%s', grantee, privilege_type, column_name),
                                 ',' ORDER BY grantee, privilege_type, column_name), '')
        FROM information_schema.column_privileges
       WHERE table_schema = 'public' AND table_name = 'messages'), false);
-  PERFORM set_config('mexa406.qual', v_qual, false);
+  PERFORM set_config('mexa406.pol',
+    (SELECT coalesce(qual, '') || '||' || coalesce(with_check, '<null>')
+       FROM pg_policies WHERE schemaname = 'public' AND tablename = 'messages'
+        AND policyname = 'Users can update messages'), false);
   PERFORM set_config('mexa406.rows', (SELECT count(*)::text FROM public.messages), false);
   PERFORM set_config('mexa406.policies', (SELECT count(*)::text FROM pg_policies WHERE schemaname = 'public'), false);
   PERFORM set_config('mexa406.msgpolicies',
@@ -198,6 +222,12 @@ $$;
 -- `message_type`, `media_url`, `created_at` or `id` gets
 -- `42501: permission denied for table messages` - a hard refusal, not a silent drop, so a
 -- stale build that still attempts it fails visibly.
+--
+-- `anon` gets nothing back. The anon key ships inside the app binary, so `anon` is the
+-- whole internet; it has no business writing a two-person chat thread. 00016 (reviewed, on
+-- `mazal-restart`, NOT applied) revokes every `anon` table privilege in `public` and
+-- asserts it in its section 7a - this file does not wait for that, and revoking twice is a
+-- no-op in either order.
 
 REVOKE UPDATE ON TABLE public.messages FROM authenticated;
 REVOKE UPDATE ON TABLE public.messages FROM anon;
@@ -205,34 +235,7 @@ REVOKE UPDATE ON TABLE public.messages FROM anon;
 GRANT UPDATE (is_read, read_at) ON TABLE public.messages TO authenticated;
 
 -- =====================================================
--- 2. The policy stops checking nothing (defence in depth - see the header)
--- =====================================================
---
--- `ALTER POLICY … WITH CHECK` rather than DROP + CREATE: the USING clause is left exactly
--- as 00002 wrote it, so there is no window in which the policy is absent and no chance of
--- retyping the row filter wrong. For the record, the USING clause this mirrors is:
---
---   EXISTS (SELECT 1 FROM matches m
---            WHERE m.id = messages.match_id
---              AND (m.user1_id = (SELECT users.id FROM users WHERE users.auth_id = auth.uid())
---                OR m.user2_id = (SELECT users.id FROM users WHERE users.auth_id = auth.uid())))
---
--- Section 5c asserts the two render identically in `pg_policies`, which is what proves
--- this expression is the same rule and not a near-miss.
-
-ALTER POLICY "Users can update messages" ON public.messages
-  WITH CHECK (
-    EXISTS (
-      SELECT 1
-        FROM matches m
-       WHERE m.id = messages.match_id
-         AND (m.user1_id = (SELECT users.id FROM users WHERE users.auth_id = auth.uid())
-           OR m.user2_id = (SELECT users.id FROM users WHERE users.auth_id = auth.uid()))
-    )
-  );
-
--- =====================================================
--- 3. Record the invariant where the next reader will look
+-- 2. Record the invariant where the next reader will look
 -- =====================================================
 --
 -- Column comments, not a table comment: 00016 section 6 owns
@@ -242,12 +245,14 @@ ALTER POLICY "Users can update messages" ON public.messages
 
 COMMENT ON COLUMN public.messages.content IS
   'The message body. NOT client-writable after it is sent (MEXA-406): `authenticated` holds '
-  'UPDATE on `is_read` and `read_at` only. Before 00034 the UPDATE policy had a NULL '
-  'WITH_CHECK and the grant was table-wide, so either participant in a match could rewrite '
-  'the other person''s message body - measured on live, 1 row affected. An RLS policy cannot '
-  'express column immutability (no OLD in WITH CHECK), so the column grant is the rule. '
-  'Editing or redacting a sent message is an unmade product decision; making it means a '
-  'server-side path that keeps the original, not a GRANT.';
+  'UPDATE on `is_read` and `read_at` only. Before 00034 the grant was table-wide and either '
+  'participant in a match could rewrite the other person''s message body - measured on live, '
+  '1 row affected. Note the reason, because it is not the one MEXA-406 was filed with: the '
+  'UPDATE policy''s NULL with_check does NOT leave the new row unchecked (Postgres reuses '
+  'USING as the check), it is that the USING expression tests MATCH MEMBERSHIP, which a '
+  'content rewrite does not change. No policy can fix that - WITH CHECK has no OLD row - so '
+  'the column grant is the rule. Editing or redacting a sent message is an unmade product '
+  'decision; making it means a server-side path that keeps the original, not a GRANT.';
 
 COMMENT ON COLUMN public.messages.sender_id IS
   'Who sent it. NOT client-writable after INSERT (MEXA-406) - before 00034 a match '
@@ -267,38 +272,57 @@ COMMENT ON COLUMN public.messages.read_at IS
   'not evidence of anything; nothing server-side should reason from it.';
 
 -- =====================================================
--- 4. Ledger row, in this transaction (MEXA-325)
+-- 3. Ledger row, in this transaction (MEXA-325)
 -- =====================================================
 
 INSERT INTO supabase_migrations.schema_migrations (version, name)
-VALUES ('00034', 'messages_are_not_rewritable')
-ON CONFLICT DO NOTHING;
+VALUES ('00034', 'messages_are_not_rewritable');
 
 -- =====================================================
--- 5. Assert the result, in the same transaction
+-- 4. Assert the result, in the same transaction
 -- =====================================================
 --
 -- A revoke that did not take is invisible: the column keeps working and the app keeps
 -- writing. These make the claims above true of what actually landed. The behaviour itself -
 -- a real `authenticated` session getting 42501 on `content` while its read-receipt write
--- still succeeds - is measured as the real role in `.scratch/mazal-mexa406/rehearse_00034.mjs`,
--- which a privilege catalog cannot do.
+-- still succeeds - is measured as the real role in
+-- `.scratch/mazal-mexa406/rehearse_00034.mjs`, which a privilege catalog cannot do.
 
 DO $$
 DECLARE
   v_cols_before  TEXT    := current_setting('mexa406.colprivs');
-  v_qual_before  TEXT    := current_setting('mexa406.qual');
+  v_pol_before   TEXT    := current_setting('mexa406.pol');
   v_rows_before  INTEGER := current_setting('mexa406.rows')::INTEGER;
   v_pols_before  INTEGER := current_setting('mexa406.policies')::INTEGER;
   v_msgp_before  TEXT    := current_setting('mexa406.msgpolicies');
-  v_qual_after   TEXT;
-  v_check_after  TEXT;
   v_n            INTEGER;
   v_bad          TEXT;
 BEGIN
-  -- 5a. The point of the file. `has_column_privilege` is true if EITHER a column-level or a
-  -- table-level grant covers the column, so false here proves no route remains - it rules
-  -- out both the table grant and a column grant at once.
+  -- 4a. This file writes no policy. It is a REVOKE, a GRANT, four COMMENTs and a ledger
+  -- row - and the header's whole argument is that the policy is not where the fix lives,
+  -- so a policy that moved here would mean the file is not what it says it is.
+  SELECT coalesce(qual, '') || '||' || coalesce(with_check, '<null>')
+    INTO v_bad FROM pg_policies
+   WHERE schemaname = 'public' AND tablename = 'messages'
+     AND policyname = 'Users can update messages';
+  IF v_bad IS DISTINCT FROM v_pol_before THEN
+    RAISE EXCEPTION 'MEXA-406: the UPDATE policy on public.messages changed; this file must not touch it'
+      USING DETAIL = format('before: %s%safter:  %s', v_pol_before, chr(10), v_bad);
+  END IF;
+
+  SELECT coalesce(string_agg(policyname || ':' || cmd, ',' ORDER BY policyname), '')
+    INTO v_bad FROM pg_policies WHERE schemaname = 'public' AND tablename = 'messages';
+  IF v_bad IS DISTINCT FROM v_msgp_before THEN
+    RAISE EXCEPTION 'MEXA-406: the policy set on public.messages changed: "%" -> "%"', v_msgp_before, v_bad;
+  END IF;
+
+  SELECT count(*) INTO v_n FROM pg_policies WHERE schemaname = 'public';
+  IF v_n <> v_pols_before THEN
+    RAISE EXCEPTION 'MEXA-406: public policy count changed % -> %', v_pols_before, v_n;
+  END IF;
+
+  -- 4b. The point of the file. `has_column_privilege` is true if EITHER a column-level or a
+  -- table-level grant covers the column, so false here rules out both routes at once.
   SELECT string_agg(c, ', ') INTO v_bad
     FROM unnest(ARRAY['id','match_id','sender_id','content','message_type','media_url','created_at']) AS c
    WHERE has_column_privilege('authenticated', 'public.messages', c, 'UPDATE');
@@ -310,43 +334,22 @@ BEGIN
     RAISE EXCEPTION 'MEXA-406: authenticated still holds a TABLE-level UPDATE on public.messages, so the column grant is not the rule';
   END IF;
 
-  -- 5b. And the feature still works. Without this the file could close the hole by taking
+  -- 4c. And the feature still works. Without this the file could close the hole by taking
   -- the write away entirely, which would break read receipts app-wide and look like a UI bug.
   IF NOT (has_column_privilege('authenticated', 'public.messages', 'is_read', 'UPDATE')
       AND has_column_privilege('authenticated', 'public.messages', 'read_at', 'UPDATE')) THEN
     RAISE EXCEPTION 'MEXA-406: authenticated cannot UPDATE the read-receipt columns; useMarkMessagesAsRead would 42501';
   END IF;
 
-  -- 5c. The WITH CHECK is the SAME rule as the USING, not a near-miss. Both are rendered
-  -- from the parsed tree by pg_policies, so identical text means identical expressions -
-  -- and the USING must not have moved, since section 2 never names it.
-  SELECT qual, with_check INTO v_qual_after, v_check_after
-    FROM pg_policies
-   WHERE schemaname = 'public' AND tablename = 'messages'
-     AND policyname = 'Users can update messages';
-
-  IF v_check_after IS NULL THEN
-    RAISE EXCEPTION 'MEXA-406: "Users can update messages" still has a NULL with_check';
-  END IF;
-  IF v_qual_after IS DISTINCT FROM v_qual_before THEN
-    RAISE EXCEPTION 'MEXA-406: the USING clause of "Users can update messages" changed; this file must not touch it'
-      USING DETAIL = format('before: %s%safter:  %s', v_qual_before, chr(10), v_qual_after);
-  END IF;
-  IF v_check_after IS DISTINCT FROM v_qual_after THEN
-    RAISE EXCEPTION 'MEXA-406: the new WITH CHECK is not the same expression as the USING clause'
-      USING DETAIL = format('using:      %s%swith_check: %s', v_qual_after, chr(10), v_check_after);
-  END IF;
-
-  -- 5d. anon is out of this table's write path entirely.
+  -- 4d. anon is out of this table's write path entirely.
   IF has_table_privilege('anon', 'public.messages', 'UPDATE')
      OR has_column_privilege('anon', 'public.messages', 'is_read', 'UPDATE')
      OR has_column_privilege('anon', 'public.messages', 'content', 'UPDATE') THEN
     RAISE EXCEPTION 'MEXA-406: anon can still UPDATE public.messages';
   END IF;
 
-  -- 5e. Nothing was granted that was not asked for. INSERT is the other way a client could
-  -- carry a forged sender_id in, and it is governed by the INSERT policy, not by this file -
-  -- but a stray INSERT grant appearing here would be this file's fault.
+  -- 4e. Nothing this file was not asked to move has moved. Sending and reading are the two
+  -- paths a clumsy REVOKE would break, and both are how the chat screen works at all.
   IF NOT has_column_privilege('authenticated', 'public.messages', 'content', 'INSERT') THEN
     RAISE EXCEPTION 'MEXA-406: authenticated lost INSERT on messages.content; sending a message would break';
   END IF;
@@ -354,8 +357,8 @@ BEGIN
     RAISE EXCEPTION 'MEXA-406: authenticated lost SELECT on messages.content; the chat screen would be blank';
   END IF;
 
-  -- 5f. The column-privilege picture is exactly "before, minus authenticated's UPDATE on
-  -- the seven columns section 1 closed, minus anon's UPDATE on all nine". Derived by
+  -- The column-privilege picture is exactly "before, minus authenticated's UPDATE on the
+  -- seven columns section 1 closed, minus anon's UPDATE on all nine". Derived by
   -- subtraction rather than by re-listing the after-picture, so a second, unnoticed change
   -- fails here.
   SELECT coalesce(string_agg(format('%s:%s:%s', grantee, privilege_type, column_name),
@@ -381,22 +384,10 @@ BEGIN
       USING DETAIL = format('actual: %s', v_bad);
   END IF;
 
-  -- 5g. No row moved, no policy appeared or vanished, and the realtime publication still
-  -- carries this table. This file is a REVOKE, a GRANT, an ALTER POLICY and four COMMENTs.
+  -- 4f. No row moved, and the realtime publication still carries this table.
   SELECT count(*) INTO v_n FROM public.messages;
   IF v_n <> v_rows_before THEN
     RAISE EXCEPTION 'MEXA-406: messages row count changed % -> %', v_rows_before, v_n;
-  END IF;
-
-  SELECT count(*) INTO v_n FROM pg_policies WHERE schemaname = 'public';
-  IF v_n <> v_pols_before THEN
-    RAISE EXCEPTION 'MEXA-406: public policy count changed % -> %; this file adds and drops no policy', v_pols_before, v_n;
-  END IF;
-
-  SELECT coalesce(string_agg(policyname || ':' || cmd, ',' ORDER BY policyname), '')
-    INTO v_bad FROM pg_policies WHERE schemaname = 'public' AND tablename = 'messages';
-  IF v_bad IS DISTINCT FROM v_msgp_before THEN
-    RAISE EXCEPTION 'MEXA-406: the policy set on public.messages changed: "%" -> "%"', v_msgp_before, v_bad;
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables
@@ -404,7 +395,7 @@ BEGIN
     RAISE EXCEPTION 'MEXA-406: public.messages left the supabase_realtime publication; 00018 would be undone';
   END IF;
 
-  -- 5h. The two AFTER INSERT triggers are untouched - update_match_last_message keeps the
+  -- 4g. The two AFTER INSERT triggers are untouched - update_match_last_message keeps the
   -- matches list ordered and notify_new_message queues the push.
   SELECT count(*) INTO v_n FROM pg_trigger
    WHERE tgrelid = 'public.messages'::regclass AND NOT tgisinternal;
@@ -412,13 +403,13 @@ BEGIN
     RAISE EXCEPTION 'MEXA-406: expected 2 user triggers on public.messages, found %', v_n;
   END IF;
 
-  -- 5i. RLS is still on. A column grant is only half the rule; with RLS off the USING
+  -- 4h. RLS is still on. A column grant is only half the rule; with RLS off the USING
   -- clause stops running and every row in every thread is reachable.
   IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.messages'::regclass) THEN
     RAISE EXCEPTION 'MEXA-406: row level security is off on public.messages';
   END IF;
 
-  -- 5j. The comments actually say the new thing, by content and not merely non-NULL.
+  -- 4i. The comments actually say the new thing, by content and not merely non-NULL.
   IF coalesce(col_description('public.messages'::regclass,
        (SELECT attnum FROM pg_attribute WHERE attrelid = 'public.messages'::regclass AND attname = 'content')), '')
      NOT LIKE '%NOT client-writable after it is sent%' THEN
