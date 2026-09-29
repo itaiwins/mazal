@@ -149,7 +149,15 @@ const createdUsers = [];
 async function throwawayUser(tag) {
   // example.com is fine for admin-created users — the admin API skips the
   // deliverability check that `/recover` applies (it 400s on an MX-less domain).
-  const email = `violet-pkce-${tag}-${Date.now()}@example.com`;
+  // It cannot *receive*, though, so `/recover` dies at the mailer and the `?code=`
+  // shape check below can only ever be skipped. Point PKCE_TEST_MAILBOX at a real
+  // deliverable address to make that one run for real:
+  //   PKCE_TEST_MAILBOX=someinbox@agentmail.to node scripts/verify-pkce-auth-links.mjs
+  // A plus-tag is appended, so every run is a distinct user in the one mailbox.
+  const mailbox = process.env.PKCE_TEST_MAILBOX;
+  const email = mailbox
+    ? mailbox.replace('@', `+pkce-${tag}-${Date.now()}@`)
+    : `violet-pkce-${tag}-${Date.now()}@example.com`;
   const user = await admin('/admin/users', {
     method: 'POST',
     body: JSON.stringify({ email, password: `pk-${Math.random().toString(36).slice(2)}-Aa1!`, email_confirm: true }),
@@ -162,6 +170,9 @@ async function throwawayUser(tag) {
 
 /** `mazal://` is not hierarchical, so swap the scheme before parsing. */
 function paramsOf(location) {
+  // A failed /verify returns no Location at all. Report that as "no params" rather
+  // than throwing ERR_INVALID_URL on '' and taking the cleanup block with it.
+  if (!location) return new URLSearchParams();
   const url = new URL(location.replace('mazal://', 'https://mazal.invalid/'));
   const params = new URLSearchParams(url.search);
   // Under PKCE, GoTrue reports errors in the query AND the fragment; implicit puts
@@ -186,8 +197,16 @@ try {
   const { error: recoverError } = await clientA.auth.resetPasswordForEmail(subject.email, {
     redirectTo: REDIRECT,
   });
+  // Any failure to *send* leaves the flow state intact but `recovery_token` empty,
+  // so the shape check has nothing to follow and must be skipped rather than failed.
+  // Before custom SMTP that only ever meant a 429; now that Resend really tries, the
+  // usual cause is an undeliverable fixture address (see PKCE_TEST_MAILBOX above),
+  // which comes back 500 "Error sending recovery email".
   const mailerRefused =
-    !!recoverError && (recoverError.status === 429 || /rate limit/i.test(recoverError.message));
+    !!recoverError &&
+    (recoverError.status === 429 ||
+      recoverError.status >= 500 ||
+      /rate limit|sending .*email/i.test(recoverError.message));
 
   check(
     'resetPasswordForEmail generated a code_verifier on device A',
@@ -259,18 +278,28 @@ try {
 
   // ------------------------------------------------------------------ shape
   // Only a `/recover` whose email really sent writes the `pkce_`-prefixed
-  // recovery token that makes `/verify` take the PKCE branch, so this needs a
-  // budget slot. Ask for the token straight out of auth.users rather than
+  // recovery token that makes `/verify` take the PKCE branch, so this one needs the
+  // send to succeed. Ask for the token straight out of auth.users rather than
   // scraping a mailbox — same value the email's ConfirmationURL carries.
   if (mailerRefused) {
     skip(
       'the link redirects with ?code=, not #access_token',
-      'no email budget: `/recover` 429d, so no pkce_-prefixed recovery token exists to follow. ' +
-        'Re-run when rate_limit_email_sent has room, or after custom SMTP lands (MEXA-249).'
+      `\`/recover\` did not send (${recoverError.status}: ${recoverError.message}), so no ` +
+        'pkce_-prefixed recovery token exists to follow. Re-run with PKCE_TEST_MAILBOX set to a ' +
+        'real deliverable address, and check https://api.resend.com/usage for daily quota (MEXA-303).'
     );
   } else {
+    // A FRESH subject, deliberately. `subject`'s flow state was consumed by the
+    // "device A DOES exchange" check above, and /verify needs it to still be there:
+    // following that user's link returns flow_state_not_found, which looks like a
+    // PKCE failure and is really just test ordering.
+    const shapeSubject = await throwawayUser('shape');
+    const { error: shapeRecoverError } = await appClient(memoryStorage())
+      .auth.resetPasswordForEmail(shapeSubject.email, { redirectTo: REDIRECT });
+    if (shapeRecoverError) throw new Error(`shape /recover failed: ${shapeRecoverError.message}`);
+
     const [row] = await sql(
-      `select recovery_token from auth.users where id = '${subject.id}'`
+      `select recovery_token from auth.users where id = '${shapeSubject.id}'`
     );
     const token = row?.recovery_token ?? '';
     const location =

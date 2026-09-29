@@ -118,7 +118,22 @@ link" rather than a bare error.
 
 `scripts/verify-pkce-auth-links.mjs` does it against the live project. Run it after
 any change to the client's auth options. It creates and deletes its own throwaway
-users, and passes 5/5 whether or not it can send an email.
+users.
+
+```bash
+# 5/5 — the security property, no email needed
+node scripts/verify-pkce-auth-links.mjs
+
+# 6/6 — adds the link-shape check, which needs an email to actually arrive
+PKCE_TEST_MAILBOX=giftedvideo221@agentmail.to node scripts/verify-pkce-auth-links.mjs
+```
+
+The default fixture address is `@example.com`, which can be *created* (the admin
+API skips the deliverability check) but cannot receive. `/recover` therefore dies
+at the mailer with `500 Error sending recovery email`, no `pkce_`-prefixed token is
+written, and the shape check skips. Point `PKCE_TEST_MAILBOX` at a real deliverable
+address and it runs for real — the run that proved SMTP works got
+`token prefix "pkce_" -> pkce: mazal://auth/reset-password?code=…` (MEXA-249).
 
 Do **not** try to verify PKCE with the `generate_link` trick above. How GoTrue
 actually decides, all of it measured here:
@@ -153,15 +168,55 @@ Two smaller things that measurement settled:
   has to start over — which is what they were going to do anyway, having received
   no email.
 
+## Who actually sends the mail
+
+Custom SMTP through **Resend**, configured 2026-09-28 (MEXA-249, Itai's call).
+Before that it was Supabase's built-in sender, capped at 2 emails/hour for the
+whole project, which could not survive more than one tester.
+
+| Setting | Value |
+|---|---|
+| `smtp_host` / `smtp_port` | `smtp.resend.com` / `465` |
+| `smtp_user` | `resend` (literal — not an address) |
+| `smtp_pass` | Resend key, see below |
+| `smtp_admin_email` | `noreply@mexantmail.com` |
+| `smtp_sender_name` | `Mazal` |
+| `rate_limit_email_sent` | `30`/hour |
+
+Testers see **`Mazal <noreply@mexantmail.com>`**. Mazal has no domain of its own —
+`mexantmail.com` is a verified Mexant domain (DKIM + SPF), reused so TestFlight
+was not blocked on buying one. Register a real domain before a public launch;
+that is new spending, so Itai decides.
+
+`smtp_port` must be sent to the management API as a **string**; a number gets
+`400 smtp_port: Invalid input: expected string, received number`.
+
+The key is **not** the one in `archive/credentials/mexant-resend.env`. That one is
+full-access and was pasted into a chat channel, so it is compromised. Mazal uses a
+separate `sending_access` key restricted to the `mexantmail.com` domain
+(`mazal-supabase-smtp`), kept in `archive/credentials/mazal-resend.env`. It cannot
+read logs, manage keys, or send as `mexant.com` — confirmed by a 201 on send and a
+401 on `GET /emails/<id>` with the same key.
+
+### The quota is shared with mexant.com, and that has already bitten
+
+Resend's free tier is **100 emails/day for the entire account**, not per domain.
+On 2026-09-28 something sent ~200 in a day and every send failed for about six
+hours — mexant.com's included. Symptom: nothing. No bounce, no error to the user,
+just an email that never arrives. `GET https://api.resend.com/usage` is the only
+way to see it:
+
+```bash
+curl -s -H "Authorization: Bearer $RESEND_API_KEY" https://api.resend.com/usage \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin)["emails"]["daily"]; print(d["used"],"/",d["limit"])'
+```
+
+Check that first whenever auth email "just stops". Tracked on MEXA-303. Note that
+`delivered@resend.dev` still consumes quota — it simulates delivery, it is not
+free — so never point a test loop at it.
+
 ## Open items
 
-- **Custom SMTP is not configured** (`smtp_host` is null), so auth email still
-  goes through Supabase's built-in sender, which pins `rate_limit_email_sent` to
-  **2 per hour for the whole project** and rejects undeliverable domains outright
-  (`example.com` has no MX, so `/recover` 400s on it before it ever creates a flow
-  state). Blocks a real TestFlight round — tracked on MEXA-249. One password reset
-  now costs both of those emails: the recovery link plus the
-  password-changed notice below.
 - ~~`mailer_notifications_password_changed_enabled` is off~~ — **on** since
   MEXA-264 (2026-09-28). A password change now emails the account holder, which is
   the main way someone notices a takeover. Subject and body are Supabase's
