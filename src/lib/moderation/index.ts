@@ -11,7 +11,11 @@
  *    "honestly", and `\b(s+h+i+t+|sht)\w*` flagged "shtetl", "shtick" and "shtreimel".
  *    Each pattern instead ends at `\b`, with the real suffixes spelled out.
  * 2. **No lookbehind and no named groups.** Hermes, the engine the app runs on, does not
- *    support them, so a pattern that works in Node can throw on device.
+ *    support them, so a pattern that works in Node can throw on device. `hermesc` cannot
+ *    prove this either way: it compiles a regex literal without validating it, so it
+ *    accepts `/(?<=x)y/` with and without `-O` (MEXA-343). Plain lookahead is safe -
+ *    React Native's own `Libraries/StyleSheet/processBackgroundImage.js` runs `(?!...)`
+ *    on Hermes in every build - but anything newer than that needs a real device.
  *
  * `scripts/check-moderation.mjs` is the corpus: it runs offline and it is the thing that
  * proves a change here did not start rejecting ordinary answers. Run it after any edit.
