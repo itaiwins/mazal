@@ -86,6 +86,32 @@ export type PublicProfile = Pick<
 };
 
 // ============================================================================
+// Safta display details (migration 00022, MEXA-302)
+// ============================================================================
+
+type GeneratedSaftaAccountRow = GeneratedDatabase['public']['Tables']['safta_accounts']['Row'];
+
+/**
+ * A row from the `public.safta_public_profiles` view (migration 00022, MEXA-302).
+ *
+ * `safta_accounts` is owner-scoped - its one SELECT policy is `auth_id = auth.uid()` - so a
+ * grandchild reading a connection got no account row back at all, and a `!inner` embed
+ * therefore dropped the connection itself. This view is what she reads instead: three
+ * display columns, and only for a Safta she holds an `accepted` connection to.
+ *
+ * `email` and the `subscription_*` columns are deliberately absent and must not be added
+ * here without adding them to the view first - which is a Guts review, not a type edit.
+ *
+ * Spelled as a Pick of the generated `safta_accounts` row for the same reason
+ * `PublicProfile` is: the view's columns are a subset of the table's, so this stops
+ * compiling if one is renamed.
+ */
+export type SaftaPublicProfile = Pick<
+  GeneratedSaftaAccountRow,
+  'id' | 'display_name' | 'relationship'
+>;
+
+// ============================================================================
 // Rewind (migration 00025, MEXA-314)
 // ============================================================================
 
@@ -179,12 +205,23 @@ export type WhoLikedMeRow = Pick<
  *    generator will emit its own `Views` entry with every column nullable, because Postgres
  *    reports no NOT NULL information through a view. The nullability in `PublicProfile` is
  *    the truthful one, read off the base columns; prefer it and delete the generated entry.
+ *
+ * `safta_public_profiles` (migration 00022) is declared here for the same reasons.
+ *
+ * `Relationships: []` on both is not a placeholder: PostgREST can embed a view, but the
+ * generator has no relationship to emit for one, so `.select('…, view!inner(…)')` does not
+ * typecheck. Every caller reads these views as a second query keyed on an id list and
+ * merges client-side, which is the shape MEXA-279 settled on.
  */
 export type Database = Omit<GeneratedDatabase, 'public'> & {
   public: Omit<GeneratedDatabase['public'], 'Views' | 'Functions'> & {
     Views: {
       user_public_profiles: {
         Row: PublicProfile;
+        Relationships: [];
+      };
+      safta_public_profiles: {
+        Row: SaftaPublicProfile;
         Relationships: [];
       };
     };

@@ -9,6 +9,11 @@ import { supabase } from '@/api/supabase/client';
 import { queryKeys } from '@/lib/config/queryClient';
 import { useAuthStore } from '@/stores/authStore';
 import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
+import {
+  fetchSaftaPublicProfiles,
+  UNKNOWN_SAFTA_NAME,
+  DEFAULT_SAFTA_RELATIONSHIP,
+} from './saftaPublicProfiles';
 
 /**
  * Safta connection with preview info
@@ -30,19 +35,20 @@ export interface SaftaConnectionWithPreview {
  * Fetch Safta connections for a user
  */
 async function fetchSaftaConnections(userId: string): Promise<SaftaConnectionWithPreview[]> {
-  // Get all active connections where user is the connected user
+  // Get all active connections where user is the connected user.
+  //
+  // The Safta's name is NOT embedded here. It used to be, as `safta_accounts!inner(...)`,
+  // and `safta_accounts` is owner-scoped (`auth_id = auth.uid()`), so the grandchild read
+  // no account row - and because `!inner` is an inner join, that dropped the connection
+  // too and this list was always empty (MEXA-302). Names come from
+  // `safta_public_profiles` below.
   const { data: connections, error } = await supabase
     .from('safta_connections')
     .select(`
       id,
       status,
       created_at,
-      safta_account_id,
-      safta_accounts!inner (
-        id,
-        display_name,
-        relationship
-      )
+      safta_account_id
     `)
     .eq('connected_user_id', userId)
     .eq('status', 'accepted')
@@ -59,6 +65,12 @@ async function fetchSaftaConnections(userId: string): Promise<SaftaConnectionWit
 
   // Get connection IDs
   const connectionIds = connections.map((c) => c.id);
+
+  // The Saftas' display rows, keyed on the account ids. Every connection here is
+  // `accepted`, which is exactly the view's row rule, so each one resolves.
+  const saftaProfiles = await fetchSaftaPublicProfiles(
+    connections.map((c) => c.safta_account_id)
+  );
 
   // Fetch last messages for each connection
   // Note: safta_messages table needs to be created via migration
@@ -93,15 +105,15 @@ async function fetchSaftaConnections(userId: string): Promise<SaftaConnectionWit
 
   // Build result
   const result: SaftaConnectionWithPreview[] = connections.map((conn: any) => {
-    const saftaAccount = conn.safta_accounts;
+    const saftaAccount = saftaProfiles.get(conn.safta_account_id);
     const lastMsg = lastMessageByConnection.get(conn.id);
 
     return {
       id: conn.id,
       saftaId: saftaAccount?.id || conn.safta_account_id,
-      saftaName: saftaAccount?.display_name || 'Unknown Safta',
+      saftaName: saftaAccount?.display_name || UNKNOWN_SAFTA_NAME,
       saftaPhoto: null, // Safta accounts don't have photos in current schema
-      relationship: saftaAccount?.relationship || 'Family',
+      relationship: saftaAccount?.relationship || DEFAULT_SAFTA_RELATIONSHIP,
       status: conn.status,
       connectedAt: conn.created_at,
       lastMessage: lastMsg?.content || null,
