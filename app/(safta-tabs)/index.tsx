@@ -76,17 +76,8 @@ interface SaftaProfile {
   safta_approved_count: number;
 }
 
-// Calculate age from date of birth
-function calculateAge(dateOfBirth: string): number {
-  const today = new Date();
-  const birthDate = new Date(dateOfBirth);
-  let age = today.getFullYear() - birthDate.getFullYear();
-  const monthDiff = today.getMonth() - birthDate.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-    age--;
-  }
-  return age;
-}
+// The local `calculateAge()` is gone with MEXA-320: this screen only ever reads other
+// people, and `user_public_profiles` publishes `age` instead of a date of birth now.
 
 const JEWISH_BACKGROUNDS = [
   'Reform',
@@ -240,19 +231,6 @@ export default function SaftaDiscoverScreen() {
       setError(null);
 
       try {
-        // Calculate date range for age filter
-        const today = new Date();
-        const maxBirthDate = new Date(
-          today.getFullYear() - customMinAge,
-          today.getMonth(),
-          today.getDate()
-        );
-        const minBirthDate = new Date(
-          today.getFullYear() - customMaxAge - 1,
-          today.getMonth(),
-          today.getDate()
-        );
-
         // Build query for users. Reads `user_public_profiles`, not `users`, for the reason
         // in MEXA-261: the table is own-row-only now. A safta signs in against
         // `safta_accounts` and so has no `users` row of her own, which the view handles -
@@ -263,8 +241,10 @@ export default function SaftaDiscoverScreen() {
           .select('*')
           .eq('is_active', true)
           .eq('onboarding_complete', true)
-          .gte('date_of_birth', minBirthDate.toISOString().split('T')[0])
-          .lte('date_of_birth', maxBirthDate.toISOString().split('T')[0]);
+          // On `age`, not on a date range over `date_of_birth`: the view publishes the age
+          // the card renders and withholds the birthdate (MEXA-320), the same as the deck.
+          .gte('age', customMinAge)
+          .lte('age', customMaxAge);
 
         // Add Jewish background filter if not all selected
         if (customBackgrounds.length > 0 && customBackgrounds.length < JEWISH_BACKGROUNDS.length) {
@@ -336,7 +316,7 @@ export default function SaftaDiscoverScreen() {
         const fetchedProfiles: SaftaProfile[] = users.map((user) => ({
           id: user.id,
           first_name: user.first_name || 'User',
-          age: calculateAge(user.date_of_birth),
+          age: user.age,
           occupation: user.occupation ?? undefined,
           company: user.company ?? undefined,
           education: user.education ?? undefined,

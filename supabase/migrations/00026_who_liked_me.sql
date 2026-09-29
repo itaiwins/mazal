@@ -125,6 +125,27 @@
 --    The badge is "people waiting on you", which drops when you answer them. Filed
 --    separately rather than invented here.
 
+-- =====================================================
+-- Amended by MEXA-320: apply 00030 before this file
+-- =====================================================
+--
+-- `get_who_liked_me()` used to return `p.date_of_birth` straight out of
+-- `public.user_public_profiles`, which is the exposure MEXA-320 closed: an exact birthdate
+-- for every liker, through a SECURITY DEFINER function granted to `authenticated`. The view
+-- publishes `age` instead now, and this file returns that. `date_of_birth` appears nowhere
+-- in it any more.
+--
+-- The consequence is an apply-order dependency, and it is the reason supabase/MIGRATIONS.md
+-- lists `00030_public_profiles_publish_age_not_dob.sql` **ahead of** this file even though
+-- the number is higher (that runbook has never been in numeric order - there are two
+-- `00003`s, two `00004`s and two `00005`s). Applying this one first aborts at guard 0d with
+-- "user_public_profiles has no column(s) [age]", which is a clear error and no damage.
+--
+-- 00026 had not been applied anywhere when this amendment was written (checked against
+-- `tayiyczmacvhokdxfqvm` on 2026-09-29: no `00026` ledger row, `to_regproc` null for all
+-- three functions), so nothing live changes shape underneath anybody. Guts reviewed the
+-- pre-amendment bytes on MEXA-315; this change has not been through that review.
+
 BEGIN;
 
 -- =====================================================
@@ -201,7 +222,7 @@ BEGIN
   -- what it is called here. A rename would otherwise be a runtime error on the first call.
   SELECT string_agg(c.want, ', ' ORDER BY c.want)
     INTO v_bad
-    FROM unnest(ARRAY['id','first_name','display_name','date_of_birth','bio','occupation',
+    FROM unnest(ARRAY['id','first_name','display_name','age','bio','occupation',
                       'current_city','current_state','is_verified','is_photo_verified',
                       'onboarding_complete','distance_miles']) AS c(want)
    WHERE NOT EXISTS (
@@ -397,7 +418,9 @@ RETURNS TABLE (
   id                 UUID,
   first_name         TEXT,
   display_name       TEXT,
-  date_of_birth      DATE,
+  -- An age, not a date of birth (MEXA-320). The card renders an age; the view no longer
+  -- publishes the birthdate and this function is not a second door to it.
+  age                INTEGER,
   bio                TEXT,
   occupation         TEXT,
   current_city       TEXT,
@@ -417,7 +440,7 @@ AS $$
     p.id,
     p.first_name,
     p.display_name,
-    p.date_of_birth,
+    p.age,
     p.bio,
     p.occupation,
     p.current_city,

@@ -42,27 +42,12 @@ import type { WhoLikedMeRow } from '@/types/database.types';
 export const WHO_LIKED_ME_PAGE_SIZE = 50;
 
 /**
- * A liker, ready to render: the row the function returns plus their primary photo and a
- * computed age.
+ * A liker, ready to render: the row the function returns plus their primary photo. The age
+ * is already on the row - `get_who_liked_me()` returns the view's `age` since MEXA-320,
+ * and no client sees anybody else's date of birth.
  */
 export interface LikerProfile extends WhoLikedMeRow {
-  age: number;
   primaryPhotoUrl: string | null;
-}
-
-/**
- * Age from a date of birth. Same arithmetic as `useDiscoveryProfiles` and `useMatches` -
- * the view publishes `date_of_birth` and every screen derives the age from it.
- */
-function calculateAge(dateOfBirth: string): number {
-  const today = new Date();
-  const birthDate = new Date(dateOfBirth);
-  let age = today.getFullYear() - birthDate.getFullYear();
-  const monthDiff = today.getMonth() - birthDate.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-    age--;
-  }
-  return age;
 }
 
 async function fetchWhoLikedMe(): Promise<LikerProfile[]> {
@@ -89,7 +74,6 @@ async function fetchWhoLikedMe(): Promise<LikerProfile[]> {
   // its own page boundaries.
   return likers.map((liker) => ({
     ...liker,
-    age: calculateAge(liker.date_of_birth),
     primaryPhotoUrl: photos.get(liker.id) ?? null,
   }));
 }

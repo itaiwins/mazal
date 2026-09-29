@@ -31,19 +31,9 @@ export interface MatchWithPreview {
   unreadCount: number;
 }
 
-/**
- * Calculate age from date of birth
- */
-function calculateAge(dateOfBirth: string): number {
-  const today = new Date();
-  const birthDate = new Date(dateOfBirth);
-  let age = today.getFullYear() - birthDate.getFullYear();
-  const monthDiff = today.getMonth() - birthDate.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-    age--;
-  }
-  return age;
-}
+// The local `calculateAge()` is gone with MEXA-320: `user_public_profiles` publishes an
+// `age` computed by `public.profile_age()` and no longer publishes anybody else's date of
+// birth, so there is nothing left here to compute from.
 
 /**
  * Fetch user's matches with preview information
@@ -75,7 +65,10 @@ async function fetchMatches(userId: string): Promise<MatchWithPreview[]> {
   // 00013 (MEXA-261), so this query would return nothing against it.
   const { data: users } = await supabase
     .from('user_public_profiles')
-    .select('id, first_name, display_name, date_of_birth, is_verified')
+    // No age here: the matches list renders a name, a photo and a verification tick, and
+    // nothing on it has ever drawn one. This used to ask for `date_of_birth` and drop it on
+    // the floor (MEXA-320).
+    .select('id, first_name, display_name, is_verified')
     .in('id', otherUserIds);
 
   // Fetch primary photos for other users
@@ -240,7 +233,8 @@ export function useMatchById(matchId: string | undefined) {
           ? {
               ...otherUser,
               photos: photos || [],
-              age: calculateAge(otherUser.date_of_birth),
+              // Computed by the view (MEXA-320), like distance_miles.
+              age: otherUser.age,
             }
           : null,
       };

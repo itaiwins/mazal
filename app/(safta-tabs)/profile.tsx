@@ -167,7 +167,7 @@ export default function SaftaProfileScreen() {
 
         const { data: members, error: membersError } = await supabase
           .from('user_public_profiles')
-          .select('id, first_name, date_of_birth')
+          .select('id, first_name, age')
           .in('id', connectedUserIds);
 
         if (membersError) {
@@ -182,16 +182,9 @@ export default function SaftaProfileScreen() {
         const users: ConnectedUser[] = (data || []).map((conn) => {
           const user = conn.connected_user_id ? membersById.get(conn.connected_user_id) : undefined;
 
-          let age = 0;
-          if (user?.date_of_birth) {
-            const today = new Date();
-            const birthDate = new Date(user.date_of_birth);
-            age = today.getFullYear() - birthDate.getFullYear();
-            const monthDiff = today.getMonth() - birthDate.getMonth();
-            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-              age--;
-            }
-          }
+          // Computed by the view now (MEXA-320); 0 stands for "no such member", the same
+          // thing the inline arithmetic this replaces produced for a missing row.
+          const age = user?.age ?? 0;
 
           return {
             id: user?.id || conn.id,

@@ -22,21 +22,22 @@ type GeneratedUserRow = GeneratedDatabase['public']['Tables']['users']['Row'];
  *
  * Since migration 00013 (MEXA-261), `public.users` is own-row-only: selecting from it
  * returns exactly one row, yours. Anything about anybody else comes from this view, which
- * carries display columns only - no `email`, `phone`, `auth_id`, `last_name` or
- * coordinates - and computes `distance_miles` in the database so coordinates never reach a
- * client.
+ * carries display columns only - no `email`, `phone`, `auth_id`, `last_name`, coordinates
+ * or `date_of_birth` - and computes `distance_miles` and `age` in the database, so neither
+ * the coordinates nor the birthdate they are derived from ever reaches a client
+ * (00013/MEXA-261 and 00030/MEXA-320).
  *
- * Spelled as a Pick of the generated `users` row on purpose: the view's columns are a
+ * Spelled as a Pick of the generated `users` row on purpose: the view's plain columns are a
  * subset of the table's, so this stays tied to src/types/supabase.generated.ts and stops
  * compiling if one is renamed. Adding a field here means adding it to the view in a
- * migration first.
+ * migration first. The two computed columns are declared after the Pick, because there is
+ * no column on the table to pick them from.
  */
 export type PublicProfile = Pick<
   GeneratedUserRow,
   | 'id'
   | 'first_name'
   | 'display_name'
-  | 'date_of_birth'
   | 'gender'
   | 'bio'
   | 'height_cm'
@@ -66,6 +67,17 @@ export type PublicProfile = Pick<
   | 'is_orthodox_user'
   | 'elo_score'
 > & {
+  /**
+   * Age in completed years, computed by the view with `public.profile_age()` (00030,
+   * MEXA-320). It replaced `date_of_birth`, which the view no longer publishes: the app
+   * only ever rendered and filtered on an age, and an exact birthdate is a strong identity
+   * element to be handing to every signed-in caller. Not null - `users.date_of_birth` is
+   * `NOT NULL`, so the expression always has an input.
+   *
+   * Your own age does not come from here (the view excludes you); it comes from
+   * `calculateAge(users.date_of_birth)` on your own row - see `useUserProfile`.
+   */
+  age: number;
   /**
    * Great-circle distance in miles from the signed-in user, computed by the view.
    * Null when either side has no location on file.
@@ -134,7 +146,7 @@ export type WhoLikedMeRow = Pick<
   | 'id'
   | 'first_name'
   | 'display_name'
-  | 'date_of_birth'
+  | 'age'
   | 'bio'
   | 'occupation'
   | 'current_city'
@@ -159,7 +171,10 @@ export type WhoLikedMeRow = Pick<
  * this machine has none - the same constraint that makes supabase/MIGRATIONS.md a runbook
  * rather than a `db push`. Two things follow:
  *
- *  - Keep this in step with the view in supabase/migrations/00013_users_column_privacy.sql.
+ *  - Keep this in step with the view, which is defined in
+ *    supabase/migrations/00013_users_column_privacy.sql and rebuilt by
+ *    supabase/migrations/00030_public_profiles_publish_age_not_dob.sql - read 00030 for the
+ *    current column list.
  *  - If the generated file is ever rebuilt on a machine that does have Docker, the
  *    generator will emit its own `Views` entry with every column nullable, because Postgres
  *    reports no NOT NULL information through a view. The nullability in `PublicProfile` is

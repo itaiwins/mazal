@@ -33,7 +33,10 @@ interface ProfileForMatching {
   husband_learning: string | null;
   users?: {
     first_name: string | null;
-    date_of_birth: string | null;
+    // An age, not a date of birth (MEXA-320). A candidate's comes straight off
+    // `user_public_profiles.age`; the source profile is the caller's own, so its age is
+    // still computed here from `users.date_of_birth`, which only they can read.
+    age: number | null;
     gender: string | null;
     current_city: string | null;
     current_state: string | null;
@@ -169,15 +172,12 @@ function calculateAgeScore(
   profileB: ProfileForMatching,
   reasons: string[]
 ): number {
-  const dobA = profileA.users?.date_of_birth;
-  const dobB = profileB.users?.date_of_birth;
+  const ageA = profileA.users?.age;
+  const ageB = profileB.users?.age;
 
-  if (!dobA || !dobB) {
+  if (ageA == null || ageB == null) {
     return WEIGHTS.AGE * 0.5;
   }
-
-  const ageA = calculateAge(dobA);
-  const ageB = calculateAge(dobB);
 
   // Check if B's age is within A's preferred range
   const minAge = profileA.age_range_min || ageA - 3;
@@ -517,8 +517,15 @@ export async function getAIRecommendations(
     }
 
     // Reassembled under `users` so calculateCompatibility() sees the shape the embedded
-    // query used to produce.
-    const sourceProfile = { ...sourceProfileRow, users: sourceUser ?? undefined };
+    // query used to produce - with an `age` in place of the `date_of_birth` it selected,
+    // because that is what a candidate now carries (MEXA-320). This one is the caller's own
+    // row, so the birthdate is theirs to read and the age is computed here.
+    const sourceProfile = {
+      ...sourceProfileRow,
+      users: sourceUser
+        ? { ...sourceUser, age: calculateAge(sourceUser.date_of_birth) }
+        : undefined,
+    };
 
     // Handle missing gender data
     const sourceGender = sourceProfile.users?.gender;
@@ -567,7 +574,7 @@ export async function getAIRecommendations(
 
     const { data: candidateUsers, error: candidateUsersError } = await supabase
       .from('user_public_profiles')
-      .select('id, first_name, date_of_birth, gender, current_city, current_state, current_country')
+      .select('id, first_name, age, gender, current_city, current_state, current_country')
       .in('id', candidateUserIds);
 
     if (candidateUsersError) {

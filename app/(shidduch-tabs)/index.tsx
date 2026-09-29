@@ -362,12 +362,9 @@ export default function ShidduchSuggestionsScreen() {
       // Transform AI matches to suggestions format
       const aiSuggestions: Suggestion[] = aiMatches.map((match) => {
         const user = match.profile.users;
-        const age = user?.date_of_birth
-          ? Math.floor(
-              (Date.now() - new Date(user.date_of_birth).getTime()) /
-                (365.25 * 24 * 60 * 60 * 1000)
-            )
-          : null;
+        // Computed by the view now (MEXA-320); the 365.25-day division it replaces was off
+        // by a year around a birthday.
+        const age = user?.age ?? null;
 
         return {
           id: match.profile.id,
@@ -422,7 +419,7 @@ export default function ShidduchSuggestionsScreen() {
 
       const { data: suggestionUsers } = await supabase
         .from('user_public_profiles')
-        .select('id, first_name, date_of_birth, current_city, current_state')
+        .select('id, first_name, age, current_city, current_state')
         .in('id', suggestionUserIds);
 
       const suggestionUsersById = new Map((suggestionUsers ?? []).map((u) => [u.id, u]));
@@ -439,12 +436,8 @@ export default function ShidduchSuggestionsScreen() {
           const suggestedBy = s.suggested_by_user_id
             ? suggestionUsersById.get(s.suggested_by_user_id)
             : undefined;
-          const age = user?.date_of_birth
-            ? Math.floor(
-                (Date.now() - new Date(user.date_of_birth).getTime()) /
-                  (365.25 * 24 * 60 * 60 * 1000)
-              )
-            : null;
+          // Computed by the view now (MEXA-320), as above.
+          const age = user?.age ?? null;
 
           return {
             id: s.id,

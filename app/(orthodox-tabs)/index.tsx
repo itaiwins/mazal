@@ -78,7 +78,7 @@ export default function OrthodoxDiscoverScreen() {
         // embed hanging off it (MEXA-279).
         const { data, error } = await supabase
           .from('user_public_profiles')
-          .select('id, first_name, date_of_birth, jewish_background, bio, occupation')
+          .select('id, first_name, age, jewish_background, bio, occupation')
           .eq('is_orthodox_user', true)
           .eq('is_active', true)
           .neq('id', user.id)
@@ -91,9 +91,10 @@ export default function OrthodoxDiscoverScreen() {
         const formattedProfiles = (data || []).map((profile) => ({
           id: profile.id,
           first_name: profile.first_name || 'Anonymous',
-          age: profile.date_of_birth
-            ? new Date().getFullYear() - new Date(profile.date_of_birth).getFullYear()
-            : 0,
+          // Computed by the view now (MEXA-320). This also fixes the arithmetic: the year
+          // subtraction it replaces called somebody a year older from January until their
+          // birthday, while every other screen counted completed years.
+          age: profile.age,
           jewish_background: profile.jewish_background || '',
           bio: profile.bio || '',
           occupation: profile.occupation || '',

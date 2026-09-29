@@ -49,11 +49,20 @@ Apply exactly this sequence:
 00023_safta_connection_consent.sql
 00024_revoke_self_awarded_verified_badge.sql
 00025_rewind_undo_last_swipe.sql
+00030_public_profiles_publish_age_not_dob.sql
 00026_who_liked_me.sql
 ```
 
 There is no `00022` in this repo. `00022_safta_public_profiles.sql` is MEXA-302's and is
 still on its own branch; it slots in ahead of `00023` when it lands.
+
+**`00030` is deliberately listed before `00026`.** `00030` (MEXA-320) rebuilds
+`public.user_public_profiles` to publish an `age` instead of a `date_of_birth`, and
+`00026`'s `get_who_liked_me()` selects that column out of the view - so the view has to be
+reshaped first. Applying `00026` first aborts at its guard 0d with
+`user_public_profiles has no column(s) [age]`, which is a clear error and no damage; it does
+not corrupt anything and can simply be run again after `00030`. This is what the order list
+is for: it has never been numeric (two `00003`s, two `00004`s, two `00005`s).
 
 Notes on the order:
 
@@ -83,8 +92,12 @@ Notes on the order:
   `00021_drop_orthodox_discovery_rpc_rollback.sql`,
   `00023_safta_connection_consent_rollback.sql`,
   `00024_revoke_self_awarded_verified_badge_rollback.sql`,
-  `00025_rewind_undo_last_swipe_rollback.sql` and
-  `00026_who_liked_me_rollback.sql`; read each one's header. `00014`'s,
+  `00025_rewind_undo_last_swipe_rollback.sql`,
+  `00026_who_liked_me_rollback.sql` and
+  `00030_public_profiles_publish_age_not_dob_rollback.sql`; read each one's header.
+  `00030`'s **refuses to run while `00026` is applied**, because putting `date_of_birth`
+  back would leave `get_who_liked_me()` selecting a column that no longer exists; roll
+  `00026` back first. It is otherwise a bit-exact inverse, grants included. `00014`'s,
   `00015`'s and `00016`'s are the three that are not bit-exact inverses, and each says
   exactly where it differs and why. `00013`'s is exact except for column order, which its
   header explains. `00016`'s is split into six independent sections, `00019`'s into two and
@@ -614,6 +627,60 @@ Notes on the order:
   `src/types/database.types.ts` (same reason as the `00013` view — `supabase gen types` needs
   Docker), so `npx tsc --noEmit` covers the calls; it is green. **Keep `WhoLikedMeRow` in step
   with the function's RETURNS TABLE.**
+  **Amended by MEXA-320, after Guts's review of MEXA-315 and before any apply:**
+  `get_who_liked_me()` returned `p.date_of_birth` out of the view, which is the exposure
+  `00030` closes; it returns the view's `age` now, guard 0d asks for `age` instead of
+  `date_of_birth`, and `date_of_birth` appears nowhere in the file. That makes it depend on
+  `00030`, which is why the order list puts `00030` first. **The amendment has not been
+  through Guts's review.** Proven by execution in `.scratch/mazal-mexa320/`: `00026` applied
+  on top of `00030` returns a liker with `age: 29` and no `date_of_birth` key (`AFTER.txt`
+  20), and `00026` applied *first* aborts with `user_public_profiles has no column(s) [age]`
+  (`BEFORE.txt` 8).
+- `00030` is **NOT applied** — written 2026-09-29 (MEXA-320), waiting on a security review
+  and an apply card. It rebuilds `public.user_public_profiles` so that it publishes an
+  `age integer` (from the new `public.profile_age(date)`, STABLE, UTC-pinned) instead of
+  `u.date_of_birth`. Everything else about the view is `00013`'s definition byte for byte:
+  same 33 columns, same `security_invoker = false` / `security_barrier = true`, same owner,
+  same `distance_miles`, same WHERE clause. **The app never rendered a birthdate** — five
+  screens and three hooks all ran `calculateAge()` on it — so the published precision was
+  strictly greater than the used precision, and one `select *` handed a signed-in caller the
+  exact birthdate of every active user, attached to a name, a face and a city.
+  `CREATE OR REPLACE VIEW` cannot drop a column, so the view is dropped and rebuilt; that
+  makes it a **new** object, which Supabase's `ALTER DEFAULT PRIVILEGES` re-grants all four
+  verbs on to `anon`, `authenticated` and `service_role`. Section 2's `REVOKE` is therefore
+  load-bearing, not housekeeping, and post-check 4f asserts the end state is exactly
+  `authenticated:SELECT, service_role:SELECT`. It also takes away the three inert write verbs
+  `00013` left on `authenticated` (the view is not auto-updatable, so a write is `55000`
+  either way — the privilege moves, the error code does not).
+  **The age filter loses no index, measured rather than assumed.** MEXA-320 asked whether
+  moving the discovery filter from a `date_of_birth` range to `age >= .. AND age <= ..` would
+  lose a plan. There is **no index on `users.date_of_birth`** and never has been (the whole
+  set on that table is `users_pkey`, `users_email_key`, `users_phone_key`,
+  `idx_users_location`, `idx_users_active`, `idx_users_auth_id`, `idx_users_orthodox`), so
+  both forms are a `Seq Scan` with a filter. `EXPLAIN` in `AFTER.txt` shows the age predicate
+  pushed down into the scan on `users`, not evaluated above the view.
+  **Client half, same commit:** the deck and the safta deck filter `.gte('age', min)
+  .lte('age', max)`; `useMatches`, `useWhoLikedMe`, `matchingService`, the Orthodox deck, both
+  shidduch screens and the safta profile read `age`; four copies of `calculateAge()` are
+  deleted and the two that remain serve the *signed-in user's own* row out of `public.users`.
+  `PublicProfile` in `src/types/database.types.ts` drops `date_of_birth` and gains
+  `age: number`. `npx tsc --noEmit` is green. Three of the screens were also computing the age
+  wrongly (a bare year subtraction, and a 365.25-day division); the view's number is the one
+  the deck always used.
+  Its rollback is `00030_public_profiles_publish_age_not_dob_rollback.sql`, a bit-exact
+  inverse including the wider pre-`00030` grants, and it **refuses to run while `00026` is
+  applied**.
+  Verified against live in rolled-back transactions by `.scratch/mazal-mexa320/verify_00030.mjs`,
+  three modes, nothing left behind (a fresh connection checks the view shape, the functions,
+  the ledger and the row counts each run). All green: **`before` 11/11** — a signed-in caller
+  harvests four other people's exact birthdates by value, which is the finding.
+  **`after` 24/24** — the same caller gets `42703` for `date_of_birth`, `select *` carries no
+  such key, the ages match the app's `calculateAge()` for four fixtures, a birthday *tomorrow*
+  still reads as the younger number, the deck filter returns exactly the right two people and
+  is inclusive at both ends, the blocked and deactivated users are still hidden, `public.users`
+  is still own-row-only, `anon` is `42501` on both the view and `profile_age()`, and `00026`
+  on top returns `age: 29` with no birthdate. **`rollback` 15/15** — identical to `before` on
+  every probe afterwards, and the refusal fires when `00026` is on top.
 - **The ledger lags the repo, measured 2026-09-29 (MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
   `00017`–`00019`, `00021`, `00024`, `00025`, `20250114`, `20250115` (`00025` added

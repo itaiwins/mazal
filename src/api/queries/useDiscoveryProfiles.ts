@@ -15,19 +15,11 @@ import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 import type { DiscoveryUser } from '@/types/user.types';
 import type { UserPhoto, UserPrompt, UserBadge } from '@/types/database.types';
 
-/**
- * Calculate age from date of birth
- */
-function calculateAge(dateOfBirth: string): number {
-  const today = new Date();
-  const birthDate = new Date(dateOfBirth);
-  let age = today.getFullYear() - birthDate.getFullYear();
-  const monthDiff = today.getMonth() - birthDate.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-    age--;
-  }
-  return age;
-}
+// The local `calculateAge()` is gone with MEXA-320: the deck's ages now arrive as
+// `user_public_profiles.age`, computed by `public.profile_age()`. The view no longer
+// publishes a date of birth for anybody but you, so there is nothing here to compute from.
+// The helper survives in the screens that read the *signed-in* user's own row out of
+// `public.users` - src/api/queries/useUserProfile.ts and the profile tabs.
 
 // Using DiscoveryFilters from @/types instead of local interface
 
@@ -44,19 +36,6 @@ async function fetchDiscoveryProfiles(
     jewish_backgrounds?: string[];
   }
 ): Promise<DiscoveryUser[]> {
-  // Calculate date range for age filter
-  const today = new Date();
-  const maxBirthDate = new Date(
-    today.getFullYear() - filters.age_min,
-    today.getMonth(),
-    today.getDate()
-  );
-  const minBirthDate = new Date(
-    today.getFullYear() - filters.age_max - 1,
-    today.getMonth(),
-    today.getDate()
-  );
-
   // Fetch users who haven't been swiped and match basic criteria.
   //
   // `user_public_profiles`, not `users`: since 00013 (MEXA-261) the table only ever returns
@@ -64,14 +43,19 @@ async function fetchDiscoveryProfiles(
   // excludes the caller and inactive users itself and hands back a precomputed
   // `distance_miles` instead of coordinates. The filters below are kept anyway, so the
   // deck is still correct if the view's own rules are ever loosened.
+  //
+  // The age filter is on `age`, not on a date range over `date_of_birth` (MEXA-320): the
+  // view publishes the age the card renders and withholds the birthdate. It is also exactly
+  // inclusive at both ends: the date arithmetic it replaces set the lower bound a full year
+  // back and so admitted somebody who turned `age_max + 1` today.
   let query = supabase
     .from('user_public_profiles')
     .select('*')
     .neq('id', userId)
     .eq('is_active', true)
     .eq('onboarding_complete', true)
-    .gte('date_of_birth', minBirthDate.toISOString().split('T')[0])
-    .lte('date_of_birth', maxBirthDate.toISOString().split('T')[0]);
+    .gte('age', filters.age_min)
+    .lte('age', filters.age_max);
 
   // Add gender filter if specified
   if (filters.gender_preference.length > 0) {
@@ -173,7 +157,9 @@ async function fetchDiscoveryProfiles(
   // Build discovery profiles
   const profiles: DiscoveryUser[] = availableUsers
     .map((user) => {
-      const age = calculateAge(user.date_of_birth);
+      // Computed by the view (public.profile_age), for the same reason distance_miles is:
+      // the client no longer receives the input it was derived from (MEXA-320).
+      const age = user.age;
 
       // Computed by the view now (public.haversine_miles, the same 3959-mile formula this
       // file used to run on downloaded coordinates), so the numbers are unchanged. Null

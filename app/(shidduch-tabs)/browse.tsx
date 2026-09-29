@@ -174,7 +174,7 @@ export default function BrowseProfilesScreen() {
 
       const { data: profileUsers, error: usersError } = await supabase
         .from('user_public_profiles')
-        .select('id, first_name, date_of_birth, gender, current_city, current_state')
+        .select('id, first_name, age, gender, current_city, current_state')
         .in('id', profileUserIds);
 
       if (usersError) {
@@ -191,12 +191,10 @@ export default function BrowseProfilesScreen() {
       const transformedProfiles: BrowseProfile[] = (profilesData || [])
         .map((p) => {
           const user = p.user_id ? profileUsersById.get(p.user_id) : undefined;
-          const age = user?.date_of_birth
-            ? Math.floor(
-                (Date.now() - new Date(user.date_of_birth).getTime()) /
-                  (365.25 * 24 * 60 * 60 * 1000)
-              )
-            : null;
+          // Computed by the view now (MEXA-320). The 365.25-day division it replaces was
+          // also wrong by a year around a birthday; `public.profile_age()` counts completed
+          // years, which is what every other screen shows.
+          const age = user?.age ?? null;
 
           return {
             id: p.id,
