@@ -65,6 +65,19 @@ ordering silently.** If that policy is ever touched, this function should move t
 in the same migration. Left as INVOKER for now: it is not broken, and changing a working
 function is a change Guts has to review for no present gain.
 
+**Update, 2026-09-29 (MEXA-418).** This prediction came true, from the grant side rather
+than the policy side, and it fails **loudly** rather than silently — worth knowing, because
+it means an apply that forgets this trigger aborts on its first message send instead of
+quietly mis-ordering a list. `00036` narrows `authenticated`'s table-wide UPDATE on
+`matches` to close the reversible-unmatch hole, and measured in
+`.scratch/mazal-mexa418/rehearse.mjs` (probe H1) a bare revoke makes **every** message send
+fail `42501 permission denied for table matches`. `00036` therefore keeps
+`GRANT UPDATE (last_message_at)` for this trigger alone, and its post-check 5k asserts the
+trigger is still SECURITY INVOKER — so the migration that finally makes it DEFINER is
+pointed at the column grant it should drop in the same change. Until then,
+`matches.last_message_at` stays client-writable by either participant; nothing in `src/` or
+`app/` reads the column (`useMatches` orders by `created_at`).
+
 ### 2. The four `notify_*` functions are DEFINER with a mutable `search_path`
 
 ```

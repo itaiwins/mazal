@@ -154,6 +154,43 @@ export interface UndoLastSwipeResult {
 }
 
 // ============================================================================
+// Unmatch (migration 00036, MEXA-418)
+// ============================================================================
+
+/**
+ * Why an unmatch was refused. `null` on success.
+ *
+ * This string is the contract with `public.unmatch(uuid)` in
+ * supabase/migrations/00036_unmatch_is_one_way.sql - keep the two in step.
+ *
+ *  - `not_found` no match with that id, or the caller is not in it. Deliberately one answer
+ *                for both: telling a caller "that match exists but is not yours" would
+ *                confirm the existence of a row they cannot see.
+ */
+export type UnmatchRefusal = 'not_found';
+
+/**
+ * The single row `public.unmatch(uuid)` returns.
+ *
+ * The function is SECURITY DEFINER and decides the side (`user1_unmatched` vs
+ * `user2_unmatched`) from `current_app_user_id()`, because a column grant cannot express
+ * "you may only set *your* side's flag". It is one-way - nothing in its body sets
+ * `is_active` back to true - and idempotent, so a second call on the same match still
+ * answers `ok: true`.
+ *
+ * Before 00036 this was a plain `UPDATE` from the client on a table where `authenticated`
+ * held UPDATE on every column, and the person who had been unmatched could set `is_active`
+ * back to true and resume the thread (MEXA-418).
+ */
+export interface UnmatchResult {
+  ok: boolean;
+  reason: UnmatchRefusal | null;
+  match_id: string;
+  /** The person you are no longer matched with. `null` in the `not_found` case. */
+  other_user_id: string | null;
+}
+
+// ============================================================================
 // See who likes you (migration 00026, MEXA-315)
 // ============================================================================
 
@@ -194,8 +231,8 @@ export type WhoLikedMeRow = Pick<
 
 /**
  * The generated schema plus the `user_public_profiles` view added by migration 00013, the
- * `undo_last_swipe` function added by migration 00025, and the two who-liked-me functions
- * added by migration 00026.
+ * `undo_last_swipe` function added by migration 00025, the two who-liked-me functions added
+ * by migration 00026, and the `unmatch` function added by migration 00036.
  *
  * The view is declared here by hand instead of being regenerated into
  * src/types/supabase.generated.ts, because `supabase gen types` shells out to Docker and
@@ -234,6 +271,14 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
       undo_last_swipe: {
         Args: Record<PropertyKey, never>;
         Returns: UndoLastSwipeResult[];
+      };
+      /**
+       * Ends a match, one way. The argument is the match id and nothing else; the caller
+       * and therefore the side come from the server - see 00036.
+       */
+      unmatch: {
+        Args: { p_match_id: string };
+        Returns: UnmatchResult[];
       };
       /**
        * The free teaser: how many unanswered likes you have, naming nobody. Deliberately

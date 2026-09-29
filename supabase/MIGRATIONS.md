@@ -57,6 +57,7 @@ Apply exactly this sequence:
 00033_rewind_retracts_super_like_notification.sql
 00034_messages_are_not_rewritable.sql
 00035_server_side_swipe_quota.sql
+00036_unmatch_is_one_way.sql
 ```
 
 **`00035` has to come after `00033`, and its guard 0c aborts if it does not.**
@@ -113,6 +114,36 @@ rollback has to know about the other (the `00025`/`00026` lesson, MEXA-361). `00
 this table in `supabase_realtime`; replication does not run as `authenticated`, so a client
 grant change does not touch it, and `00034` section 4f asserts the publication membership
 survived anyway.
+
+**`00036` has no ordering dependency beyond `00001`, `00002` and `00010`, and is listed
+last because it only narrows.** `00036_unmatch_is_one_way.sql` (MEXA-418) swaps
+`authenticated`'s table-wide `UPDATE` on `public.matches` for
+`GRANT UPDATE (last_message_at)`, revokes `anon`'s outright, and adds
+`public.unmatch(uuid)` — a SECURITY DEFINER function that sets the caller's own
+`*_unmatched` flag and `is_active = false`, and never sets either back. Before it, the
+person who had been unmatched could write `is_active = true`, clear the other side's flag
+and resume the thread; measured on live, both before and after, in
+`.scratch/mazal-mexa418/rehearse.mjs` (`REHEARSE.txt`). **It writes no policy** — a
+`WITH CHECK` expression sees only the NEW row, so "`is_active` may go true→false but never
+back" is not expressible there — and its section 5a aborts if one moved.
+
+**The trap in it is `last_message_at`, and it is the reason the file is not a bare
+`REVOKE`.** `update_match_last_message()` (00001) is a **SECURITY INVOKER** AFTER INSERT
+trigger on `messages` that `UPDATE`s `matches`, so it runs as `authenticated` and needs a
+real UPDATE privilege. Measured in the rehearsal (probe H1): with `UPDATE` revoked outright,
+**every message send fails** with `42501 permission denied for table matches` — the whole
+chat feature. So `00036` grants that one column back, and asserts in 5k that the trigger is
+still INVOKER, so the day MEXA-296 makes it DEFINER the grant can be dropped with it.
+`git grep last_message_at` over `src/` and `app/` finds it only in the generated types, so
+the column handed back is one nothing reads. It is independent of `00016` in both
+directions, checked rather than assumed: `00016` section 3 revokes `matches` **DELETE** and
+7b asserts that held, and 7c — the "must STILL be granted" list — names `matches:INSERT` but
+**not** `matches:UPDATE`. `00016` section 6 writes `COMMENT ON TABLE public.matches`, so
+`00036` records its invariant in **column** comments instead (the `00025`/`00026` lesson,
+MEXA-361). Rewind is untouched: `undo_last_swipe()` never writes `matches` — it refuses with
+`reason = 'matched'` when the pair has a row — and 5l asserts both that and the absence of
+any `UPDATE matches` in its body. `check_for_match()` is DEFINER since `00017`, so mutual
+matching is unaffected; 5k asserts that too.
 
 **`00033` must come after `00025`, and that is the only ordering it has.**
 `00033_rewind_retracts_super_like_notification.sql` (MEXA-401) `CREATE OR REPLACE`s
@@ -226,7 +257,24 @@ Notes on the order:
   `00032_has_entitlement_rollback.sql` and
   `00033_rewind_retracts_super_like_notification_rollback.sql` and
   `00034_messages_are_not_rewritable_rollback.sql` and
-  `00035_server_side_swipe_quota_rollback.sql`; read each one's header.
+  `00035_server_side_swipe_quota_rollback.sql` and
+  `00036_unmatch_is_one_way_rollback.sql`; read each one's header.
+  `00036`'s **names what it restores** — the measured pre-apply `relacl`, the eight
+  `attacl`s (all NULL: there were no column grants on that table at all) and the eight NULL
+  column comments — rather than deriving any of it at run time (MEXA-364/399). It drops
+  `public.unmatch(uuid)` rather than leaving it, because a DEFINER writer beside a
+  client-writable table is a state nobody has reviewed. Three things to know before running
+  it. It **re-opens MEXA-418 in full**: after it the person who was unmatched can again set
+  `is_active` back to true and resume the thread, and the file says so in a closing
+  `RAISE WARNING`. It also **takes the client's unmatch and block with it** — the same
+  commit points `useUnmatch` and `useBlockUser` at the RPC, so any build cut after that
+  commit loses both (PostgREST answers 404 for a missing function); there is no TestFlight
+  or store build today, so the only client is a dev build. And its `anon` re-grant is
+  **conditional on the live ledger** — if `00016` has landed in the meantime, `anon`'s
+  `UPDATE` is deliberately *not* restored, for the reason `00034`'s rollback gives. Both
+  branches are asserted in its section 4c. It also asserts the active-match count did not
+  move, because a rollback that quietly flipped `is_active` would be undoing real people's
+  unmatches, which is worse than the bug.
   `00035`'s **restores MEXA-373 in full** and says so at the top: with the trigger gone
   `public.swipes` has no cap of any kind again, so unlimited swipes, unlimited super-likes
   (and therefore unlimited push notifications at whoever is swiped on), and Rewind stops
@@ -1176,6 +1224,28 @@ Notes on the order:
   only change to the file since the PASS, it is pre-flight only and changes no statement, and
   `undo_last_swipe()`'s own `prosrc` md5 is unchanged at `b547a17b…007a` — so the rollback's
   pin still holds.
+- `00036` is **NOT applied** — written 2026-09-29 (MEXA-418), waiting on Guts's security
+  review and an apply card. It closes the only hit the MEXA-414 sweep found on the **live
+  dating surface**: an unmatch was reversible by the person who was unmatched. Rehearsed end
+  to end against `tayiyczmacvhokdxfqvm` in one rolled-back transaction,
+  `.scratch/mazal-mexa418/rehearse.mjs` → `REHEARSE.txt`, which measures the bug before, the
+  fix after, **and runs the rollback in the same transaction** and asserts `relacl`, `attacl`
+  and the column comments came back byte-identical to the pre-state. What it proves, in order:
+  the resurrection write is **ALLOWED** before and **refused 42501** after; the app's own
+  unmatch write and `useBlockUser`'s bulk write are refused after too, which is why the
+  client moves to the RPC in the same commit; `last_message_at` is the one column still
+  writable, and `is_active` cannot be smuggled into the same statement; message sending,
+  mutual matching and Rewind all still work; the RPC sets the caller's own side, is
+  idempotent, answers `not_found` for a match the caller is not in, is refused to `anon` and
+  raises `42501` for a session with no `public.users` row. **Probe H1 is the one to read
+  before approving:** a bare `REVOKE UPDATE ON matches` — the obvious fix — makes *every
+  message send* fail `42501 permission denied for table matches`, because
+  `update_match_last_message()` is a SECURITY INVOKER trigger. Live had **0 rows in
+  `matches`**, so nothing is stranded by applying it.
+  **Still open after this, filed separately:** the Unmatch and Block buttons in
+  `app/(tabs)/messages/[matchId].tsx` call nothing — they pop "You have been unmatched" and
+  navigate away, and `useUnmatch`/`useBlockUser` are exported but wired to no screen. So the
+  hole this file closes is not reachable from the UI today, and neither is the feature.
 - `00034` is **APPLIED** to `tayiyczmacvhokdxfqvm`, 2026-09-29 16:00Z, from `mazal-restart`
   @ `56a039f` (reviewed text `1a5f087`; the only `supabase/` difference between them is this
   file). Approved by Lelouch on MEXA-415 under MEXA-33, with me named as the single applier.
@@ -1675,7 +1745,7 @@ Most are profile content a user is supposed to edit. What survives triage:
 
 | verdict | where | measured |
 |---|---|---|
-| **finding, live surface** | `matches.is_active` + `userN_unmatched` | **An unmatch is reversible by the person who was unmatched.** `useUnmatch` (src/api/mutations/useMatch.ts:41) writes own-flag + `is_active=false`; `useMatches.ts:48` lists `is_active = true`. The other participant then writes `is_active = true, <their>_unmatched = false` — **allowed, 1 row** — and the match is back in *both* lists, with the thread intact and sendable again. `qual` is match membership, which neither column changes. MEXA-418. |
+| **finding, live surface** | `matches.is_active` + `userN_unmatched` | **An unmatch is reversible by the person who was unmatched.** `useUnmatch` (src/api/mutations/useMatch.ts:41) writes own-flag + `is_active=false`; `useMatches.ts:48` lists `is_active = true`. The other participant then writes `is_active = true, <their>_unmatched = false` — **allowed, 1 row** — and the match is back in *both* lists, with the thread intact and sendable again. `qual` is match membership, which neither column changes. MEXA-418. **Fixed by `00036`** (written, rehearsed, not applied): table-wide `UPDATE` revoked from both client roles, `GRANT UPDATE (last_message_at)` kept so the INVOKER trigger on `messages` still works, and the write moved into `public.unmatch(uuid)`, which is one-way. |
 | **finding, hidden surface** | `shadchan_notes` | `shadchan_notes_select_own` is `FOR ALL USING (true)` with full column grants to `anon` **and** `authenticated`. An unrelated user reads every matchmaker's private candidate notes, rewrites them, **deletes** them and forges new ones under another shadchan's id — all measured allowed. Not this class at all: a missing ownership filter, and the policy name says what it meant to be. MEXA-419. |
 | **finding, hidden surface** | `safta_messages.content`, `.sender_id` | MEXA-406's twin. "Users can mark safta messages as read" gates on connection membership, so the connected user rewrites the Safta's message body and reassigns its sender — allowed. MEXA-420. |
 | **finding, hidden surface** | `shadchanim.is_verified`, `.successful_matches`, `.years_experience` | Self-awarded, and *readable by everyone* (`SELECT USING (is_active = true)`): 250 successful matches and a verified tick on your own matchmaker profile, allowed. MEXA-420. |
