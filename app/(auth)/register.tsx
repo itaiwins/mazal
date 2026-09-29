@@ -32,6 +32,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { MIN_PASSWORD_LENGTH } from '@/lib/constants/app';
+import { authErrorMessage } from '@/lib/auth/authErrorMessage';
 
 // Required for web browser auth to close properly
 WebBrowser.maybeCompleteAuthSession();
@@ -99,7 +100,10 @@ export default function RegisterScreen() {
       });
 
       if (authError) {
-        setError(authError.message);
+        // Not `authError.message`: a domain that cannot receive mail returns a 500 and
+        // GoTrue's own "Error sending confirmation email", which reads like a server fault
+        // rather than a typo — and the account is rolled back (MEXA-338, finding 11).
+        setError(authErrorMessage(authError.message, 'signUp'));
         return;
       }
 

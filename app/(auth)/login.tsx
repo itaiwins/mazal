@@ -32,6 +32,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { FEATURE_ORTHODOX_MODE } from '@/lib/config/features';
+import { authErrorMessage } from '@/lib/auth/authErrorMessage';
 
 // Required for web browser auth to close properly
 WebBrowser.maybeCompleteAuthSession();
@@ -64,7 +65,7 @@ export default function LoginScreen() {
       });
 
       if (authError) {
-        setError(authError.message);
+        setError(authErrorMessage(authError.message, 'signIn'));
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         return;
       }

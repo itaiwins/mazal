@@ -21,6 +21,7 @@ import { supabase } from '@/api/supabase/client';
 import { RESET_PASSWORD_REDIRECT_URL } from '@/lib/auth/authDeepLink';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { authErrorMessage } from '@/lib/auth/authErrorMessage';
 
 export default function ForgotPasswordScreen() {
   const insets = useSafeAreaInsets();
@@ -51,7 +52,7 @@ export default function ForgotPasswordScreen() {
       );
 
       if (resetError) {
-        setError(resetError.message);
+        setError(authErrorMessage(resetError.message, 'resetPassword'));
         return;
       }
 
