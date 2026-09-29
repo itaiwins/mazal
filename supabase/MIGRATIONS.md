@@ -1503,8 +1503,13 @@ Notes on the order:
   only `SELECT, INSERT, UPDATE, DELETE` — deliberately **not** `TRUNCATE, TRIGGER,
   REFERENCES, MAINTAIN`, because `00014` revoked those live and a bit-exact inverse would
   quietly undo it on these two tables.
-  Guts PASSed the SQL and the security reasoning on MEXA-277 at `6c808ca`; the commit here is
-  that file renumbered `00015` → `00027` and rebased, with no SQL change.
+  **Reviewed in two parts, because it changed between them — do not read the first as
+  covering the second.** Guts passed the fix itself on MEXA-277 at `6c808ca`, and the eight
+  statements that carry it (two `DROP POLICY`, four `CREATE POLICY`, two `REVOKE`) are
+  byte-identical here. Everything else arrived after that pass and was reviewed separately on
+  MEXA-377: renumbered `00015` → `00027`, rebased, and ~100 lines of ledger row, assertion
+  block and rollback guard written to the conventions that landed in between. The
+  `has_table_privilege` form of assertion 4d came out of that second review.
   Verified against live in rolled-back transactions by `.scratch/mazal-mexa277/verify.py`.
 - **The ledger lags the repo, re-measured 2026-09-29 (MEXA-326; first taken on MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,

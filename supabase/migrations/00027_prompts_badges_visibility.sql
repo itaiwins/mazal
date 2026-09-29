@@ -116,6 +116,7 @@ DECLARE
   t     TEXT;
   suffix TEXT;
   v_n   INTEGER;
+  v_bad TEXT;
 BEGIN
   FOREACH t IN ARRAY ARRAY['user_prompts', 'user_badges'] LOOP
     suffix := CASE t WHEN 'user_prompts' THEN 'prompts' ELSE 'badges' END;
@@ -160,10 +161,19 @@ BEGIN
 
     -- 4d. anon holds nothing. `TO authenticated` alone would already give it no rows; this
     -- is the second layer, and the one a later CREATE POLICY cannot quietly undo.
-    SELECT count(*) INTO v_n FROM information_schema.role_table_grants
-     WHERE table_schema = 'public' AND table_name = t AND grantee = 'anon';
-    IF v_n <> 0 THEN
-      RAISE EXCEPTION 'MEXA-277: anon still holds % privileges on public.%', v_n, t;
+    --
+    -- `has_table_privilege`, not `information_schema.role_table_grants`, and the difference
+    -- is not stylistic: the grantee filter sees only grants written to `anon` by name, so a
+    -- `GRANT ... TO PUBLIC` - which anon holds through the pseudo-role - reads as zero rows
+    -- and the assertion passes on a table anon can still read. `has_table_privilege` folds
+    -- in PUBLIC and role membership. Same idiom as 00014 section 4 and 00016 section 7
+    -- (Guts, MEXA-377; the weaker form was caught before on 00019, MEXA-330).
+    SELECT string_agg(p.priv, ', ' ORDER BY p.priv) INTO v_bad
+      FROM (VALUES ('SELECT'),('INSERT'),('UPDATE'),('DELETE'),
+                   ('TRUNCATE'),('TRIGGER'),('REFERENCES'),('MAINTAIN')) AS p(priv)
+     WHERE has_table_privilege('anon', ('public.' || t)::regclass, p.priv);
+    IF v_bad IS NOT NULL THEN
+      RAISE EXCEPTION 'MEXA-277: anon still holds % on public.%', v_bad, t;
     END IF;
 
     -- 4e. The write policies are not this migration's business and must come through
