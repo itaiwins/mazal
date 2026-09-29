@@ -55,7 +55,24 @@ Apply exactly this sequence:
 00031_safta_like_needs_a_connection.sql
 00032_has_entitlement.sql
 00033_rewind_retracts_super_like_notification.sql
+00034_messages_are_not_rewritable.sql
 ```
+
+**`00034` has no ordering dependency beyond `00001` and `00002`, and is listed last because
+it only narrows.** `00034_messages_are_not_rewritable.sql` (MEXA-406) swaps `authenticated`'s
+table-wide `UPDATE` on `public.messages` for `GRANT UPDATE (is_read, read_at)`, revokes
+`anon`'s outright, and gives `00002`'s UPDATE policy the `WITH CHECK` it never had. It is
+independent of `00016` in both directions, and that was checked rather than assumed:
+`00016` section 3 revokes `messages` **DELETE** and section 7b asserts that revoke held, so
+it does not collide; and `00016` section 7c — the "these grants must STILL be granted" list —
+names `matches:INSERT`, `safta_likes:UPDATE` and `shidduch_suggestions:INSERT/UPDATE` but
+**not** `messages:UPDATE`, so narrowing it here cannot make `00016` abort later. `00016`
+section 6 writes `COMMENT ON TABLE public.messages`, which is why `00034` records its
+invariant in **column** comments instead — neither file overwrites the other and neither
+rollback has to know about the other (the `00025`/`00026` lesson, MEXA-361). `00018` puts
+this table in `supabase_realtime`; replication does not run as `authenticated`, so a client
+grant change does not touch it, and `00034` section 5g asserts the publication membership
+survived anyway.
 
 **`00033` must come after `00025`, and that is the only ordering it has.**
 `00033_rewind_retracts_super_like_notification.sql` (MEXA-401) `CREATE OR REPLACE`s
@@ -167,7 +184,24 @@ Notes on the order:
   `00030_public_profiles_publish_age_not_dob_rollback.sql` and
   `00031_safta_like_needs_a_connection_rollback.sql` and
   `00032_has_entitlement_rollback.sql` and
-  `00033_rewind_retracts_super_like_notification_rollback.sql`; read each one's header.
+  `00033_rewind_retracts_super_like_notification_rollback.sql` and
+  `00034_messages_are_not_rewritable_rollback.sql`; read each one's header.
+  `00034`'s **names what it restores** — the measured pre-apply `relacl`, the nine
+  `attacl`s (all NULL: there were no column grants on that table at all), the policy's
+  deparsed `USING` text, and the nine NULL column comments — rather than deriving any of it
+  at run time, because by the time a rollback runs the pre-state is gone (MEXA-364/399).
+  Two things about it are worth knowing before running it. It **re-opens MEXA-406 in full**:
+  after it, either participant in a match can again rewrite the other person's message body
+  and reassign its authorship, and the file says so in a closing `RAISE WARNING`. And its
+  `anon` re-grant is **conditional on the live ledger** — if `00016` has landed in the
+  meantime, `anon`'s `UPDATE` is deliberately *not* restored, because `00016` section 7a
+  asserts `anon` holds nothing in `public` and handing a chat table back to a role whose key
+  ships inside the app binary is not an undo, it is a second bug. Both branches are asserted
+  in its section 4b and both are exercised in `.scratch/mazal-mexa406/guards_00034.mjs`
+  (G9, G10). `ALTER POLICY` cannot remove a `WITH CHECK`, so the policy is dropped and
+  recreated inside the transaction; section 4d asserts the three-policy set and that RLS is
+  still on, since that pair of statements is the one place this file could leave the table
+  unprotected.
   `00033`'s **names what it restores**: `00025`'s function body, pinned by `prosrc` md5
   `33f97d655e9e1219d7f1456c57db7aea` and asserted afterwards, not merely "the function
   exists". It refuses unless the live body is `00033`'s, so it cannot silently revert a
@@ -1067,6 +1101,62 @@ Notes on the order:
   only change to the file since the PASS, it is pre-flight only and changes no statement, and
   `undo_last_swipe()`'s own `prosrc` md5 is unchanged at `b547a17b…007a` — so the rollback's
   pin still holds.
+- `00034` is **NOT applied** — written 2026-09-29 (MEXA-406), waiting on Guts's security
+  review and an apply card for Lelouch. **Either participant in a match can rewrite the other
+  person's chat messages, and can reassign authorship of them to themselves.** Measured by
+  execution on `tayiyczmacvhokdxfqvm`, not read off the catalog: as a real `authenticated`
+  u1, `UPDATE messages SET content = 'I never said this'` on a message **u2 sent** affects
+  **1 row**, and so does `SET sender_id = u1`. The pair that allows it is table-wide
+  `UPDATE` granted to both `authenticated` and `anon`, next to `00002`'s UPDATE policy
+  `Users can update messages` whose `qual` is "I am in this match" and whose **`with_check`
+  is NULL** — and a NULL `with_check` does **not** reuse the `USING` clause, so the resulting
+  row is never checked at all. Third instance of that exact pair in this project after
+  `safta_accounts.subscription_status` (MEXA-345) and `users.orthodox_subscription_status`
+  (MEXA-292); the full sweep of every `public` UPDATE policy with a NULL `with_check` is on
+  MEXA-406 and carries its own follow-ups.
+  **The grant is the fix and the policy cannot be.** An RLS `WITH CHECK` sees only the NEW
+  row — there is no `OLD` in a policy — so no policy can say "content must not change".
+  Column immutability lives in a column privilege or a `BEFORE UPDATE` trigger, and this file
+  uses the privilege: declarative, visible in `information_schema.column_privileges`, free per
+  row, and the mechanism `00015` already uses on `public.users`. A trigger was considered and
+  rejected (a per-row function on the one table that is also published to realtime and
+  cascade-deleted from `matches`, to enforce what the privilege system enforces for nothing).
+  `GRANT UPDATE (is_read, read_at)` is the whole surface the app needs, measured against the
+  code rather than assumed: `useMarkMessagesAsRead` (src/api/mutations/useMessage.ts:82) is
+  the **only** client UPDATE on this table and it sends exactly those two columns. The
+  mirrored `WITH CHECK` in section 2 is **defence in depth and the file says so** — with the
+  grant narrowed, `match_id` is unwritable, so it can never fail where `USING` passed. It is
+  there because Supabase's `ALTER DEFAULT PRIVILEGES` re-grants all four verbs on any newly
+  created object in `public`, which has already re-opened a door in this repo once (`00030`,
+  MEXA-320), and the policy left standing should not be one that checks nothing.
+  Verified against live in always-rolled-back transactions by
+  `.scratch/mazal-mexa406/rehearse_00034.mjs`, **33/33** (`REHEARSAL.txt`), every
+  behavioural claim executed as the real `authenticated` and `anon` roles with a JWT. It
+  opens with a **pre-fix control** — the exploit runs, 1 row, and the row is re-read to show
+  the tamper persisted rather than trusting a rowcount — so the "after" result is a change
+  and not an assertion about an empty table. Then: `content`, `sender_id`, `match_id`,
+  `message_type`, `media_url` and `created_at` are each refused, a mixed
+  `SET is_read, content` is refused **whole**, `anon` is refused on both, and the message row
+  is re-read unchanged. The feature side is executed too, because a fix that closed the hole
+  by breaking read receipts would look like a UI bug: `useMarkMessagesAsRead`'s exact
+  statement still affects 1 row and the receipt persists, sending still works, the thread
+  still reads, and a third user in no match with either still reads 0 rows and writes 0 — so
+  the `USING` filter is still doing its own job and the grant is not carrying it alone.
+  Denials are classified on the **message**, never the code, since RLS and a missing GRANT
+  are both `42501`; all of these are `permission denied for table messages`, i.e. the grant.
+  The rollback is run in the same transaction and the exploit is then required to **work
+  again** — that is what proves it is an inverse rather than a file that merely runs.
+  **Every guard is proven to fire**, `.scratch/mazal-mexa406/guards_00034.mjs`, **12/12**
+  (`GUARDS.txt`): a second apply, a database where the table grant is already gone (the
+  MEXA-359 trap in its other direction — without that guard this file would *hand out* a
+  privilege rather than narrow one), an unexpected third role holding UPDATE, the
+  table-level `REVOKE` spliced out so only the column `GRANT` runs (which is exactly what
+  "a column REVOKE cannot cut a table grant" produces: a file that runs clean and changes
+  nothing), the re-grant spliced out so read receipts would break, a **near-miss**
+  `WITH CHECK` that still parses (`user1_id` twice), `anon` left holding UPDATE, a comment
+  that says the wrong thing, and both branches of the rollback's `anon` decision. Fresh
+  connections afterwards confirm no fixture, no ledger row, `with_check` still NULL, no
+  column ACL and 89 public policies — the live schema untouched.
 - **The ledger lags the repo, re-measured 2026-09-29 (MEXA-326; first taken on MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
   `00017`–`00021`, `00023`, `00024`, `00025`, `00030`, `20250114`, `20250115`
