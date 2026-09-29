@@ -1,7 +1,9 @@
 /**
  * Register Screen
  *
- * Create a new account with email
+ * Create a new account with email and password. Apple and Google are not
+ * offered here: the providers are off in Supabase, so the buttons came out
+ * for the first TestFlight (MEXA-387). Turning them back on is MEXA-389.
  */
 
 import { useState } from 'react';
@@ -20,9 +22,7 @@ import {
 import { Link, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import * as AuthSession from 'expo-auth-session';
 import { supabase } from '@/api/supabase/client';
-import { completeOAuthCallback } from '@/lib/auth/authDeepLink';
 import { EMAIL_CONFIRM_REDIRECT_URL } from '@/lib/auth/authDeepLink';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -30,8 +30,6 @@ import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { MIN_PASSWORD_LENGTH } from '@/lib/constants/app';
 import { authErrorMessage } from '@/lib/auth/authErrorMessage';
-
-// Required for web browser auth to close properly
 
 export default function RegisterScreen() {
   const insets = useSafeAreaInsets();

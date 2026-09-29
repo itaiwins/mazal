@@ -8,9 +8,11 @@
  * Every method rejects. That is not a stand-in for the store: the app's own
  * try/catch in revenuecat.ts turns each rejection into the same "offerings
  * unavailable" state a device with no App Store connection is in, which is what the
- * paywall then draws. Prices on the web paywall therefore come from the app's own
- * fallback copy, NOT from App Store Connect - the real price rows can only be
- * screenshotted on a device.
+ * paywall then draws. Since MEXA-387 that state shows no price at all: the web
+ * paywall draws "Prices unavailable, check your connection" with Subscribe
+ * disabled, which is what walkthrough/check-paywall-prices.mjs asserts. Before
+ * MEXA-387 it fell back to the app's own hardcoded copy. Either way the real
+ * price rows come from App Store Connect and can only be seen on a device.
  *
  * `configure()` is never reached in practice: initializeRevenueCat() returns early
  * because neither EXPO_PUBLIC_REVENUECAT_*_KEY is set in .env.
