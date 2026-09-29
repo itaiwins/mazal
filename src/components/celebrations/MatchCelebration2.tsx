@@ -49,6 +49,38 @@ import { GoldenParticles } from './GoldenParticles';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
+/**
+ * The paired avatars, sized so the row cannot run off the screen (MEXA-338, finding 9).
+ *
+ * MEXA-328 pack screen 25 caught them over both edges at 390pt, which is iPhone 14/15/16.
+ * Two things did it, and the second is the one that mattered:
+ *
+ *  1. the row is laid out at its natural width and centred, with no cap, so a narrow
+ *     screen has nowhere to put it; and
+ *  2. the slide-in *finished* at `translateX: ∓30` rather than 0, spreading the pair 60pt
+ *     wider than the layout after the animation settled. The screenshot was taken 5s in,
+ *     so that spread is where they land, not a frame mid-flight.
+ *
+ * (2) is fixed by resting at 0 — the photos still fly in from ±100, they just stop where
+ * the layout puts them. (1) is fixed here: the size is whatever fits between the content's
+ * own horizontal padding once the heart connector has taken its share, capped at the
+ * original 120 so nothing changes on a phone wide enough for it.
+ */
+const CONTENT_PADDING_H = spacing[6]; // must match styles.content.paddingHorizontal
+const HEART_SIZE = 44;
+const HEART_MARGIN_H = spacing[3];
+/** The glow sits 8pt outside the photo on every side, so it counts toward the width. */
+const PHOTO_GLOW_INSET = 8;
+
+export const MATCH_PHOTO_SIZE = matchPhotoSize(SCREEN_WIDTH);
+
+/** Exported for `scripts/check-match-celebration-fit.mjs`, which checks it per device width. */
+export function matchPhotoSize(screenWidth: number): number {
+  const heartWidth = HEART_SIZE + HEART_MARGIN_H * 2;
+  const available = screenWidth - CONTENT_PADDING_H * 2 - heartWidth - PHOTO_GLOW_INSET * 4;
+  return Math.max(72, Math.min(120, Math.floor(available / 2)));
+}
+
 interface MatchData {
   id: string;
   otherUser: {
@@ -126,8 +158,11 @@ export function MatchCelebration2({
 
       // Phase 5: Photos slide in (1500-1800ms)
       photoScale.value = withDelay(1500, withSpring(1, SPRING_CONFIGS.BOUNCY));
-      photo1TranslateX.value = withDelay(1500, withSpring(-30, SPRING_CONFIGS.GENTLE));
-      photo2TranslateX.value = withDelay(1500, withSpring(30, SPRING_CONFIGS.GENTLE));
+      // Rest at 0, not at ∓30: the photos fly in from ±100 and stop where the layout put
+      // them. Finishing 30pt outward spread the pair 60pt wider than its own row and put
+      // it over both screen edges (MEXA-338, finding 9 - MEXA-328 pack screen 25).
+      photo1TranslateX.value = withDelay(1500, withSpring(0, SPRING_CONFIGS.GENTLE));
+      photo2TranslateX.value = withDelay(1500, withSpring(0, SPRING_CONFIGS.GENTLE));
 
       // Phase 6: Buttons fade up (1800-2500ms)
       buttonsOpacity.value = withDelay(1800, withTiming(1, { duration: 300 }));
@@ -287,7 +322,9 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing[6],
+    // CONTENT_PADDING_H, not spacing[6] directly: matchPhotoSize() sizes the avatars
+    // against this number, and the two must not drift (MEXA-338).
+    paddingHorizontal: CONTENT_PADDING_H,
   },
   starContainer: {
     position: 'relative',
@@ -332,27 +369,27 @@ const styles = StyleSheet.create({
   },
   photoGlow: {
     position: 'absolute',
-    top: -8,
-    left: -8,
-    right: -8,
-    bottom: -8,
+    top: -PHOTO_GLOW_INSET,
+    left: -PHOTO_GLOW_INSET,
+    right: -PHOTO_GLOW_INSET,
+    bottom: -PHOTO_GLOW_INSET,
     borderRadius: 100,
     backgroundColor: colors.primary.gold,
     opacity: 0.3,
   },
   photo: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: MATCH_PHOTO_SIZE,
+    height: MATCH_PHOTO_SIZE,
+    borderRadius: MATCH_PHOTO_SIZE / 2,
     borderWidth: 4,
     borderColor: colors.primary.gold,
   },
   heartConnector: {
-    marginHorizontal: spacing[3],
+    marginHorizontal: HEART_MARGIN_H,
     backgroundColor: colors.transparent.gold20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: HEART_SIZE,
+    height: HEART_SIZE,
+    borderRadius: HEART_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
