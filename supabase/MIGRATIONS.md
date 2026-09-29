@@ -328,9 +328,21 @@ Notes on the order:
   Its rollback is `00019_college_and_safta_stats_visibility_rollback.sql`, split into A
   (policies) and B (`anon`'s grants), where B no-ops if `00016` has been applied. Running A
   restores the defect exactly, so prefer writing the narrow policy you need.
-  Verified against live in rolled-back transactions by `.scratch/mazal-mexa289/verify.py`,
-  which has three modes and leaves nothing behind (re-checked: all six fixture tables back to
-  0 rows). All green:
+  Verified by `.scratch/mazal-mexa289/verify.py`, which leaves nothing behind (re-checked after
+  every run: all six fixture tables back to 0 rows).
+  **Now that `00019` is applied, `./verify.py live` is the only mode that means anything against
+  `tayiyczmacvhokdxfqvm`, and it is the default.** It asserts the fix against the policies
+  already on the database and applies nothing: **31/31** (`LIVE.txt`, Violet's own post-apply
+  check, independent of the `POSTAPPLY.txt` run above).
+  **The other three modes now fail against this project, by design — that is not a regression.**
+  `before` and `rollback` assert the *pre-*`00019` state, which no longer exists, so `before`
+  failing is the fix working: it fails on exactly the 8 probes the fix closes (the `anon`
+  no-session read, both block directions, `is_active`, `is_visible`). `after` cannot run at all,
+  because re-applying the file hits `42710` on a `CREATE POLICY` that already exists — the
+  migration refusing to be applied twice. Keep all four: `before`/`after`/`rollback` are how
+  this gets re-verified against a **fresh** database (a rebuilt project, or a local Postgres
+  following the Order block above). What they said when they were meaningful, against the
+  pre-apply database at 2026-09-29 02:05Z:
   **`before` 30/30** (`BEFORE.txt`) — the defect measured on the live database, not argued
   from the policy text: as `anon`, with no session and only the publishable key, all 8
   `user_colleges` rows, all 5 `user_safta_stats` rows and the name of every school in the
