@@ -973,10 +973,26 @@ Notes on the order:
   12:51Z: 126 pairs, no `00016` row, 41 of its 42 asserted `authenticated` pairs still granted
   (`users` DELETE was already gone, by `00015`). Do not read the per-migration notes above as
   a statement of what is on live without checking the ledger and a privilege probe.
-- `00022` is **not applied yet** — written, verified, and **PASSed by Guts on MEXA-356**
-  (2026-09-29, reviewed at `a54f014`); waiting on Lelouch's apply approval. It adds exactly
-  one object, `public.safta_public_profiles`, and changes no policy, grant or column on any
+- `00022` is **APPLIED** to `tayiyczmacvhokdxfqvm`, 2026-09-29 14:00Z, from commit `a54f014`
+  (Guts PASSed it on MEXA-356; Lelouch approved the apply on MEXA-396). It adds exactly one
+  object, `public.safta_public_profiles`, and changes no policy, grant or column on any
   existing table, so its rollback is a plain `DROP VIEW` and a genuine bit-exact inverse.
+
+  Post-apply, on a fresh connection: the view exists, its columns are exactly
+  `id, display_name, relationship`, `security_invoker=false security_barrier=true`, the only
+  non-owner grant is `authenticated:SELECT`, and `safta_accounts` is untouched at 3 policies
+  and 11 columns. Behavioural probe `verify.mjs --mode applied` **35/35** against the applied
+  database — that mode failed before the apply, which is what makes its pass meaningful.
+
+  **The REST layer was checked separately, and it is the check that is easy to skip.** A new
+  view is invisible to PostgREST until its schema cache reloads, so the SQL can be perfect
+  while every app read 404s. After `NOTIFY pgrst, 'reload schema'`:
+  `GET /rest/v1/safta_public_profiles` with the anon key returns **401 `42501 permission
+  denied for view`** — in the cache, and refused by the grant. The control,
+  `GET /rest/v1/safta_nonexistent_view`, returns **404 `PGRST205 Could not find the table
+  … in the schema cache`**, which is what a missing view looks like and is why the 401 means
+  something. `?select=email` is **400 `42703`**, so the withheld columns are withheld over
+  REST too. Full output in `.scratch/mazal-mexa302/REST_PROBE.txt`.
 
   **Its security premise is `00023`.** The row rule publishes a name on an `accepted`
   connection and its header argues that `accepted` means the grandchild consented. That was
