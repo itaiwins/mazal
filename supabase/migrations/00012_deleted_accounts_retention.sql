@@ -40,6 +40,10 @@
 -- against two tables in the same database, so pg_cron runs the SQL directly: no
 -- service_role key in flight, no pg_net, nothing to deploy alongside it.
 
+-- MEXA-434: one transaction and a ledger row, so a half-apply cannot happen and the
+-- apply is visible in schema_migrations (00011 had neither and was invisible - MEXA-290).
+BEGIN;
+
 DO $$
 BEGIN
   IF to_regclass('public.deleted_accounts') IS NULL THEN
@@ -127,3 +131,9 @@ SELECT cron.schedule(
   '17 3 * * *',
   $job$ SELECT public.purge_expired_deleted_accounts(); $job$
 );
+
+INSERT INTO supabase_migrations.schema_migrations (version, name)
+VALUES ('00012', 'deleted_accounts_retention')
+ON CONFLICT DO NOTHING;
+
+COMMIT;

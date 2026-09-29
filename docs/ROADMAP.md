@@ -531,6 +531,7 @@ the app items in **MEXA-435** (Edward). Each has a 10-run cap. Decided:
 - Identify RevenueCat with the signed-in user (MEXA-346)
 - Server-side entitlement gate; `00035` is written, not applied (MEXA-373, 417)
 - "See who likes you" is built behind `FEATURE_WHO_LIKES_YOU`, flag off (MEXA-315)
+- Before applying `00026` or `00035`: change their `SET search_path = public` to `public, pg_temp`, or `00041`'s pin is undone (MEXA-434)
 
 ### Photo verification (needs Itai's AWS spending call)
 

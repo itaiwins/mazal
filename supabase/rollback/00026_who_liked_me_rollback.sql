@@ -66,9 +66,9 @@ DROP FUNCTION IF EXISTS public.pending_likers();
 -- the ledger beats hardcoding one string: guessing wrong leaves the table describing a
 -- state it is not in, which is how somebody ends up looking for a bug in the wrong file.
 --
--- `00016` last if both are on, because `00016` is the later writer in the apply order the
--- runbook gives (`00016` comes after `00025` only if it is applied later; when both are
--- applied, whichever ran last owns the text, and `00016` is the one still pending).
+-- `00016` wins if both are on. Not because it ran last - the ledger has no apply timestamp,
+-- so that cannot be read back (MEXA-376) - but by content: `00016`'s text already names
+-- `undo_last_swipe()` from `00025`, so it is true whenever `00016` is applied, in either order.
 
 DO $$
 BEGIN

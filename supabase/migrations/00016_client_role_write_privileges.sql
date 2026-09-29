@@ -101,9 +101,11 @@
 --
 -- Every policy in this schema is either keyed on `auth.uid()` or scoped `TO
 -- authenticated`. For `anon`, `auth.uid()` is NULL, so every uid-keyed policy admits
--- nothing. Three SELECT policies are `USING (true) TO public`, which does include `anon`:
--- `colleges`, `user_badges` and `user_safta_stats`. Those are the only rows `anon` can
--- reach today, and losing them is the only behaviour change in this section:
+-- nothing. Three SELECT policies were `USING (true) TO public`, which does include `anon`:
+-- `colleges`, `user_badges` and `user_safta_stats`. (Since this was written, `00019` took
+-- `user_safta_stats` down to own-row and `00027` does the same for `user_badges`, both
+-- `TO authenticated`; `colleges` is the one left - MEXA-434.) Those were the only rows
+-- `anon` could reach, and losing them is the only behaviour change in this section:
 --
 --   colleges          - reference data. No screen reads it; the only mentions outside the
 --                       generated types are a query key and a help page string.
@@ -359,8 +361,9 @@ COMMENT ON TABLE public.messages IS
 COMMENT ON TABLE public.user_safta_stats IS
   'Per-user safta-like counters, maintained by the update_safta_stats trigger on safta_likes '
   '(MEXA-274). Client writes revoked; the trigger must become SECURITY DEFINER, which needs '
-  'neither grant nor policy. SELECT is USING (true) - it is a public counter by design, but '
-  'only for authenticated now, not anon.';
+  'neither grant nor policy. SELECT is own-row only since 00019 (MEXA-289); there is no '
+  'cross-user read, and whoever re-enables the Safta surface adds one with a product '
+  'argument attached.';
 COMMENT ON TABLE public.shidduch_messages IS
   'Shidduch thread messages. authenticated holds SELECT only (MEXA-274): no send path exists '
   'in the client and the surface is behind a flag. Building it means policies and grants in '
@@ -370,9 +373,9 @@ COMMENT ON TABLE public.colleges IS
   'by anon. The SELECT policy is USING (true) TO public, which is why the grant, not the '
   'policy, is what now keeps anon out.';
 COMMENT ON TABLE public.user_badges IS
-  'Badges, readable by any signed-in user (USING (true)) so they can be shown on profiles. '
-  'Unreachable by anon since MEXA-274 - the anon key ships in the app binary, so TO public '
-  'meant the whole internet.';
+  'Badges. SELECT is own-row plus is_discoverable_profile() TO authenticated since 00027 '
+  '(MEXA-277); it was USING (true) TO public, and the anon key ships in the app binary, so '
+  'that meant the whole internet. anon holds no grant here since MEXA-274.';
 
 -- ===================================================================================
 -- 7. FAIL THE MIGRATION IF ANY OF IT DID NOT TAKE

@@ -54,6 +54,12 @@ async function fetchSupabase<T>(
   console.log(`[DirectAPI] ${method} ${endpoint} - getting auth token...`);
   const authToken = await getAuthToken(5000);
   console.log(`[DirectAPI] ${method} ${endpoint} - auth token: ${authToken ? 'present' : 'none'}`);
+  // No session means no request. This used to fall back to the anon key as the Bearer,
+  // which ran the call as `anon` - a role that holds no table privileges since 00016 -
+  // and surfaced as an RLS/permission error instead of "you are signed out" (MEXA-299).
+  if (!authToken) {
+    return { data: null, error: { code: 'NOT_SIGNED_IN', message: 'Not signed in' } };
+  }
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
@@ -67,7 +73,7 @@ async function fetchSupabase<T>(
       method,
       headers: {
         'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${authToken || SUPABASE_ANON_KEY}`,
+        'Authorization': `Bearer ${authToken}`,
         'Content-Type': 'application/json',
         'Prefer': method === 'POST' ? 'return=representation' : 'return=minimal',
         ...headers,
@@ -458,6 +464,10 @@ export async function uploadToStorage(
   console.log(`[DirectAPI] Storage upload: ${bucket}/${path}`);
 
   const authToken = await getAuthToken(5000);
+  // Same rule as fetchSupabase: never upload as `anon` (MEXA-299).
+  if (!authToken) {
+    return { data: null, error: { code: 'NOT_SIGNED_IN', message: 'Not signed in' } };
+  }
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
@@ -479,7 +489,7 @@ export async function uploadToStorage(
       method: 'POST',
       headers: {
         'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${authToken || SUPABASE_ANON_KEY}`,
+        'Authorization': `Bearer ${authToken}`,
         'Content-Type': contentType,
         'x-upsert': 'true',
       },

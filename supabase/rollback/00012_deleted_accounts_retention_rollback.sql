@@ -12,3 +12,6 @@ SELECT cron.unschedule('deleted-accounts-retention')
 WHERE EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'deleted-accounts-retention');
 
 DROP FUNCTION IF EXISTS public.purge_expired_deleted_accounts();
+
+-- MEXA-434: 00012 now writes a ledger row; take it back out.
+DELETE FROM supabase_migrations.schema_migrations WHERE version = '00012';

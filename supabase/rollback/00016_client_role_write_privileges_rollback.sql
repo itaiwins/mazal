@@ -119,7 +119,7 @@ GRANT INSERT, UPDATE, DELETE ON TABLE public.user_safta_stats  TO authenticated;
 --
 -- The two 00019 entries also make the paragraph above narrower than it was written:
 -- `user_safta_stats` no longer has a `USING (true) TO public` SELECT policy, and neither does
--- `user_badges` once 00015_prompts_badges_visibility lands (MEXA-277). The only thing this
+-- `user_badges` once 00027_prompts_badges_visibility lands (MEXA-277). The only thing this
 -- section still hands back to unauthenticated callers is `colleges`, a reference table of
 -- school names, which is deliberate.
 --

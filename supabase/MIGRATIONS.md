@@ -51,18 +51,22 @@ Apply exactly this sequence:
 00024_revoke_self_awarded_verified_badge.sql
 00025_rewind_undo_last_swipe.sql
 00030_public_profiles_publish_age_not_dob.sql
-00026_who_liked_me.sql
-00031_safta_like_needs_a_connection.sql
 00032_has_entitlement.sql
 00033_rewind_retracts_super_like_notification.sql
 00034_messages_are_not_rewritable.sql
-00035_server_side_swipe_quota.sql
 00036_unmatch_is_one_way.sql
 00037_shadchan_notes_belong_to_their_shadchan.sql
 00038_deliver_push_notifications.sql
 00039_discovery_deck_ranked_on_server.sql
 00040_blocks_survive_resignup.sql
 00027_prompts_badges_visibility.sql
+00028_pin_function_search_path.sql
+00041_launch_lockdown.sql
+# --- parked (MEXA-426): written, NOT applied on live; see the note below before using ---
+00026_who_liked_me.sql
+00029_reentry_restore_and_hold.sql  # superseded by 00040 - NEVER apply
+00031_safta_like_needs_a_connection.sql
+00035_server_side_swipe_quota.sql
 ```
 
 **`00038`–`00040` (MEXA-435) are independent of each other and of `00012`–`00037`**, and each
@@ -81,6 +85,21 @@ Gojo applies. Each header says what it needs.
   enumeration oracle, MEXA-380). Blocks survive a re-signup, block-only deletes leave a
   name-less tombstone with a 12-month purge job, and a moderator's hold is enforced on the
   profile INSERT, after the address is confirmed. `app/legal/privacy.tsx` changed with it.
+
+**`00041` goes after `00012`, `00016`, `00028` and `00036`, and its guards 0a-0c refuse
+otherwise** (MEXA-434). It pins `search_path = public, pg_temp` on the 28 SECURITY DEFINER
+functions live still had on `public` alone, and its assertion 4d fails if *any* DEFINER in
+`public` is left that way. That is why the four parked files now sit after it rather than
+at their numbers: `00026` creates three DEFINER functions with `SET search_path = public`
+and `00035` re-creates `undo_last_swipe()` the same way, so on a fresh database either one
+ahead of `00041` makes 4d abort, and either one after `00041` silently undoes its pin
+(`CREATE OR REPLACE ... SET` overwrites `proconfig`). **Before un-parking any of them,
+change its `SET search_path = public` to `public, pg_temp`**, then re-run 4d's query.
+`00029` is listed only so it is never mistaken for missing (MEXA-383/397): `00040`
+supersedes it and it must not be applied. `00028` sits after
+`00020` because `00020` re-creates `update_safta_stats()`; `00028` itself only pins the
+four `notify_*` triggers and the three postgis callers, none of which a later file here
+redefines. `00031` still needs `00023` and `00020`; the order above keeps that.
 
 **`00037` has to come after `00005` and `20250114_shidduch_system_fixed`, and its guards
 0a/0c abort if it does not.** `00037_shadchan_notes_belong_to_their_shadchan.sql` (MEXA-419)
@@ -306,6 +325,7 @@ Notes on the order:
   `00024_revoke_self_awarded_verified_badge_rollback.sql`,
   `00025_rewind_undo_last_swipe_rollback.sql`,
   `00026_who_liked_me_rollback.sql`,
+  `00027_prompts_badges_visibility_rollback.sql`,
   `00028_pin_function_search_path_rollback.sql`,
   `00029_reentry_restore_and_hold_rollback.sql`,
   `00030_public_profiles_publish_age_not_dob_rollback.sql` and
@@ -316,7 +336,8 @@ Notes on the order:
   `00035_server_side_swipe_quota_rollback.sql` and
   `00036_unmatch_is_one_way_rollback.sql` and
   `00037_shadchan_notes_belong_to_their_shadchan_rollback.sql` and
-  `00038`–`00040`'s rollbacks (MEXA-435); read each one's header.
+  `00038`–`00040`'s rollbacks (MEXA-435) and
+  `00041_launch_lockdown_rollback.sql`; read each one's header.
   `00037`'s **names what it restores** — the one `FOR ALL TO public USING (true)` policy
   (verbatim from `20250114_shidduch_system_fixed.sql:459`, trailing comment included, so a
   diff against that file comes back empty), the measured pre-apply `relacl`, the absent FK,
@@ -425,6 +446,9 @@ Notes on the order:
 - `00012` is **not applied yet**: what reads the tombstones at signup still waits on a
   product decision (MEXA-258, `docs/MODERATION_REENTRY.md`). It refuses to run if `00011`
   has not — `00011` now has, so it is no longer blocked on that.
+  MEXA-434 applies it: the privacy policy promises the purge it schedules (MEXA-384). It now
+  has its own `BEGIN`/`COMMIT` and ledger `INSERT` (it had neither), and `00041` adds
+  `pg_temp` to its function's pin.
 - `00013` **is applied** — 2026-09-29 00:35Z, MEXA-261, from commit `9f1e080`, after Guts's
   review (MEXA-286) and Lelouch's approval (MEXA-301). No dependency either way with
   `00011`, `00012` or `00014`, and it was verified against the schema as it stands *with*
@@ -531,7 +555,7 @@ Notes on the order:
   table. **Run the smallest one that unblocks you.** Section C is the one to think hardest about: it hands
   unauthenticated read access back to `colleges`, `user_badges` and `user_safta_stats` —
   or it did. `00019` scoped `user_safta_stats`' SELECT policy `TO authenticated` and took the
-  table off section C's restore list, and `00015_prompts_badges_visibility` does the same for
+  table off section C's restore list, and `00027_prompts_badges_visibility` does the same for
   `user_badges` when it lands (MEXA-277), which leaves `colleges` as the only table section C
   really re-opens. `00016` is also **independent of `00019`**: `00016` changes grants and no
   policy, `00019` changes two policies and revokes `anon` on the two tables it touches, which
@@ -631,7 +655,7 @@ Notes on the order:
   It **depends on `00013`** for `is_discoverable_profile()` and
   `current_app_user_id()`, and on nothing else; `00013` is applied, so there is no unmet
   dependency on the live project. It is independent of `00014`–`00018` (see the `00016` note
-  above for the one pair worth spelling out) and of `00015_prompts_badges_visibility`
+  above for the one pair worth spelling out) and of `00027_prompts_badges_visibility`
   (MEXA-277), which does the same thing to two different tables and shares only the
   `00013` dependency — any order works.
   It takes `USING (true) TO public` off `user_colleges` and `user_safta_stats`, which were the
@@ -1512,6 +1536,8 @@ Notes on the order:
   `has_table_privilege` form of assertion 4d came out of that second review.
   Verified against live in rolled-back transactions by `.scratch/mazal-mexa277/verify.py`.
 - **The ledger lags the repo, re-measured 2026-09-29 (MEXA-326; first taken on MEXA-359).**
+  (MEXA-434: `00011` **is** in the ledger now - MEXA-290 is settled; the list below is the
+  last pre-MEXA-434 reading. The post-apply ledger is on MEXA-434's closing comment.)
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
   `00017`–`00021`, `00023`, `00024`, `00025`, `00030`, `00032`, `00033`, `00034`, `20250114`,
   `20250115`

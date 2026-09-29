@@ -399,7 +399,9 @@ export default function CompleteScreen() {
 
         // More specific error messages
         let errorMessage = userError.message;
-        if (userError.code === '23503') {
+        if (userError.code === 'NOT_SIGNED_IN') {
+          errorMessage = 'Your session expired. Please close the app completely and sign in again.';
+        } else if (userError.code === '23503') {
           errorMessage = 'Account sync issue. Please close the app completely and try signing up again.';
         } else if (userError.code === '23505') {
           errorMessage = 'A profile already exists. Please try logging in instead.';
