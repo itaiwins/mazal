@@ -1037,7 +1037,7 @@ Notes on the order:
   comment. The fact lives in the function's own COMMENT and in `00016`'s literal, amended in
   the same commit.
   Verified against live in one always-rolled-back transaction by
-  `.scratch/mazal-mexa401/rehearse.mjs`, **45/45, three consecutive runs**
+  `.scratch/mazal-mexa401/rehearse.mjs`, **46/46, three consecutive runs**
   (`REHEARSAL.txt`), every behavioural claim executed as the real `authenticated` role with
   a JWT. It opens with a **pre-fix control** — with `00025` live, a rewound super-like leaves
   its push queued — so the "after" result is a change and not an assertion about an empty
@@ -1058,6 +1058,15 @@ Notes on the order:
   pin — neutralised as `(data->>'userId' = … OR TRUE)` it applies cleanly and the
   third-party case fails, 44/45. So neither assertion is vacuous and neither layer is
   carrying the other.
+  **Guard `0f-bis` was added after Guts's PASS**, on his own advisory (MEXA-408): `0f` pinned
+  `notify_super_like()`'s payload, but nothing checked how `send_push_notification()` — one
+  call deeper — maps its argument onto `notification_queue.user_id`, so an edit to that
+  helper alone could have remapped the column with every other guard still passing and the
+  DELETE then filtering on the wrong person. It is proven to bite: remapping the helper
+  inside the rehearsal, leaving `notify_super_like` untouched, aborts the apply. That is the
+  only change to the file since the PASS, it is pre-flight only and changes no statement, and
+  `undo_last_swipe()`'s own `prosrc` md5 is unchanged at `b547a17b…007a` — so the rollback's
+  pin still holds.
 - **The ledger lags the repo, re-measured 2026-09-29 (MEXA-326; first taken on MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
   `00017`–`00021`, `00023`, `00024`, `00025`, `00030`, `20250114`, `20250115`
