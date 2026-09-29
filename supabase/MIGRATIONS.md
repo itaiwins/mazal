@@ -59,7 +59,27 @@ Apply exactly this sequence:
 00035_server_side_swipe_quota.sql
 00036_unmatch_is_one_way.sql
 00037_shadchan_notes_belong_to_their_shadchan.sql
+00038_deliver_push_notifications.sql
+00039_discovery_deck_ranked_on_server.sql
+00040_blocks_survive_resignup.sql
 ```
+
+**`00038`–`00040` (MEXA-435) are independent of each other and of `00012`–`00037`**, and each
+was dry-run against `tayiyczmacvhokdxfqvm` inside a transaction that ends in a `RAISE`, so
+nothing persisted (apply, assertions, and apply + rollback for each). Reviewed by Guts;
+Gojo applies. Each header says what it needs.
+
+- `00038` drains `notification_queue` to Expo with a 10-second pg_cron job and pg_net, and
+  marks a row `sent` in the transaction that queues the request, so `pending` still means
+  undelivered (what `00033` relies on). No Edge Function and no new secret.
+- `00039` drops `elo_score` from `user_public_profiles` and adds `get_discovery_deck()`, which
+  filters, ranks and **then** limits. **The client change ships with it**: a build from before
+  `useDiscoveryProfiles.ts` moved to the RPC still works (it only loses the elo sort), but a
+  build after it needs `00039` applied or its deck is a 404.
+- `00040` **supersedes `00029`, which must never be applied** (its signup hook is an
+  enumeration oracle, MEXA-380). Blocks survive a re-signup, block-only deletes leave a
+  name-less tombstone with a 12-month purge job, and a moderator's hold is enforced on the
+  profile INSERT, after the address is confirmed. `app/legal/privacy.tsx` changed with it.
 
 **`00037` has to come after `00005` and `20250114_shidduch_system_fixed`, and its guards
 0a/0c abort if it does not.** `00037_shadchan_notes_belong_to_their_shadchan.sql` (MEXA-419)
@@ -294,7 +314,8 @@ Notes on the order:
   `00034_messages_are_not_rewritable_rollback.sql` and
   `00035_server_side_swipe_quota_rollback.sql` and
   `00036_unmatch_is_one_way_rollback.sql` and
-  `00037_shadchan_notes_belong_to_their_shadchan_rollback.sql`; read each one's header.
+  `00037_shadchan_notes_belong_to_their_shadchan_rollback.sql` and
+  `00038`–`00040`'s rollbacks (MEXA-435); read each one's header.
   `00037`'s **names what it restores** — the one `FOR ALL TO public USING (true)` policy
   (verbatim from `20250114_shidduch_system_fixed.sql:459`, trailing comment included, so a
   diff against that file comes back empty), the measured pre-apply `relacl`, the absent FK,

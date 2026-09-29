@@ -1,3 +1,9 @@
+-- ⚠️ SUPERSEDED BY 00040_blocks_survive_resignup.sql (MEXA-435). DO NOT APPLY.
+-- Its section 5 (the before-user-created hook) refuses held addresses before GoTrue has
+-- proven ownership, which makes signup an oracle for "is this address banned" (MEXA-380).
+-- 00040 keeps sections 1-4, enforces the hold after confirmation, and refuses to run if
+-- this file's hook function exists.
+--
 -- Mazal - What happens when a deleted account's address signs up again
 --
 -- MEXA-258. Requires 00011_preserve_moderation_history.sql (applied).

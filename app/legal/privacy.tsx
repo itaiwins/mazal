@@ -90,21 +90,22 @@ While we strive to protect your data, no system is 100% secure. Report any secur
 
 Safety records kept after deletion
 
-Deleting your account does not erase a complaint another user made about you. If someone reported your account, we keep a small safety record after the rest of your data is gone. We keep it to protect other users: without it, anyone could delete their account to wipe a report against them and sign up again a minute later.
+Deleting your account does not erase a complaint another user made about you, or a block another user placed on you. If someone reported or blocked your account, we keep a small safety record after the rest of your data is gone. We keep it to protect other users: without it, anyone could delete their account to wipe a report or a block against them and sign up again a minute later.
 
 That record holds only:
 
 • A one-way, salted hash of your email address and phone number. It is not your email or phone number and cannot be turned back into them. We cannot read it, contact you with it, or pass it to anyone else. It only lets us recognize the same address if it is used to sign up again.
-• Your display name, when your account was created, when it was deleted, and how many reports were made
+• When your account was created, when it was deleted, and how many reports were made. Your display name is kept only if someone reported you
 • The reports themselves and how they were resolved
+• Which users had blocked you, so that their blocks still apply if the same address signs up again
 
 How long we keep it:
 
-• 12 months, if every report about you was reviewed and dismissed
+• 12 months, if you were only blocked and never reported, or if every report about you was reviewed and dismissed
 • 24 months, if a report led us to take action on your account
 • Longer only while a report about you is still under review, or while it is needed for an ongoing safety investigation or legal matter
 
-After that, the record and the reports attached to it are deleted automatically. If nobody ever reported your account, no safety record is created and nothing about you is kept.
+After that, the record and the reports attached to it are deleted automatically. If nobody ever reported or blocked your account, no safety record is created and nothing about you is kept.
 
 Reports that you filed about other users are also kept after you delete your account. They are part of the safety history of the person you reported, and are not ours to erase on your behalf. Once your account is gone they are no longer linked to a profile, but the report and its outcome remain.
 
