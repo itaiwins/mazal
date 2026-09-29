@@ -1638,6 +1638,62 @@ is declared in `src/types/database.types.ts`, which augments the generated `Data
 comment on `PublicProfile` there before regenerating anything: a real generator run emits
 every view column as nullable, because Postgres reports no NOT NULL through a view.
 
+## The RLS write sweep, and the query to re-run it (MEXA-414)
+
+`00034`'s entry under **Order** records *why* "every UPDATE policy with a NULL `with_check`"
+is the wrong search. This section is the right one, run to completion on
+`tayiyczmacvhokdxfqvm` (PostgreSQL 17.6) on **2026-09-29**, with a verdict per hit. Evidence:
+`.scratch/mazal-mexa414/` — `sweep2.mjs`/`SWEEP2.txt` (the catalog cross-product),
+`probe.mjs`/`PROBE.txt` (33 writes executed as real `authenticated` callers in one
+rolled-back transaction), `schema.mjs`/`SCHEMA.txt` (the grant and policy picture per table).
+
+**The class.** *A client role holds an UPDATE grant on a column that the table's UPDATE
+policy `qual` does not reference.* `USING` cannot see `OLD`, so it constrains only the columns
+it reads; every other writable column is free up to the grant. The fix is always a column
+grant (or a `SECURITY DEFINER` RPC), never a policy.
+
+**The query.** For every `UPDATE`/`ALL` policy in `public`, cross the columns a client role may
+UPDATE (`has_column_privilege`, which folds in both the table grant and any column grant)
+against the columns `pg_get_expr(polqual, polrelid)` actually references. Writable and
+unreferenced is a candidate; then ask whether the column is security-relevant.
+
+Two ways to get the referenced set wrong, both hit on the way here:
+
+- **`polqual::text` VAR nodes are not usable.** A sublink's own RTE is also `varno 1`, so a
+  subquery on `public.users` donates *users'* attnums to the policy's table: `push_tokens`
+  acquired a phantom `platform`, `shadchan_connections` a phantom `user_id`, `matches` a
+  phantom `id`. That direction **hides** candidates, so v1 of the sweep under-reported.
+- **A bare substring match over-counts** for the same reason in reverse (`m.user1_id` is not
+  `messages.user1_id`). What works is the deparsed text: `pg_get_expr` qualifies every var
+  that lives in a sublink and leaves the policy relation's own top-level columns bare, so keep
+  `<tbl>.col`, strip every other `alias.col`, then match bare column names in what is left.
+  Sanity-check the stripped aliases by eye — if one of them is an alias *of the policy's own
+  table*, this rule would wrongly free that column.
+
+**25 UPDATE-capable policies across 24 tables; 329 candidate (table, policy, column) triples.**
+Most are profile content a user is supposed to edit. What survives triage:
+
+| verdict | where | measured |
+|---|---|---|
+| **finding, live surface** | `matches.is_active` + `userN_unmatched` | **An unmatch is reversible by the person who was unmatched.** `useUnmatch` (src/api/mutations/useMatch.ts:41) writes own-flag + `is_active=false`; `useMatches.ts:48` lists `is_active = true`. The other participant then writes `is_active = true, <their>_unmatched = false` — **allowed, 1 row** — and the match is back in *both* lists, with the thread intact and sendable again. `qual` is match membership, which neither column changes. MEXA-418. |
+| **finding, hidden surface** | `shadchan_notes` | `shadchan_notes_select_own` is `FOR ALL USING (true)` with full column grants to `anon` **and** `authenticated`. An unrelated user reads every matchmaker's private candidate notes, rewrites them, **deletes** them and forges new ones under another shadchan's id — all measured allowed. Not this class at all: a missing ownership filter, and the policy name says what it meant to be. MEXA-419. |
+| **finding, hidden surface** | `safta_messages.content`, `.sender_id` | MEXA-406's twin. "Users can mark safta messages as read" gates on connection membership, so the connected user rewrites the Safta's message body and reassigns its sender — allowed. MEXA-420. |
+| **finding, hidden surface** | `shadchanim.is_verified`, `.successful_matches`, `.years_experience` | Self-awarded, and *readable by everyone* (`SELECT USING (is_active = true)`): 250 successful matches and a verified tick on your own matchmaker profile, allowed. MEXA-420. |
+| **finding, hidden surface** | `shidduch_references.is_verified`, `.verified_at` | The profile owner marks their own reference — the rabbi who vouches for them — verified. Allowed. MEXA-420. |
+| **finding, hidden surface** | `safta_daily_usage.recommendations_count` | A Safta zeroes their own daily counter, i.e. the free-tier cap. Allowed. MEXA-420. |
+| **still open, re-measured** | `safta_accounts.subscription_status`, `_plan`, `_expires_at` | MEXA-345, unfixed on live today: a Safta writes `active`/`safta_pro` + a ten-year expiry on their own account. Allowed. |
+| **latent, one render away** | `user_badges.badge_type`, `.verified` | `birthright`/`hebrew_speaker` etc. are self-declared **by design**, but the same CHECK list holds `verified_jewish` and `photo_verified`, and `(tabs)/profile.tsx:53` maps `verified_jewish` to a gold "Verified" chip. A user inserts or updates their way into it (both allowed), and `SELECT` is `USING (true)`, so any signed-in user can read it. Inert only because nothing renders *another* user's `user_badges` yet — `useDiscoveryProfiles.ts:134` already fetches them. MEXA-420. Separately and not a security bug: the picker offers eight ids the CHECK rejects and `handleSave` deletes the old rows before finding out — MEXA-421. |
+| **latent, one render away** | `user_photos.is_verified` | Found on MEXA-406, re-proved here. Nothing renders a per-photo tick; the badge users see is `users.is_verified`, closed by `00024`. Belongs in whatever migration first gives the column a reader. |
+| **not a finding** | `users.*`, `shidduch_profiles.*` (content), `notification_preferences`, `saved_locations`, `user_prompts.answer`, `user_colleges`, `shabbat_schedules`, `shidduch_daily_activity`, `push_tokens.token`/`device_id` | Own-row content the owner is meant to edit. `users` is already column-scoped by `00015` + `00024`, and the two gated-everything policies (`shabbat_schedules`, `shidduch_daily_activity`) produce no candidates at all. `push_tokens` is reachable only for your own row: you can point your own registration at a device token you already know, which is push spam to that device, not a route to anyone's notifications (`user_id` **is** gated — measured refused on MEXA-406). |
+| **not a finding, but the grant is wrong** | `orthodox_emails` | `anon` and `authenticated` hold INSERT/UPDATE on every column while the only policy is `auth.role() = 'service_role'`. Client writes match no row, so this is 0 rows today — and it is one permissive policy away from being a hole. |
+| **not a finding, but the grant is wrong** | `blocks`, `colleges`, `community_settings`, `family_connections`, `notification_queue`, `shidduch_messages`, `shidduch_profile_views`, `shidduch_suggestions`, `subscriptions`, `swipes`, `user_safta_stats` | A client UPDATE grant with **no UPDATE policy at all**. Measured on `swipes`: an own-row UPDATE is **allowed and affects 0 rows** — no `42501`, so the write fails *silently*. The policy's absence is the only thing stopping it, and `subscriptions` is the entitlement table. |
+
+**A `WITH CHECK` that mirrors `USING` is a no-op; one that adds a predicate is not.** Worth
+keeping straight, because the guards in `00023` and `00031` assert `with_check IS NOT NULL` on
+`safta_connections` and `safta_likes` and those assertions are **correct**: those policies'
+`WITH CHECK` pins `status` to a terminal value and keeps `pending` out, which `USING` never
+said. Do not "correct" them by analogy with `00034`, where the mirror was deleted.
+
 ## Still to do on the backend
 
 - Deploy the three Edge Functions in `supabase/functions/` (`send-notification`,
