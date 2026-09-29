@@ -54,7 +54,20 @@ Apply exactly this sequence:
 00026_who_liked_me.sql
 00031_safta_like_needs_a_connection.sql
 00032_has_entitlement.sql
+00033_rewind_retracts_super_like_notification.sql
 ```
+
+**`00033` must come after `00025`, and that is the only ordering it has.**
+`00033_rewind_retracts_super_like_notification.sql` (MEXA-401) `CREATE OR REPLACE`s
+`public.undo_last_swipe()` to add one guarded DELETE, so `00025` has to have created the
+function first. Its guard `0a` refuses unless `00025` is in the ledger **and** the live body
+hashes to `00025`'s, so applying it early or on top of some third replacement aborts and
+changes nothing. It also needs `00005_notification_triggers.sql`, which creates
+`notification_queue` and `notify_super_like` — guard `0f` reads that function's live body
+rather than trusting the file on disk, because the payload shape
+(`type=super_like, userId=NEW.swiper_id`) is the single fact the DELETE keys on. It is
+independent of `00016` in both directions: it changes no grant and no policy, and the DEFINER
+owner `postgres` keeps its access whichever order the two land in.
 
 **`00032` has no ordering dependency and is listed last because it is additive.**
 `00032_has_entitlement.sql` (MEXA-373, Phase 1 item 1) creates
@@ -153,7 +166,17 @@ Notes on the order:
   `00029_reentry_restore_and_hold_rollback.sql`,
   `00030_public_profiles_publish_age_not_dob_rollback.sql` and
   `00031_safta_like_needs_a_connection_rollback.sql` and
-  `00032_has_entitlement_rollback.sql`; read each one's header.
+  `00032_has_entitlement_rollback.sql` and
+  `00033_rewind_retracts_super_like_notification_rollback.sql`; read each one's header.
+  `00033`'s **names what it restores**: `00025`'s function body, pinned by `prosrc` md5
+  `33f97d655e9e1219d7f1456c57db7aea` and asserted afterwards, not merely "the function
+  exists". It refuses unless the live body is `00033`'s, so it cannot silently revert a
+  fourth migration's version. It restores `00025`'s `COMMENT ON FUNCTION` byte for byte,
+  deletes its own ledger row, and touches no table, policy or grant — `00033` changed none
+  of those, so undoing it gives nothing back and opens no window. It re-opens MEXA-401 in
+  full (a rewound Super Like leaves a `pending` push naming the swiper), and it restores
+  **code, not data**: rows already retracted are gone, since `notification_queue` has no
+  soft delete.
   `00032`'s is a clean undo — `00032` gates nothing, so nothing regresses in behaviour when
   it goes — but it **refuses while any caller exists**. A SQL function called from another
   function's string body leaves no `pg_depend` edge, so `DROP ... RESTRICT` would succeed and
@@ -972,6 +995,64 @@ Notes on the order:
   **`rollback` 13/13** — identical to `before` on every probe afterwards, both policies back
   to `00002`'s and `00020`'s deparsed text, the trigger and its function gone, ledger row
   deleted.
+- `00033` is **NOT applied** — written 2026-09-29 (MEXA-401), waiting on Guts's security
+  review and an apply card for Lelouch. It settles the question `00025`'s header filed and
+  MEXA-372 decided: **a rewind retracts the super-like push it queued, if that push is still
+  unsent.** `trigger_notify_super_like` (`00005`) is `AFTER INSERT ON swipes` and queues
+  `<name> thinks you are special!` with `jsonb_build_object('type','super_like','userId',
+  NEW.swiper_id)`; `00025` deletes the swipe and leaves that row at `status = 'pending'`.
+  The argument for leaving it was that the push is anonymous. **It is not** — it names the
+  person and carries their id — so delivered after a rewind it makes a claim the app then
+  contradicts: the named person is not in "See who likes you" (`get_who_liked_me` reads
+  `swipes`) and is back in the deck as an ordinary card.
+  **One statement, inside the function.** `notification_queue` gets no client grant and no
+  policy: it has RLS on and **zero policies**, which denies every client verb regardless of
+  the table grants `anon` and `authenticated` still hold, and it is the table holding the
+  title and body of every push. `undo_last_swipe()` is already DEFINER with
+  `search_path = public`, owned by `postgres`, which owns the table, has `rolbypassrls` and
+  holds DELETE; `relforcerowsecurity` is false. All four are asserted in guard `0h` rather
+  than assumed, because if any stopped holding the DELETE would match zero rows and still
+  report a successful rewind — the same silent lie `00025` exists to fix.
+  **What a caller can reach.** `v_swipe` is selected `WHERE swiper_id = current_app_user_id()`
+  and the function takes no arguments, so `data->>'userId' = v_swipe.swiper_id::text` is
+  always the caller: every row it can delete is one the caller's own super-like created.
+  They cannot retract an old super-like either — that needs a fresh swipe on the same person,
+  and `UNIQUE (swiper_id, swiped_id)` blocks a second while RLS blocks removing the first.
+  **`swipes.created_at` is client-settable** (a column-level INSERT grant, and the INSERT
+  policy constrains only `swiper_id`) and it does not widen this: a future value makes
+  `created_at >= v_swipe.created_at` false so the retraction does not fire, a past one trips
+  `too_old` first. Both fail safe. That the window itself can be pushed out with a future
+  `created_at` is a pre-existing `00025` hole, filed separately.
+  **Two things a drainer author must know.** `status` is nullable, so `status = 'pending'` is
+  not "not sent" — NULL-status rows are left alone on purpose. And **nothing drains this
+  queue today, `send-notification` included**: that Edge Function takes `{userId, title,
+  body, data}` from an HTTP request body and never reads `notification_queue` or writes
+  `status`/`sent_at`. `00016`'s comment said otherwise and this commit corrects it. A real
+  drainer **must** flip `pending` → `sent` as it pushes, or this retraction becomes a delete
+  of a delivered notification.
+  It adds **no return column** — `CREATE OR REPLACE` cannot change a return type, and the
+  post-check asserts the six output columns are unchanged — and sets **no**
+  `COMMENT ON TABLE notification_queue`, because that comment is NULL today, `00016` writes
+  it and `00016`'s rollback nulls it, which is the trap already filed against the `swipes`
+  comment. The fact lives in the function's own COMMENT and in `00016`'s literal, amended in
+  the same commit.
+  Verified against live in one always-rolled-back transaction by
+  `.scratch/mazal-mexa401/rehearse.mjs`, **45/45, three consecutive runs**
+  (`REHEARSAL.txt`), every behavioural claim executed as the real `authenticated` role with
+  a JWT. It opens with a **pre-fix control** — with `00025` live, a rewound super-like leaves
+  its push queued — so the "after" result is a change and not an assertion about an empty
+  table. Then: the push is retracted; a **`sent`** row survives; a third party's pending push
+  to the same person survives; the caller's own earlier push to somebody else survives; a
+  plain `like` retracts nothing; a `new_match` payload to the same pair survives; a
+  two-day-old pending row for the same pair survives (the `created_at` bound); `too_old`,
+  `matched` and `no_swipe` still refuse and retract nothing; `authenticated` still reads and
+  deletes **0 rows** from `notification_queue` directly and the table still has zero
+  policies; a second apply aborts; and the rollback restores `00025` byte for byte, brings
+  the control result back, and refuses a second run. A fresh connection afterwards confirms
+  no ledger row, `00025`'s body, and row counts identical to the baseline the run started
+  from. Guards proven to bite by mutation, not just present: dropping `AND status =
+  'pending'` makes the `sent`-row case fail, and dropping the `data->>'userId'` predicate
+  makes the third-party case fail.
 - **The ledger lags the repo, re-measured 2026-09-29 (MEXA-326; first taken on MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
   `00017`–`00021`, `00023`, `00024`, `00025`, `00030`, `20250114`, `20250115`

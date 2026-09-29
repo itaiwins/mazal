@@ -161,8 +161,15 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
 --
 -- Who actually writes it: the four SECURITY DEFINER notification triggers
 -- (`notify_new_match`, `notify_new_message`, `notify_super_like`, `notify_safta_like`),
--- which run as `postgres` and so pass both RLS and the grant regardless.
--- Who reads it: `supabase/functions/send-notification`, with the service-role key.
+-- which run as `postgres` and so pass both RLS and the grant regardless. Since 00033
+-- (MEXA-401) `public.undo_last_swipe()` also DELETEs from it - one pending super-like row,
+-- the caller's own, on a rewind - for the same reason and by the same route.
+-- Who reads it: **nothing, today.** This line used to name
+-- `supabase/functions/send-notification`, and that was wrong (MEXA-401): that function
+-- takes `{userId, title, body, data}` from an HTTP request body and pushes it to Expo. It
+-- never SELECTs this table and never writes `status` or `sent_at`, so nothing has ever
+-- drained the queue. The service_role grant below is for the drainer that has to be written,
+-- not for one that exists; filed separately.
 -- Who else: nothing in `src/` or `app/` mentions the table.
 --
 -- Modelled on how 00011 handles `deleted_accounts` and `moderation_secrets`: state the
@@ -172,7 +179,11 @@ GRANT ALL PRIVILEGES ON TABLE public.notification_queue TO service_role;
 
 COMMENT ON TABLE public.notification_queue IS
   'Outbound push queue. service_role only (MEXA-274): written by the SECURITY DEFINER '
-  'notify_* triggers, drained by the send-notification Edge Function. It has no RLS policy '
+  'notify_* triggers, and deleted from by public.undo_last_swipe(), which retracts one '
+  'still-pending super-like row on a rewind (MEXA-401). Nothing drains it yet - the '
+  'send-notification Edge Function takes an HTTP payload and does not read this table - so '
+  'a drainer must flip status pending -> sent as it pushes, or that retraction turns into a '
+  'delete of a delivered notification. It has no RLS policy '
   'for any verb, and that is deliberate - the grant, not the missing policy, is what keeps '
   'clients out. If a client ever needs to read its own notifications, add a SELECT policy '
   'AND a GRANT SELECT in the same migration.';
