@@ -36,6 +36,7 @@ import { useSwipe, useUndoSwipe } from '@/api/mutations';
 import { useMatchesSubscription } from '@/api/realtime';
 import { StarOfDavid } from '@/components/icons/StarOfDavid';
 import { ProfileStory, CardStack, ActionButtons } from '@/components/discovery';
+import { rewindLanding, deckIndexAfterChange } from '@/components/discovery/rewindDeckPosition';
 import { AdBanner, useInterstitialAd } from '@/components/ads';
 import { AnimatedHeader } from '@/components/ui/AnimatedHeader';
 import { useDotNavigatorInset } from '@/components/navigation/DotNavigator';
@@ -301,10 +302,14 @@ export default function DiscoveryScreen() {
   const swipeMutation = useSwipe();
   const undoSwipeMutation = useUndoSwipe();
 
-  // Who a successful rewind put back in the deck, so the effect that reacts to the refetch
-  // can land on them (MEXA-372). A ref, not state: it is written inside a mutation callback
-  // and read by an effect keyed on `apiProfiles`, and a ref cannot be read stale from the
-  // render that happened to be in flight when the callback fired.
+  // A rewound person the deck we were holding did not contain, so the next deck change has
+  // to land on them (MEXA-372). Null whenever there is nothing to wait for - which, after
+  // MEXA-403's review, is the common case: see `rewindDeckPosition.ts` for why looking in
+  // the deck we already hold is what makes a fast "oops" rewind work at all.
+  //
+  // A ref, not state: it is written inside a mutation callback and read by an effect keyed
+  // on `apiProfiles`, and a ref cannot be read stale from the render that happened to be in
+  // flight when the callback fired.
   const rewoundUserIdRef = useRef<string | null>(null);
 
   // Subscribe to matches
@@ -322,6 +327,13 @@ export default function DiscoveryScreen() {
     // Return empty array - don't show sample/fake profiles to real users
     return [];
   }, [apiProfiles]);
+
+  // The deck as of the latest render, readable from a mutation callback. `handleRewind`'s
+  // `onSuccess` has to ask what is on screen *now*, and it cannot read `profiles` from its
+  // own closure: the callback is created when the tap happens and can resolve a refetch
+  // later, by which point that binding is stale.
+  const profilesRef = useRef(profiles);
+  profilesRef.current = profiles;
 
   const currentProfile = profiles[currentIndex];
   const hasMoreProfiles = currentIndex < profiles.length;
@@ -532,9 +544,22 @@ export default function DiscoveryScreen() {
           restoreSuperLike();
         }
 
-        // The hook has already invalidated the deck. Record who to land on; the effect
-        // below picks them out of the refetched list.
-        rewoundUserIdRef.current = undoneSwipe.swiped_id;
+        // Land on the person we just undid. Ask the deck we are holding *right now* before
+        // waiting on any refetch: after a fast "oops" rewind the swipe's refetch has been
+        // cancelled by this mutation's own invalidate, the cache still holds the pre-swipe
+        // deck, and the replacement fetch comes back deep-equal - so `apiProfiles` never
+        // changes identity and an effect keyed on it never fires. `rewindDeckPosition.ts`
+        // has the full reasoning; MEXA-403 caught this.
+        const landing = rewindLanding(profilesRef.current, undoneSwipe.swiped_id);
+
+        // Assigned unconditionally, including the null. Leaving a stale id armed after a
+        // successful landing is the other half of the same bug: the next swipe's refetch
+        // would consume it and throw the user onto a card they did not ask for.
+        rewoundUserIdRef.current = landing.pendingRewindId;
+
+        if (landing.landOn !== null) {
+          setCurrentIndex(landing.landOn);
+        }
       },
       onError: (error: unknown) => {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -555,30 +580,23 @@ export default function DiscoveryScreen() {
     restoreSuperLike,
   ]);
 
-  // Reset on profile change - except after a rewind, which lands on the person it undid.
+  // Reset on profile change - except where a rewind is still waiting to land.
   //
   // Every swipe invalidates `queryKeys.discovery.all`, so the deck refetches without the
-  // person just swiped on and this effect puts the pointer back at the top of it. A rewind
-  // invalidates the same key, so the deck comes back *with* that person - but where they
-  // land depends on the deck's sort (`has_liked_me`, then `elo_score`), not on where they
-  // were before. Index arithmetic (`currentIndex - 1`) would be a guess. Finding them by id
-  // in the refetched list is the only thing that actually reopens the card the user asked
-  // to see again (MEXA-372).
+  // person just swiped on and this effect puts the pointer back at the top of it. The
+  // rewind case is the slow path only: the swipe's refetch already landed, so the person
+  // was gone from the deck when the rewind succeeded and the rewind's own refetch is what
+  // brings them back. The fast path never reaches here at all - `handleRewind` has already
+  // landed on them - and that is the whole point of MEXA-403's fix. `rewindDeckPosition.ts`
+  // carries the reasoning.
   //
-  // Falls through to 0 if they are not in the new deck. That is a real case, not a
-  // defensive nicety: the deck's 50-row limit and its age/distance/gender filters can all
-  // exclude somebody the user swiped on before changing a filter.
+  // The id is consumed unconditionally, whether or not it is used, so a rewind that never
+  // resolves cannot be picked up by an unrelated deck change later.
   useEffect(() => {
     const rewoundUserId = rewoundUserIdRef.current;
     rewoundUserIdRef.current = null;
 
-    if (!rewoundUserId) {
-      setCurrentIndex(0);
-      return;
-    }
-
-    const restoredIndex = profiles.findIndex((p: any) => p.id === rewoundUserId);
-    setCurrentIndex(restoredIndex >= 0 ? restoredIndex : 0);
+    setCurrentIndex(deckIndexAfterChange(profiles, rewoundUserId));
   }, [apiProfiles]);
 
   // Safta handlers

@@ -442,8 +442,18 @@ points.
    exist at all is still open** — it duplicates `(orthodox-auth)` and `(orthodox-tabs)`.
    Its prices are the store's now, not the $24.99/$199.99 it used to hardcode, which
    disagreed with the $49.99 above.
-5. Real shadchan data — the directory has no backing content.
-6. A rabbinic/community review of the guidelines and matching rules before launch, and
+5. `app/(orthodox-tabs)/index.tsx` writes swipes straight to the table and **does not go
+   through the premium store**: `handleSuperLike` inserts `action: 'super_like'` without
+   calling `useSuperLike()`, so the weekly allowance is never charged there. Invisible
+   today, but it makes Rewind's refund wrong the moment this flag goes on — a Super Like
+   sent from Orthodox mode and rewound from the main tabs within 30 seconds hands back a
+   credit that was never spent (Gojo, reviewing MEXA-372 on MEXA-403). Not urgent: the
+   refund is capped at the plan limit so it cannot exceed the allowance, and the counter is
+   client-side either way. Fix it by routing these swipes through the same hooks as the
+   main deck, not by special-casing the refund. The same screen also keeps its own
+   `currentIndex` and has no Rewind affordance at all.
+6. Real shadchan data — the directory has no backing content.
+7. A rabbinic/community review of the guidelines and matching rules before launch, and
    Itai's sign-off on all Orthodox-facing copy.
 
 ---
