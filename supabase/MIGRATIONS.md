@@ -143,10 +143,11 @@ Notes on the order:
   E (sequences), F (comments), plus A as a template for one verb on one table. **Run the
   smallest one that unblocks you.** Section C is the one to think hardest about: it hands
   unauthenticated read access back to `colleges`, `user_badges` and `user_safta_stats`.
-- `00017` is **not applied yet** — MEXA-294 and MEXA-296 cause 1. Guts reviewed it with no
-  blockers (MEXA-316) and Gojo has routed it; it waits only on Lelouch, because it is a
-  change users see: the "It's a Match!" screen and new-match push notifications start
-  working. It is independent of `00011`–`00016` and of `00018` — it replaces one function
+- `00017` **is applied** — 2026-09-29 01:19:57Z, from `mazal-restart` @ `299731d`
+  (MEXA-294 and MEXA-296 cause 1), after Guts's review (MEXA-316), Gojo's routing and
+  Lelouch's approval (MEXA-324). It is a change users see: the "It's a Match!" screen and
+  new-match push notifications start working, and **no match row had ever been created by
+  anything** before it. It is independent of `00011`–`00016` and of `00018` — it replaces one function
   defined in `00001` and adds one table to `supabase_realtime`, none of which those name —
   so **any order works, including applying it before `00015` and `00016`.** Gojo checked
   that specifically: Guts's "nobody can force a match with someone who has not liked them"
@@ -171,6 +172,19 @@ Notes on the order:
   Its rollback is `00017_matching_actually_matches_rollback.sql`, a bit-exact inverse of
   both parts, verified in the same transaction. Note it drops `matches` from the
   publication but leaves `messages` there, since that one is `00018`'s.
+  Post-check, all green: **21/21** from SQL as `authenticated` and `anon`
+  (`.scratch/mazal-mexa294/POSTCHECK_00017.txt`), and **14/14** end to end through the
+  real API with live realtime subscriptions and real sessions
+  (`scripts/e2e/mexa294-realtime-matches.mjs`), 0 fixtures left behind by either. A
+  mutual like now creates exactly one `matches` row, both people read it and both get the
+  INSERT over realtime, both get a queued `new_match` push, a non-participant gets
+  neither the event nor the row, a `pass` still matches nothing, `swipes` is still closed
+  cross-side, and a client INSERT into `matches` is still `42501`.
+  **The realtime warm-up is real, and it is a full two minutes.** The e2e run started
+  2m30s after the `ALTER PUBLICATION` and case 4 failed — the second subscriber got no
+  INSERT. The same run at 4m and again at 6m passed 14/14 unchanged. Nothing was fixed in
+  between. Same behaviour `00018`'s apply saw; do not judge a realtime failure inside
+  that window, and do not touch anything to "fix" it.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
 - `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values

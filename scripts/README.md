@@ -8,6 +8,7 @@ of the app bundle.
 | `sweep-e2e-users.mjs` | Deletes the test accounts an e2e run left behind in `auth.users`. Dry run by default. |
 | `e2e/mexa272-password-cases.py` | Seven-case check that `current_password` is enforced on password / recovery / magic-link / signup sessions (MEXA-272). Cleans up after itself. |
 | `e2e/mexa313-realtime-messages.mjs` | Eleven-case check that a `postgres_changes` subscription on `messages` really delivers: two sessions, one sends and the other has to hear it. The only thing that proves the chat live-updates, because `subscribe()` reports `SUBSCRIBED` whether or not any event will follow (MEXA-313). Cleans up after itself. |
+| `e2e/mexa294-realtime-matches.mjs` | Fourteen-case check that mutual matching works end to end: four sessions swipe through the real API, and the pair that likes each other has to get the `matches` INSERT over realtime and a queued push, while a non-participant gets neither (MEXA-294). The app's subscription is unfiltered, so case 6 — RLS gating delivery — is what keeps publishing the table from handing every signed-in user every match. Cleans up after itself. Give realtime **two minutes** after any `ALTER PUBLICATION` before believing a failure. |
 
 All of them need credentials from `archive/credentials/mazal-supabase.env` in the
 workspace, which is outside this repo and stays there:
