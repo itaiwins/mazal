@@ -68,8 +68,9 @@ is for: it has never been numeric (two `00003`s, two `00004`s, two `00005`s).
 the live set has holes on purpose.** `00016` is reviewed and PASSed but has never been
 carded for an apply, so `00017`, `00018` and everything after went on over the gap — each
 one checked to be independent of it before it was applied, and the per-migration notes
-below say which. `00012`, `00020`, `00026`, `00028` and `00029` are likewise
-absent from live (`00030` was applied on 2026-09-29, MEXA-385). **Do
+below say which. `00012`, `00026`, `00028` and `00029` are likewise
+absent from live (`00030` was applied on 2026-09-29, MEXA-385; `00020` on the same day,
+MEXA-394). **Do
 not "fix" the order to close a gap**, and do not read a numeric hole as a mistake: apply
 the full list on a new database, and on live go by the ledger plus the notes below. The
 measured census is in the *ledger lags the repo* note near the end of this section.
@@ -358,11 +359,26 @@ Notes on the order:
   **`rollback` 30/30** (`ROLLBACK.txt`) — `00019` then its rollback asserted against the
   `before` expectations, so the undo is bit-for-bit and puts the defect back rather than
   landing somewhere in between.
-- `00020` is **reviewed and not applied yet** — Guts passed it on MEXA-349 (2026-09-29), both
-  parts, after re-diffing the function body against `00001` and re-running `verify.mjs`
-  himself in all three modes. It waits only on Lelouch. **Re-verified against the current
-  baseline** on 2026-09-29 after `00021`, `00023`, `00024`, `00025` and `00030` had gone on:
-  `after` still **27/27**, nothing left behind (`.scratch/mazal-mexa297/AFTER_rebaseline.txt`).
+- `00020` **is applied** — 2026-09-29 12:03Z, from `mazal-restart` @ `d0a39ca` (the file itself
+  byte-identical to the reviewed `60aebb6`; `d0a39ca` only moved this record), after Guts's
+  review (MEXA-297 / MEXA-349, PASS on both parts, re-diffing the function body against
+  `00001` and re-running `verify.mjs` himself in all three modes) and Lelouch's approval and
+  apply on MEXA-394. One Management-API transaction holding the file body and the
+  `schema_migrations` insert, the file's own assertions passing before its `COMMIT`
+  (`.scratch/mazal-mexa297/APPLIED_00020_TX.sql`).
+  **A Safta can now like someone.** Post-apply, verified independently of the applier:
+  the ledger carries `00020`; `update_safta_stats` is `prosecdef = true` with
+  `proconfig = {search_path=public}`; `safta_likes` carries three policies —
+  `Safta can create likes:INSERT`, `Safta can view own likes:SELECT` and the new
+  `Safta can send own likes:UPDATE`; `safta_likes` and `user_safta_stats` are both still 0
+  rows. `verify.mjs --mode after` against live: **27/27**, rolled back, fixtures CLEAN
+  (`.scratch/mazal-mexa297/POSTAPPLY_after.txt`).
+  **To roll it back**, run the rollback file — **B** (the policy) then **A** (the function),
+  smallest first — plus `delete from supabase_migrations.schema_migrations where
+  version='00020'`, in one transaction.
+  It was **re-verified against the current baseline before the apply**, not only the one it was
+  reviewed on, because `00021`, `00023`, `00024`, `00025` and `00030` had gone on in between:
+  `after` still **27/27** (`.scratch/mazal-mexa297/AFTER_rebaseline.txt`).
   `00023_safta_connection_consent` is the only migration since that touches the Safta surface
   and it changes no `safta_likes` policy — it only cites `00020`'s one-way rule as precedent —
   so there is no overlap to reconcile. Pre-apply backup:
@@ -370,17 +386,23 @@ Notes on the order:
   it carries the `moderation_secrets` pepper; it holds the pre-state of both objects this file
   changes — the `update_safta_stats` body and `safta_likes`' two existing policies, with no
   UPDATE among them).
-  **One known gap it inherits rather than introduces:** `SET search_path = public` does not stop
-  `pg_temp` shadowing an unqualified relation name, so once this is applied
-  `update_safta_stats` becomes the **26th** DEFINER function in the set MEXA-379 sweeps to
-  `public, pg_temp` — the count `00028`'s header puts at 25. Guts raised it on the review as
-  MEXA-353 and explicitly did not block on it: the vector needs `CREATE TEMP TABLE`, PostgREST
-  exposes no DDL, and the worst case here is a Safta corrupting the counter on her own like.
-  `00020` is deliberately **not** amended for it — it is reviewed, and the pin belongs in
-  MEXA-379's sweep with the other 25 and with `check_for_match`, which is already live and
-  which `00020` cannot reach. Whoever writes that sweep: `CREATE OR REPLACE FUNCTION … SET
-  search_path = public` **overwrites** `proconfig`, so if the sweep lands before this file the
-  pin is silently reverted — apply `00020` first, or re-run the sweep after it.
+  **One known gap it inherits rather than introduces, and now carries live:**
+  `SET search_path = public` does not stop `pg_temp` shadowing an unqualified relation name, so
+  `update_safta_stats` is now the **26th** DEFINER function in the set MEXA-379 sweeps to
+  `public, pg_temp`. Measured after the apply: `select count(*) from pg_proc … where prosecdef
+  and 'search_path=public' = any(proconfig)` returns **26**, up from the 25 `00028`'s header
+  was written against — that header is corrected in the same commit as this note, prose only,
+  since nothing in `00028` keys on the number (its assertions name its own seven functions and
+  five triggers). Guts raised it on the review as MEXA-353 and explicitly did not block on it:
+  the vector needs `CREATE TEMP TABLE`, PostgREST exposes no DDL, neither client role holds
+  `CREATE` on any schema, and the worst case here is a Safta corrupting the counter on her own
+  like. `00020` was deliberately **not** amended for it — it was already reviewed, and the pin
+  belongs in MEXA-379's sweep with the other 25 and with `check_for_match`, which was already
+  live and which `00020` could not reach. **Ordering, for whoever applies that sweep:**
+  `CREATE OR REPLACE FUNCTION … SET search_path = public` **overwrites** `proconfig`, so a
+  later `CREATE OR REPLACE` of any swept function silently reverts its pin. `00020` is in
+  before the sweep, which is the safe order; the trap is live for any future migration that
+  replaces a swept function without re-stating the full pin.
   It **depends on nothing**: it
   replaces one function defined in `00001` and adds one policy to a table `00002` created,
   and no other file names either. In particular it is independent of `00016` and changes no
@@ -799,10 +821,11 @@ Notes on the order:
   every probe afterwards, and the refusal fires when `00026` is on top.
 - **The ledger lags the repo, re-measured 2026-09-29 (MEXA-326; first taken on MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
-  `00017`–`00019`, `00021`, `00023`, `00024`, `00025`, `00030`, `20250114`, `20250115`
+  `00017`–`00021`, `00023`, `00024`, `00025`, `00030`, `20250114`, `20250115`
   (`00025` added 2026-09-29 08:10Z, MEXA-314; `00023` after the MEXA-359 reading, on
-  MEXA-366; `00030` at 2026-09-29 10:43Z, MEXA-385 — 25 rows). So **`00012`, `00016` and
-  `00020` are absent**, and `00026`, `00028` and `00029` are written but not applied.
+  MEXA-366; `00030` at 2026-09-29 10:43Z, MEXA-385; `00020` at 12:03Z, MEXA-394 — 26 rows).
+  So **`00012` and `00016` are absent**, and `00026`, `00028` and `00029` are written but
+  not applied.
   One thing the version column cannot tell you: it keys on the numeric prefix alone, so
   the second file of each colliding pair — `00003_push_tokens`, `00004_safta_messages`,
   `00005_notification_triggers` — has **no row of its own**. `00003`–`00005` being present

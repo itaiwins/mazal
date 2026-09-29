@@ -29,7 +29,7 @@ Touching only `NEW`/`OLD` is always safe: no table is read, so no policy applies
 | Function | Trigger on | Sec | Body touches | Verdict |
 |---|---|---|---|---|
 | `check_for_match` | `swipes` AFTER INSERT | INV | reads `swipes` cross-side, inserts `matches` | **was broken, silently.** MEXA-296 / MEXA-294, fixed by `00017` → DEFINER + `search_path=public` |
-| `update_safta_stats` | `safta_likes` AFTER INSERT | INV | inserts `user_safta_stats` | **was broken, loudly.** Every Safta like failed `42501`. MEXA-297, fixed by `00020` → DEFINER + `search_path=public` |
+| `update_safta_stats` | `safta_likes` AFTER INSERT | DEF | inserts `user_safta_stats` | **was broken, loudly.** Every Safta like failed `42501`. MEXA-297, fixed by `00020` → DEFINER + `search_path=public`, **applied 2026-09-29**. Still owes `pg_temp` on that pin — MEXA-379 |
 | `update_match_last_message` | `messages` AFTER INSERT | INV | updates `matches` | works — but only because `matches` has an UPDATE policy admitting both participants. See below |
 | `update_updated_at` | `users` BEFORE UPDATE | INV | `NEW` only | safe by construction |
 | `update_notification_preferences_updated_at` | `notification_preferences`, `push_tokens` BEFORE UPDATE | INV | `NEW` only | safe by construction |
@@ -155,9 +155,18 @@ number should mean after a withdrawal is a product decision.
 1. Does the body touch any table other than `NEW`/`OLD`? If no, leave it INVOKER.
 2. If yes, is every row it touches one the acting user is admitted to by policy, for that
    exact command? If not, it must be `SECURITY DEFINER`.
-3. Every DEFINER function gets `SET search_path = public` (or `""` with everything
-   qualified). No exceptions.
-4. Schema-qualify anything outside `public` — postgis, pgcrypto, pg_net — or put
-   `extensions` on the pinned path.
+3. Every DEFINER function gets `SET search_path = public, pg_temp` — **`pg_temp` named, and
+   named last**. No exceptions. `SET search_path = public` on its own is *not* the safe
+   version of this rule and never was: Postgres searches the caller's temp schema for
+   relation and type names ahead of everything else whenever `pg_temp` is not listed
+   explicitly, so an unqualified `user_safta_stats` in a DEFINER body can be answered by a
+   temp table the caller planted. Measured — see the table above. The other correct answer is
+   `SET search_path = ''`, which is safe **because** it forces every name in the body to be
+   schema-qualified; the three functions this doc already calls correct use it. The two are
+   not interchangeable, and this rule used to imply they were (Guts, MEXA-353).
+4. Schema-qualify anything outside `public` — postgis, pgcrypto, pg_net — or put it on the
+   pinned path, still with `pg_temp` last: postgis callers need
+   `public, extensions, pg_temp`, because a bare `geography` resolves through `search_path`
+   too and dies `42704` without it.
 5. Prove it as the `authenticated` role, not as `postgres`. Every bug in this audit is
    invisible to a `postgres` session.

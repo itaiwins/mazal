@@ -54,12 +54,20 @@
 -- incident: severity unchanged, but the fix is now demonstrably load-bearing rather than
 -- lint compliance.
 --
--- **25 other DEFINER functions in `public` are pinned to `search_path=public` alone** and
--- therefore still carry this exact gap, `check_for_match` (00017) and
--- `send_push_notification` (00010) among them. They are deliberately NOT swept here: that
--- is a different set of functions with a different review surface, and folding 25 more
--- ALTERs into a migration filed for 7 would make this file hard to review for the thing it
--- is actually about. Filed as its own issue with an owner the same day.
+-- **26 other DEFINER functions in `public` are pinned to `search_path=public` alone** and
+-- therefore still carry this exact gap, `check_for_match` (00017),
+-- `send_push_notification` (00010) and `update_safta_stats` (00020) among them. They are
+-- deliberately NOT swept here: that is a different set of functions with a different review
+-- surface, and folding 26 more ALTERs into a migration filed for 7 would make this file hard
+-- to review for the thing it is actually about. Filed as MEXA-379, with an owner.
+--
+-- The count was 25 when this file was written and reviewed (MEXA-378). `00020` went live on
+-- 2026-09-29 and added `update_safta_stats` to the set, which Guts caught on that migration's
+-- review (MEXA-353). **Prose only — nothing in this file keys on the number.** Section 0c and
+-- section 3 assert against this file's own seven functions and five triggers by name, so
+-- `00020` landing first does not affect what `00028` does or whether it applies. Measured
+-- after that apply: `select count(*) from pg_proc … where prosecdef and 'search_path=public'
+-- = any(proconfig)` returns 26.
 --
 -- Nothing else in the notification chain needs touching: `send_push_notification(uuid,
 -- text, text, jsonb)`, which all four funnel into, is already DEFINER with `EXECUTE`
