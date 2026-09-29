@@ -265,6 +265,14 @@ points.
      rule is how you write a hole. Decide what it should mean, then fix it.
 4. RevenueCat: `mazal_orthodox` entitlement + `mazal_orthodox_monthly` / `_yearly`
    products and the App Store subscriptions. The $49.99/mo price is unreviewed.
+   Since MEXA-293 the code is ready for them: `(orthodox-auth)/paywall.tsx` makes a real
+   `purchasePackage` call and grants access only on an active `mazal_orthodox`
+   entitlement, and the login screens read that entitlement instead of the dead
+   `users.orthodox_subscription_status` column. Until the dashboard products exist,
+   `getAllPackages()` finds nothing and Subscribe says "Not Available Yet" — no access.
+   Note `(orthodox)/paywall.tsx` is a *second*, older paywall that still fakes its
+   purchase with a `setTimeout` (MEXA-345); it has to be fixed or deleted before the flag
+   goes on.
 5. Real shadchan data — the directory has no backing content.
 6. A rabbinic/community review of the guidelines and matching rules before launch, and
    Itai's sign-off on all Orthodox-facing copy.

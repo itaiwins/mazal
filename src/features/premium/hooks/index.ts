@@ -12,3 +12,6 @@ export {
   useBoost,
   usePaywall,
 } from './usePremium';
+
+export { useOrthodoxEntitlement } from './useOrthodoxEntitlement';
+export type { EntitlementOutcome } from './useOrthodoxEntitlement';
