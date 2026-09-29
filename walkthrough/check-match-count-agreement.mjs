@@ -136,6 +136,29 @@ const PROFILE_STAT = `(() => {
   return texts.length ? Number(texts[0]) : null;
 })()`;
 
+/**
+ * Every label in the Profile tab's stat row, in order.
+ *
+ * MEXA-341: `profile.profile_views` was a literal (`0` for a real user, `87` in demo mode)
+ * that no card ever rendered - the row is Safta Approvals (only with FEATURE_SAFTA_MODE),
+ * Matches and Complete. The field is gone; this asserts a "Profile Views" card does not
+ * come back without something behind it, since the main app records no views at all.
+ */
+const PROFILE_STAT_LABELS = `(() => {
+  const label = [...document.querySelectorAll('div')].find(
+    (el) => el.children.length === 0 && el.textContent.trim() === 'Matches'
+  );
+  const row = label && label.parentElement && label.parentElement.parentElement;
+  if (!row) return null;
+  return [...row.children].map((card) => {
+    const texts = [...card.querySelectorAll('div')]
+      .filter((el) => el.children.length === 0)
+      .map((el) => el.textContent.trim())
+      .filter(Boolean);
+    return texts.length ? texts[texts.length - 1] : null;
+  });
+})()`;
+
 /** The red badge on the Matches dot in the tab bar, or 0 when there is none. */
 const TAB_BADGE = `(() => {
   const hint = [...document.querySelectorAll('div')].find(
@@ -235,6 +258,14 @@ async function run() {
   record(stat === 1, 'the Profile tab stat reads 1 Matches', `read ${stat}`);
   const badgeOnProfile = await browser.evaluate(TAB_BADGE);
   record(badgeOnProfile === 1, 'the badge still reads 1 from the Profile tab', `read ${badgeOnProfile}`);
+
+  // MEXA-341: the stat row is exactly Matches + Complete while Safta mode is flagged off.
+  const statLabels = await browser.evaluate(PROFILE_STAT_LABELS);
+  record(
+    Array.isArray(statLabels) && !statLabels.includes('Profile Views'),
+    'the Profile tab shows no "Profile Views" stat',
+    `row = ${JSON.stringify(statLabels)}`
+  );
 
   record(
     stat === 1 && badgeOnProfile === 1 && listText.includes('Counthim'),

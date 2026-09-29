@@ -194,7 +194,6 @@ export default function ProfileScreen() {
     primary_photo: primaryPhoto,
     saftas_liked: demoProfile?.safta_approved_count || 4,
     matches_count: matchesCount,
-    profile_views: 87,
   } : {
     first_name: userProfile?.first_name || user?.first_name || 'User',
     age: userProfile?.age || calculateAge(user?.date_of_birth || null),
@@ -213,9 +212,12 @@ export default function ProfileScreen() {
     // The same useMatches() query the Matches screen and the tab badge read, so the three
     // cannot disagree. This was a literal 0 (MEXA-338, finding 10).
     matches_count: matchesCount,
-    // Still a placeholder: profile_views needs `20250115_profile_views.sql`, whose applied
-    // state on tayiyczmacvhokdxfqvm is unverified, and nothing renders it today. MEXA-341.
-    profile_views: 0,
+    // No profile_views here. This tab renders three stat cards - Safta Approvals (behind
+    // FEATURE_SAFTA_MODE), Matches and Complete - and never had a "Profile Views" one; the
+    // field was a literal nothing read. Mazal's only Profile Views card is the shidduch
+    // one in app/(shidduch-tabs)/my-profiles.tsx, which is backed by shidduch_profile_views
+    // and get_profile_stats. Main-app view tracking would be a new feature and a privacy
+    // decision (it logs who looked at whom), not a stat to wire up. MEXA-341.
   };
 
   // Calculate profile completeness
