@@ -1694,6 +1694,22 @@ keeping straight, because the guards in `00023` and `00031` assert `with_check I
 `WITH CHECK` pins `status` to a terminal value and keeps `pending` out, which `USING` never
 said. Do not "correct" them by analogy with `00034`, where the mirror was deleted.
 
+**The INSERT side is the same cross-product, and a fix that only revokes UPDATE leaves the
+door open.** `sweep3.mjs` / `SWEEP3.txt` runs it: INSERT policies, the `WITH CHECK` in place of
+`qual`, `has_column_privilege(..., 'INSERT')`. Most of its 337 hits are noise by construction —
+on a creation *every* column is caller-supplied, and that is the point of a creation. What
+matters is the subset that is **server-owned state on a brand-new row**, and it is the same
+list: `user_badges.badge_type`/`verified`, `user_photos.is_verified`,
+`shidduch_references.is_verified`, `safta_accounts.subscription_status`. A user does not need
+the UPDATE grant if they can carry the value in on the INSERT — which is exactly why `00024`
+section 3b asserts `has_column_privilege('authenticated', …, 'is_verified', 'INSERT')` is false
+rather than stopping at the UPDATE it revoked. Copy that assertion into anything that lands off
+MEXA-420. Two more from this pass, neither newly owned: `reports.status` is caller-supplied, so
+a report can be filed pre-`dismissed` (the moderation queue has no reader yet), and
+`safta_likes.sent_to_user`/`sent_at` are ungated on INSERT — which is the defect `00031` exists
+to fix and **`00031` is not in the live ledger** (`00026`, `00028`, `00029`, `00031` and `00035`
+are all in the repo and absent from `supabase_migrations.schema_migrations`, read 2026-09-29).
+
 ## Still to do on the backend
 
 - Deploy the three Edge Functions in `supabase/functions/` (`send-notification`,
