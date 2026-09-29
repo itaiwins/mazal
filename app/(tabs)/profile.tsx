@@ -25,7 +25,7 @@ import { spacing, borderRadius } from '@/theme/spacing';
 import { useDotNavigatorInset } from '@/components/navigation/DotNavigator';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
-import { useUserProfile } from '@/api/queries';
+import { useUserProfile, useMatchesCount } from '@/api/queries';
 import { supabase } from '@/api/supabase/client';
 import { DEMO_PROFILES } from '@/lib/demo/demoProfiles';
 import { FEATURE_PHOTO_VERIFICATION, FEATURE_SAFTA_MODE } from '@/lib/config/features';
@@ -138,6 +138,7 @@ export default function ProfileScreen() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const isDemoMode = useUIStore((s) => s.isDemoMode);
+  const matchesCount = useMatchesCount();
   const [saftasLikedCount, setSaftasLikedCount] = useState(0);
 
   // Fetch complete profile with photos, prompts, and badges
@@ -192,7 +193,7 @@ export default function ProfileScreen() {
     is_premium: true,
     primary_photo: primaryPhoto,
     saftas_liked: demoProfile?.safta_approved_count || 4,
-    matches_count: 12,
+    matches_count: matchesCount,
     profile_views: 87,
   } : {
     first_name: userProfile?.first_name || user?.first_name || 'User',
@@ -209,7 +210,11 @@ export default function ProfileScreen() {
     is_premium: userProfile?.is_premium || user?.is_premium || false,
     primary_photo: primaryPhoto,
     saftas_liked: saftasLikedCount,
-    matches_count: 0,
+    // The same useMatches() query the Matches screen and the tab badge read, so the three
+    // cannot disagree. This was a literal 0 (MEXA-338, finding 10).
+    matches_count: matchesCount,
+    // Still a placeholder: profile_views needs `20250115_profile_views.sql`, whose applied
+    // state on tayiyczmacvhokdxfqvm is unverified, and nothing renders it today. MEXA-341.
     profile_views: 0,
   };
 

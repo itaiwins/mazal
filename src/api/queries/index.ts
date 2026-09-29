@@ -6,7 +6,13 @@
 
 export { useUserProfile, useProfileById } from './useUserProfile';
 export { useDiscoveryProfiles } from './useDiscoveryProfiles';
-export { useMatches, useMatchById, useUnreadMatchesCount, type MatchWithPreview } from './useMatches';
+export {
+  useMatches,
+  useMatchById,
+  useUnreadMatchesCount,
+  useMatchesCount,
+  type MatchWithPreview,
+} from './useMatches';
 export { useMessages, useInfiniteMessages, useUnreadCount } from './useMessages';
 export {
   useWhoLikedMe,

@@ -9,6 +9,7 @@ import { supabase } from '@/api/supabase/client';
 import { queryKeys } from '@/lib/config/queryClient';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
+import { getDemoConversations } from '@/lib/demo/demoProfiles';
 import type { Match, UserPhoto, Message } from '@/types/database.types';
 
 /**
@@ -186,6 +187,29 @@ export function useUnreadMatchesCount(): number {
   }
 
   return data?.filter((m) => m.unreadCount > 0).length ?? 0;
+}
+
+/**
+ * How many matches there are — the number the Profile tab's "Matches" stat shows.
+ *
+ * Same query as the Matches screen and as the tab-bar badge, for the same reason: right
+ * after a first match the three surfaces read "1", "0 Matches" and "0" (MEXA-338, finding
+ * 10). The badge was fixed on MEXA-336; this was the remaining one, and it was not a stale
+ * store but a literal `matches_count: 0` in `app/(tabs)/profile.tsx`.
+ *
+ * Demo mode counts `getDemoConversations()`, which is what the Matches screen substitutes
+ * there, so the two agree in demo mode too — the stat used to be a hardcoded 12 against a
+ * demo list of 2.
+ */
+export function useMatchesCount(): number {
+  const isDemoMode = useUIStore((s) => s.isDemoMode);
+  const { data } = useMatches();
+
+  if (isDemoMode) {
+    return getDemoConversations().length;
+  }
+
+  return data?.length ?? 0;
 }
 
 /**
