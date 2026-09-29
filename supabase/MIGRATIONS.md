@@ -64,6 +64,16 @@ reshaped first. Applying `00026` first aborts at its guard 0d with
 not corrupt anything and can simply be run again after `00030`. This is what the order list
 is for: it has never been numeric (two `00003`s, two `00004`s, two `00005`s).
 
+**The list above is for a fresh database. It is not what is on `tayiyczmacvhokdxfqvm`, and
+the live set has holes on purpose.** `00016` is reviewed and PASSed but has never been
+carded for an apply, so `00017`, `00018` and everything after went on over the gap — each
+one checked to be independent of it before it was applied, and the per-migration notes
+below say which. `00012`, `00020`, `00026`, `00028`, `00029` and `00030` are likewise
+absent from live. **Do
+not "fix" the order to close a gap**, and do not read a numeric hole as a mistake: apply
+the full list on a new database, and on live go by the ledger plus the notes below. The
+measured census is in the *ledger lags the repo* note near the end of this section.
+
 Notes on the order:
 
 - `00000_extensions.sql` has to come first. `00001` declares
@@ -178,8 +188,15 @@ Notes on the order:
   adding a one-line `GRANT` in the same migration as the screen**, or the write returns
   42501. The migration header lists every granted column with the file:line that justifies
   it; keep that list true.
-- `00016` is **not applied yet** — same reason, waiting on Guts or Alucard (MEXA-274) and
-  then on Lelouch. It is written against the live post-`00014` state and **assumes `00014`
+- `00016` is **not applied yet**, and that is still true as of 2026-09-29 — re-measured
+  read-only on MEXA-326: no `00016` row in `supabase_migrations.schema_migrations`, and
+  `anon` still holds **126** table grants in `public`, which its
+  `REVOKE ALL ... FROM anon` would take to zero. It is **no longer waiting on a review**:
+  Guts PASSed it on MEXA-300. It is waiting on someone to card the apply for Lelouch, and
+  nobody has. **`00017` and `00018` went on live over this gap deliberately** — both were
+  checked to be independent of it first (see `00017`'s note below) — so the hole between
+  `00015` and `00017` in the ledger is intentional, not a skipped step to repair.
+  It is written against the live post-`00014` state and **assumes `00014`
   has been applied**: it does not repeat `00014`'s work and its rollback deliberately does
   *not* undo it (`reports` comes back as `anon=ar`, never `arwd`). It is independent of
   `00013` and `00015`: `00015` narrows what `authenticated` may write to `users` by column,
@@ -237,6 +254,44 @@ Notes on the order:
   INSERT. The same run at 4m and again at 6m passed 14/14 unchanged. Nothing was fixed in
   between. Same behaviour `00018`'s apply saw; do not judge a realtime failure inside
   that window, and do not touch anything to "fix" it.
+- `00018` **is applied** — 2026-09-29, from `mazal-restart` @ `c6ab722` (MEXA-313), after
+  Guts's review (MEXA-323, PASS) and Gojo's acceptance. The apply is not timestamped
+  anywhere: `supabase_migrations.schema_migrations` holds only `(version, statements,
+  name)`, so the tightest bound the thread gives is **between the commit at 01:01:29Z and
+  the report at 01:04:06Z** on 2026-09-29. Re-verified read-only against
+  `tayiyczmacvhokdxfqvm` on 2026-09-29 (MEXA-326): ledger row `00018` /
+  `publish_messages_to_realtime` is there, and `pg_publication_tables` for
+  `supabase_realtime` is exactly `public.messages` and `public.matches` — nothing else.
+  **It is the reason the chat live-updates at all.** `supabase_realtime` was an empty
+  publication, so Postgres never wrote row-level changes for `messages` to the WAL and
+  every `postgres_changes` subscription in the app received nothing while still reporting
+  `SUBSCRIBED`. A database without `00018` fails exactly that way: silently, with no
+  error anywhere. Two subscriptions depend on it, `useMessagesSubscription` (the chat) and
+  `useAllMessagesSubscription` (the unread badge).
+  It is independent of everything else. It names one table and one publication, adds no
+  column, policy or grant, and is idempotent — the `ALTER PUBLICATION` is guarded by an
+  existence check, so re-running it is a no-op. **Any order works**, including before
+  `00017` (which is how it actually went on live).
+  It **does not** set `REPLICA IDENTITY FULL`, deliberately; MEXA-322 took the same thing
+  out of `00017` for the reasons this file's header argues at length. Two consequences its
+  header records and that are now live: `payload.new.content` can be **absent** on the
+  read-receipt UPDATE for a TOASTed body, which is why the client merges `payload.new`
+  instead of replacing (case 6 of `scripts/e2e/mexa313-realtime-messages.mjs`); and
+  **realtime's DELETE path bypasses RLS by design**, so any authenticated client can now
+  see one DELETE event per deleted message — primary key only, no content, sender or
+  `match_id` (case 11). Read the header before changing either.
+  **It is the one migration from `00010` on with no rollback file.** To undo it, run
+  `ALTER PUBLICATION supabase_realtime DROP TABLE public.messages` and
+  `delete from supabase_migrations.schema_migrations where version='00018'` in one
+  transaction. Note `00017`'s rollback drops `matches` from the same publication and
+  deliberately leaves `messages` alone, because that one is this migration's.
+  Post-check: **11/11** through `scripts/e2e/mexa313-realtime-messages.mjs` — three real
+  sessions and live subscriptions, against **1/11** before the migration, the silent
+  failure measured on the wire rather than argued. **The realtime warm-up is real**: the
+  run straight after the apply missed its first three events and the re-run about two
+  minutes later passed 11/11 unchanged with nothing fixed in between. `00017`'s apply saw
+  the same thing at a full two minutes. Do not judge a realtime failure inside that
+  window.
 - `00019` **is applied** — 2026-09-29 02:17:07Z, from `mazal-restart` @ `976fe67` (the
   reviewed commit, unedited), after Guts's review (MEXA-289 / MEXA-330, PASS) and the apply
   on MEXA-331. The apply was one transaction holding the file body and the
@@ -681,11 +736,17 @@ Notes on the order:
   is still own-row-only, `anon` is `42501` on both the view and `profile_age()`, and `00026`
   on top returns `age: 29` with no birthdate. **`rollback` 15/15** — identical to `before` on
   every probe afterwards, and the refusal fires when `00026` is on top.
-- **The ledger lags the repo, measured 2026-09-29 (MEXA-359).**
+- **The ledger lags the repo, re-measured 2026-09-29 (MEXA-326; first taken on MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
-  `00017`–`00019`, `00021`, `00024`, `00025`, `20250114`, `20250115` (`00025` added
-  2026-09-29 08:10Z, MEXA-314). So **`00012`, `00016` and `00020`
-  are absent**, and `00026` is written but not applied. `00016` is not merely missing a ledger row, it is **not applied at all**: its
+  `00017`–`00019`, `00021`, `00023`, `00024`, `00025`, `20250114`, `20250115` (`00025`
+  added 2026-09-29 08:10Z, MEXA-314; `00023` after the MEXA-359 reading, on MEXA-366). So
+  **`00012`, `00016` and `00020` are absent**, and `00026`, `00028`, `00029` and `00030`
+  are written but not applied.
+  One thing the version column cannot tell you: it keys on the numeric prefix alone, so
+  the second file of each colliding pair — `00003_push_tokens`, `00004_safta_messages`,
+  `00005_notification_triggers` — has **no row of its own**. `00003`–`00005` being present
+  does not prove those three ran; check the objects, not the ledger.
+  `00016` is not merely missing a ledger row, it is **not applied at all**: its
   `REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM anon` has not run (`anon` still
   holds 126 table grants), and `colleges`, `swipes`, `user_safta_stats` and
   `notification_queue` all still grant `DELETE,INSERT,SELECT,UPDATE` to `authenticated`.
