@@ -79,6 +79,30 @@ neither `anon` nor `authenticated` holds `CREATE` on any schema, and neither can
 one — but it is one grant away, and `00017` pins the fifth DEFINER trigger function while
 leaving these four. Filed with the postgis item below.
 
+**Fixed by `00028_pin_function_search_path.sql` (MEXA-319) — and the fix is not the one
+this section assumed.** `SET search_path = public` does *not* close the hole: Postgres
+searches the caller's temp schema for relation and type names ahead of everything else
+whenever `pg_temp` is not named explicitly. Measured on `tayiyczmacvhokdxfqvm`
+(`.scratch/mazal-mexa319/PROBE_PGTEMP.txt`) against a throwaway DEFINER function shaped
+exactly like `notify_new_match`'s `SELECT first_name FROM users WHERE id = NEW.user1_id`:
+
+| pin | before a temp table | after `CREATE TEMP TABLE users` |
+|---|---|---|
+| (none) | real row | **attacker-controlled** |
+| `search_path = public` | real row | **attacker-controlled** |
+| `search_path = public, pg_temp` | real row | real row |
+
+And `has_database_privilege('authenticated', current_database(), 'TEMP')` is **true**,
+true for `anon` too — so unlike `CREATE` on a schema, that half of the vector is not one
+grant away, it is already granted. What is still missing is any way to *execute*
+`CREATE TEMP TABLE` from a client: PostgREST exposes no DDL. Severity is unchanged —
+hardening, not an incident — but the pin has to name `pg_temp` last to be worth making.
+
+Consequence for the rest of the schema: **the 25 DEFINER functions pinned to
+`search_path=public` alone still carry this exact gap**, `check_for_match` (00017) and
+`send_push_notification` (00010) among them. 00028 deliberately does not sweep them —
+different functions, different review surface — and they are filed separately.
+
 The function they all funnel into, `send_push_notification(uuid,text,text,jsonb)`, is
 already right: DEFINER, `search_path=public`, and `EXECUTE` revoked from both `anon` and
 `authenticated`, so a client cannot push an arbitrary notification to an arbitrary user.
@@ -101,6 +125,14 @@ update users set current_latitude = ..., current_longitude = ...  (search_path =
 
 So every profile save that carries coordinates depends on a PostgREST setting nothing in
 this repo controls. Schema-qualify them, or pin `search_path` to `public, extensions`.
+
+**Fixed by `00028_pin_function_search_path.sql` (MEXA-319)**, by the pin —
+`public, extensions, pg_temp` — rather than by qualifying the bodies, because the
+`DECLARE loc1 GEOGRAPHY` declarations resolve through `search_path` too, so qualifying
+would mean rewriting three function bodies to fix a name-resolution problem. Note the
+ordering hazard 00028's header calls out: had part 2 above not been done in the same
+migration, the next person to pin `update_user_location` to `public` alone — following the
+house habit — would have broken location writes for everyone.
 
 ## Nothing to backfill
 
