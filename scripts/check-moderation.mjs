@@ -97,7 +97,10 @@ const ALLOWED = [
   'I will shoot you pics of the dog',
   'I will shoot you that link',
   "I'll shoot you screenshots of the thread",
-  "I'll shoot you back a time that works",
+  "I'll shoot you back the details tomorrow",
+  "I'll shoot you a quick question",
+  "I'll shoot you the address later",
+  "I'll shoot you guys the info",
   "I'll shoot you whatever I find",
   "he's gonna shoot her wedding photos",
 
@@ -181,6 +184,26 @@ const BLOCKED = [
   "I'm gonna shoot you later",
   "I'm gonna shoot you punk",
   "I'm gonna shoot you it's over",
+  // A determiner is not the idiom: it introduces "text" and "bullet" alike, so the guard
+  // has to end on the thing being sent (MEXA-343, Guts, third pass). These nine cleared
+  // the determiner-only version.
+  "I'm gonna shoot you a bullet",
+  "I'm gonna shoot you a bullet to the head",
+  "I'm gonna shoot you a warning shot",
+  "I'm gonna shoot you this time",
+  "he's gonna shoot you your last breath",
+  "I'll shoot you your own gun",
+  "I'm gonna shoot you some lead",
+  "I'm gonna shoot you over there",
+  "I'm gonna shoot you back",
+  // ...and the same shape, found by looking for more of it.
+  "I'm gonna shoot you a hole in the head",
+  "I'm gonna shoot you the finger",
+  "I'm gonna shoot you a round",
+  "I'm gonna shoot you my gun",
+  "I'm gonna shoot you some bullets",
+  "I'm gonna shoot you a couple of rounds",
+  "I'm gonna shoot you a bullet text",
   'cocaine at the party',
   'send me money',
   'venmo me now',

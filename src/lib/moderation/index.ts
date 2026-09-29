@@ -62,10 +62,18 @@ const EXPLICIT_PATTERNS = [
   // everything else through; it defaulted to allow, and 13 of 14 ordinary threats walked
   // past it - "shoot you here", "at your house", "real quick", "point blank" (MEXA-343,
   // Guts, second pass). The ways an English sentence continues are not a list anybody can
-  // finish. The ways people say "I'll send you X" are: a determiner, or one of a handful of
-  // bare nouns. So `shoot <target>` blocks by default and only that shape clears it, which
-  // fails safe - an unlisted thing to send over-blocks and gets added here.
-  /\b(?:gonna|going\s+to|about\s+to|will|(?:'|’)ll|should|ought\s+to|needs?\s+to|wants?\s+to)\s+shoot\s+(?:you|u|her|him|them)\b(?!\s+(?:a|an|the|some|any|my|your|his|her|our|their|this|that|these|those|another|over|back|guys|gals|folks|details|info|information|pics|pictures|photos|screenshots|something|anything|stuff|notes|options|dates|links|questions|wedding|video|videos|footage|portraits|film|session|whatever|couple|few|several)\b)/gi,
+  // finish. So `shoot <target>` blocks by default and only the idiom clears it.
+  //
+  // The idiom is a *whole shape*, and the lookahead has to end on the thing being sent. A
+  // version of this line stopped at the determiner, and "shoot you a bullet", "a bullet to
+  // the head", "a warning shot" and "this time" all cleared it, because "a" introduces
+  // "text" and "bullet" alike (MEXA-343, Guts, third pass). So the tail below is
+  // `(over|back|guys)? (determiner)? (one adjective)? <a listed thing people send>`, and
+  // the noun at the end is the part that is not optional. `time` is deliberately absent:
+  // "shoot you this time" is a threat, so "shoot you back a time that works" over-blocks.
+  // The adjective slot is a list too, not a free word - a free one cleared "shoot you a
+  // bullet text", which is not English but is the sort of thing a person probes with.
+  /\b(?:gonna|going\s+to|about\s+to|will|(?:'|’)ll|should|ought\s+to|needs?\s+to|wants?\s+to)\s+shoot\s+(?:you|u|her|him|them)\b(?!\s+(?:(?:over|back|guys|gals|folks)\s+)?(?:(?:a|an|the|some|any|my|your|his|her|our|their|this|that|these|those|another|couple\s+of|few|several)\s+)?(?:(?:quick|short|brief|little|long|new|old|last|second|first|more|other|full|whole|rough|final|couple\s+of)\s+)?(?:texts?|messages?|msgs?|dms?|emails?|numbers?|details?|info|information|pics?|pictures?|photos?|screenshots?|something|anything|stuff|notes?|options?|dates?|links?|questions?|recipes?|addresses|address|invites?|wedding|videos?|footage|portraits?|film|session|whatever)\b)/gi,
   /\b(?:gonna|going\s+to|about\s+to|will|(?:'|’)ll|should|ought\s+to|needs?\s+to|wants?\s+to)\s+beat\s+(?:you|u|her|him|them)\s+up\b/gi,
   // Nobody named, so the harm lands on "you": "you're gonna get murdered".
   /\byou(?:\s*(?:'|’)?re|\s+are)?\s+(?:going\s+to\s+|gonna\s+|will\s+|about\s+to\s+|deserve\s+to\s+|should\s+)?(?:get|be)\s+(?:murdered|killed|stabbed|shot|raped|beat(?:en)?\s+up)\b/gi,
