@@ -22,6 +22,17 @@ interface AuthState {
   user: User | null;
   isLoading: boolean;
   isInitialized: boolean;
+  /**
+   * A `public.users` row is being fetched for the current session.
+   *
+   * The router in `app/index.tsx` needs this. `setSession` flips `isAuthenticated`
+   * synchronously, but the profile — and so `isOnboardingComplete` — now arrives a tick
+   * later, because fetching it inside the auth callback deadlocks supabase-js
+   * (MEXA-335, src/lib/auth/authStateSync.ts). Without a gate the router sees
+   * "authenticated, onboarding not complete" in that gap and sends a fully onboarded
+   * user to `/(onboarding)/welcome`. Never persisted.
+   */
+  isProfileLoading: boolean;
 
   // Dual-mode support
   currentMode: AppMode; // Which mode they're currently viewing
@@ -39,6 +50,7 @@ interface AuthState {
   setUser: (user: User | null) => void;
   setLoading: (loading: boolean) => void;
   setInitialized: (initialized: boolean) => void;
+  setProfileLoading: (loading: boolean) => void;
   setCurrentMode: (mode: AppMode) => void;
   toggleMode: () => void;
   setHasSaftaProfile: (has: boolean) => void;
@@ -55,6 +67,7 @@ const initialState = {
   user: null,
   isLoading: true,
   isInitialized: false,
+  isProfileLoading: false,
   currentMode: 'user' as AppMode,
   hasSaftaProfile: false,
   hasShidduchProfile: false,
@@ -129,6 +142,8 @@ export const useAuthStore = create<AuthState>()(
 
       setInitialized: (isInitialized) => set({ isInitialized }),
 
+      setProfileLoading: (isProfileLoading) => set({ isProfileLoading }),
+
       updateUser: (updates) =>
         set((state) => ({
           user: state.user ? { ...state.user, ...updates } : null,
@@ -179,6 +194,7 @@ export const selectIsAuthenticated = (state: AuthState) => state.isAuthenticated
 export const selectUser = (state: AuthState) => state.user;
 export const selectIsOnboardingComplete = (state: AuthState) => state.isOnboardingComplete;
 export const selectIsLoading = (state: AuthState) => state.isLoading;
+export const selectIsProfileLoading = (state: AuthState) => state.isProfileLoading;
 export const selectCurrentMode = (state: AuthState) => state.currentMode;
 export const selectIsSaftaMode = (state: AuthState) => state.isSaftaMode;
 export const selectHasSaftaProfile = (state: AuthState) => state.hasSaftaProfile;

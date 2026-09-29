@@ -5,7 +5,8 @@ build of `mazal-restart`, driven in headless Chrome at a 390×844 phone viewport
 against the live Supabase project `tayiyczmacvhokdxfqvm`. Nothing is a mockup and nothing
 is from reading code alone unless it says so.
 
-**None of this is fixed here.** MEXA-328 asked for the list, not the repairs.
+**None of this was fixed here.** MEXA-328 asked for the list, not the repairs. Repairs
+happen on their own issues since; a finding that has been fixed says so at the top of it.
 
 ## How to read the "iOS?" line
 
@@ -24,6 +25,12 @@ minute and this render cannot.
 # Blockers — check these before a build goes to testers
 
 ## 1. Tapping the confirmation link signs you in, then wedges the app
+
+> **Fixed on MEXA-335.** The callback below is synchronous now and the profile fetch is
+> deferred out of the auth lock — `src/lib/auth/authStateSync.ts`. Re-checked in this
+> same render: `walkthrough/check-auth-entry.mjs --with-confirm`, case 7. The "iOS?"
+> question below is answered too, and the answer was yes: `scripts/e2e/mexa335-auth-lock-deadlock.mjs`
+> reproduces the deadlock on `lockNoOp`, which is the lock React Native uses.
 
 *Pack screens 7–8.* The link from the real confirmation email lands on
 `app/auth/confirm.tsx`, which shows "Confirming your email…" and never changes. The
@@ -54,6 +61,10 @@ supabase-js picks (`navigator.locks` on web, an in-process lock elsewhere), so I
 assume it reproduces until a device says otherwise. **Must be checked on a device.**
 
 ## 2. Reopening the app with a saved session is a permanent blank screen
+
+> **Fixed on MEXA-335**, same cause and same fix as finding 1. Re-checked in this render:
+> `walkthrough/check-auth-entry.mjs`, cases 3–5, which assert on the console line that
+> used to be the last one printed.
 
 *Reproduced on its own, outside the pack — this is why the pack's step 9 starts from a
 fresh launch.* Sign in, then load the app again with the session still in storage: white

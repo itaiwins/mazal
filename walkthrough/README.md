@@ -92,6 +92,7 @@ somewhere odd, run it by hand rather than relying on the sweep.
 | `patch-export.mjs` | Strips `import.meta.env` out of the exported bundle. Without it the bundle does not parse and every screenshot is blank. |
 | `fixtures.mjs` | The two test users on the live project: seed, the real confirmation link, the like, the messages, teardown, counts. |
 | `shoot.mjs` | The walkthrough itself. Writes a screenshot per screen plus `manifest.json` recording how each one was reached. |
+| `check-auth-entry.mjs` | Added by MEXA-335. Asserts, rather than screenshots, the two auth entry points that NOTES.md findings 1 and 2 broke: a relaunch carrying a saved session, and the confirmation link. Phase A sends no email; phase B (`--with-confirm`) sends one. |
 | `build-pack.mjs` | `manifest.json` → `INDEX.md` + one PDF, printed by the same headless Chrome. |
 | `web-shims/` | Stand-ins for the three native-only modules, loaded only under `MAZAL_WEB_SHIMS=1`. They export nothing usable on purpose. |
 

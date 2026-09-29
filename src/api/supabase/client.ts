@@ -121,14 +121,17 @@ export async function getCurrentUser() {
   return data.user;
 }
 
-/**
- * Subscribe to auth state changes
+/*
+ * Auth state changes are subscribed to through
+ * `src/lib/auth/authStateSync.ts#subscribeToAuthState`, not from here.
+ *
+ * The thin `onAuthStateChange(callback)` wrapper that used to live here typed its
+ * callback as returning `void` while happily accepting an `async` one, and that is how
+ * MEXA-335 got in: supabase-js runs the callback while holding its auth lock and awaits
+ * it, so any `await`ed Supabase call inside deadlocks the whole client — the confirm
+ * screen hung forever and every second launch was a white screen. `authStateSync`
+ * exists so there is one synchronous handler and one place that explains why.
  */
-export function onAuthStateChange(
-  callback: (event: string, session: any) => void
-) {
-  return supabase.auth.onAuthStateChange(callback);
-}
 
 // Export types
 export type SupabaseClient = typeof supabase;

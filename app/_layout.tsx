@@ -29,7 +29,8 @@ import { useOnboardingStore } from '@/stores/onboardingStore';
 import { useShidduchOnboardingStore } from '@/stores/shidduchOnboardingStore';
 
 // Supabase
-import { supabase, onAuthStateChange } from '@/api/supabase/client';
+import { supabase } from '@/api/supabase/client';
+import { loadUserProfile, subscribeToAuthState } from '@/lib/auth/authStateSync';
 
 // Notifications
 import { useNotificationHandler, useNotificationNavigation } from '@/lib/notifications';
@@ -66,6 +67,7 @@ export default function RootLayout() {
   const setUser = useAuthStore((s) => s.setUser);
   const setInitialized = useAuthStore((s) => s.setInitialized);
   const setLoading = useAuthStore((s) => s.setLoading);
+  const setProfileLoading = useAuthStore((s) => s.setProfileLoading);
   const setHasShidduchProfile = useAuthStore((s) => s.setHasShidduchProfile);
 
   useEffect(() => {
@@ -127,29 +129,22 @@ export default function RootLayout() {
               console.log('[Layout] Auth user verified');
               setSession(session);
 
-              // Fetch user profile
-              const { data: profile } = await supabase
-                .from('users')
-                .select('*')
-                .eq('auth_id', session.user.id)
-                .single();
+              // Fetch the public.users row (and, when Orthodox mode is on, the
+              // shidduch profile). Safe to await here: we are not inside an
+              // onAuthStateChange callback, so no auth lock is held (MEXA-335).
+              const { profile, hasShidduchProfile, failed } = await loadUserProfile(
+                supabase,
+                session.user.id,
+                { orthodoxModeEnabled: FEATURE_ORTHODOX_MODE }
+              );
 
-              setUser(profile);
+              if (!failed) {
+                setUser(profile);
+              }
 
-              // Also check if user has a shidduch profile in database
-              // (in case metadata wasn't saved correctly). Skipped while Orthodox mode
-              // is hidden behind a flag (docs/ROADMAP.md).
-              if (profile && FEATURE_ORTHODOX_MODE) {
-                const { data: shidduchProfile } = await supabase
-                  .from('shidduch_profiles')
-                  .select('id')
-                  .eq('user_id', profile.id)
-                  .single();
-
-                if (shidduchProfile) {
-                  console.log('[Layout] Found shidduch profile in database');
-                  setHasShidduchProfile(true);
-                }
+              if (hasShidduchProfile) {
+                console.log('[Layout] Found shidduch profile in database');
+                setHasShidduchProfile(true);
               }
             }
           } catch (verifyErr) {
@@ -177,52 +172,27 @@ export default function RootLayout() {
 
     prepare();
 
-    // Subscribe to auth changes
-    const { data: { subscription } } = onAuthStateChange(async (event, session) => {
-      console.log('Auth event:', event, '| Has session:', !!session);
-
-      // Clear all user data on sign out
-      if (event === 'SIGNED_OUT') {
-        console.log('[Layout] SIGNED_OUT event received - clearing all stores');
+    // Subscribe to auth changes.
+    //
+    // The handler is deliberately synchronous and lives in its own module. An `async`
+    // callback that awaits a Supabase query here deadlocks the entire auth client:
+    // supabase-js runs this callback inside its auth lock and waits for it, and the
+    // query needs the same lock to read the access token. That is what wedged the
+    // confirm screen and made every second launch a white screen (MEXA-335) — see the
+    // header of src/lib/auth/authStateSync.ts.
+    const subscription = subscribeToAuthState({
+      client: supabase,
+      setSession,
+      setUser,
+      setHasShidduchProfile,
+      setProfileLoading,
+      orthodoxModeEnabled: FEATURE_ORTHODOX_MODE,
+      onSignedOut: () => {
         // Reset onboarding stores to prevent data leaking between accounts
         useOnboardingStore.getState().reset();
         useShidduchOnboardingStore.getState().reset();
         console.log('[Layout] Onboarding stores cleared');
-      }
-
-      // Debug: Log token refresh events
-      if (event === 'TOKEN_REFRESHED') {
-        console.log('[Layout] Token was refreshed successfully');
-      }
-
-      setSession(session);
-
-      if (session?.user) {
-        const { data: profile } = await supabase
-          .from('users')
-          .select('*')
-          .eq('auth_id', session.user.id)
-          .single();
-
-        setUser(profile);
-
-        // Also check if user has a shidduch profile in database (skipped while
-        // Orthodox mode is hidden behind a flag - docs/ROADMAP.md)
-        if (profile && FEATURE_ORTHODOX_MODE) {
-          const { data: shidduchProfile } = await supabase
-            .from('shidduch_profiles')
-            .select('id')
-            .eq('user_id', profile.id)
-            .single();
-
-          if (shidduchProfile) {
-            console.log('[Layout] Auth change: Found shidduch profile');
-            setHasShidduchProfile(true);
-          }
-        }
-      } else {
-        setUser(null);
-      }
+      },
     });
 
     return () => {

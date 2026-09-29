@@ -15,6 +15,7 @@ import { FEATURE_ORTHODOX_MODE, FEATURE_SAFTA_MODE } from '@/lib/config/features
 export default function Index() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isInitialized = useAuthStore((s) => s.isInitialized);
+  const isProfileLoading = useAuthStore((s) => s.isProfileLoading);
   const isOnboardingComplete = useAuthStore((s) => s.isOnboardingComplete);
   const hasSaftaProfile = useAuthStore((s) => s.hasSaftaProfile);
   const hasShidduchProfile = useAuthStore((s) => s.hasShidduchProfile);
@@ -25,8 +26,12 @@ export default function Index() {
   const isOrthodoxMode = useUIStore((s) => s.isOrthodoxMode) && FEATURE_ORTHODOX_MODE;
   const isSaftaMode = currentMode === 'safta' && FEATURE_SAFTA_MODE;
 
-  // Show loading while initializing
-  if (!isInitialized) {
+  // Show loading while initializing, and while the signed-in user's profile is still on
+  // its way. `setSession` makes `isAuthenticated` true immediately, but the profile —
+  // and with it `isOnboardingComplete` — lands a tick later, because loading it inside
+  // the auth callback deadlocks supabase-js (MEXA-335). Routing during that gap sends a
+  // fully onboarded user to `/(onboarding)/welcome`.
+  if (!isInitialized || (isAuthenticated && isProfileLoading)) {
     return (
       <View style={styles.container}>
         <ActivityIndicator size="large" color={colors.primary.gold} />
