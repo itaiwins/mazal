@@ -35,6 +35,7 @@ interface PremiumState {
   setEntitlements: (entitlements: PremiumEntitlements) => void;
   setOfferings: (offerings: Record<string, unknown> | null) => void;
   useSuperLike: () => boolean;
+  restoreSuperLike: () => void;
   useBoost: () => boolean;
   useSwipe: () => boolean;
   resetWeeklyLimits: () => void;
@@ -123,6 +124,28 @@ export const usePremiumStore = create<PremiumState>()(
         }
 
         return false;
+      },
+
+      // Rewind gives a Super Like back (MEXA-372). `undo_last_swipe()` deletes the `swipes`
+      // row, so the Super Like it was spent on no longer exists - keeping the charge would
+      // burn one of Gold/Platinum's five weekly Super Likes on a swipe nobody can see. The
+      // daily swipe counter needs no equivalent: Rewind is Gold/Platinum only and both have
+      // `dailySwipes: Infinity`, so `useSwipe()` never decremented anything for them.
+      //
+      // Written as "refuse at the cap" rather than `Math.min(n + 1, cap)` on purpose. A
+      // DEV_BYPASS_PREMIUM build starts at 999 with the platinum cap of 5, and clamping
+      // would quietly cut it down to 5 on the first rewind. This can only ever raise the
+      // counter, never lower it.
+      restoreSuperLike: () => {
+        const { superLikesRemaining, entitlements } = get();
+        const plan = entitlements.plan as keyof typeof FEATURE_LIMITS;
+        const limits = FEATURE_LIMITS[plan] || FEATURE_LIMITS.free;
+
+        if (superLikesRemaining >= limits.superLikesPerWeek) {
+          return;
+        }
+
+        set({ superLikesRemaining: superLikesRemaining + 1 });
       },
 
       useSwipe: () => {

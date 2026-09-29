@@ -80,6 +80,10 @@ interface ProfileStoryProps {
   onPass: () => void;
   onLike: (likedContent: LikedContent[]) => void;
   onSuperLike: () => void;
+  /** Rewind the last swipe, passed straight through to the footer (MEXA-372). */
+  onRewind?: () => void;
+  rewindLocked?: boolean;
+  rewindBusy?: boolean;
 }
 
 // Prompt question mapping
@@ -107,7 +111,15 @@ const PROMPT_QUESTIONS: Record<string, string> = {
   weirdly_good_at: 'I\'m weirdly good at:',
 };
 
-export function ProfileStory({ profile, onPass, onLike, onSuperLike }: ProfileStoryProps) {
+export function ProfileStory({
+  profile,
+  onPass,
+  onLike,
+  onSuperLike,
+  onRewind,
+  rewindLocked,
+  rewindBusy,
+}: ProfileStoryProps) {
   const insets = useSafeAreaInsets();
   const scrollY = useSharedValue(0);
   const [likedContent, setLikedContent] = useState<LikedContent[]>([]);
@@ -300,6 +312,9 @@ export function ProfileStory({ profile, onPass, onLike, onSuperLike }: ProfileSt
         onPass={handlePass}
         onLike={handleLike}
         onSuperLike={handleSuperLike}
+        onRewind={onRewind}
+        rewindLocked={rewindLocked}
+        rewindBusy={rewindBusy}
         profileName={profile.first_name}
         hasLikedSomething={hasLikedSomething}
       />

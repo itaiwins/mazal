@@ -174,6 +174,7 @@ export function useFeatureGate(feature: PremiumFeature): boolean {
 export function useSuperLikes() {
   const superLikesRemaining = usePremiumStore((s) => s.superLikesRemaining);
   const useSuperLike = usePremiumStore((s) => s.useSuperLike);
+  const restoreSuperLike = usePremiumStore((s) => s.restoreSuperLike);
   const entitlements = usePremiumStore((s) => s.entitlements);
 
   const isPlatinum = entitlements.plan === 'mazal_platinum';
@@ -187,6 +188,8 @@ export function useSuperLikes() {
     max: maxSuperLikes,
     canUseSuperLike: superLikesRemaining > 0,
     useSuperLike,
+    // Rewinding a Super Like hands the credit back (MEXA-372).
+    restoreSuperLike,
     periodLabel: 'week',
   };
 }

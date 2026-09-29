@@ -4,7 +4,7 @@
  * Profile Story experience - scroll through full profiles and engage with content
  */
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, Dimensions, ActivityIndicator, Modal, ScrollView, Image, Alert } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,9 +30,9 @@ import { useUIStore } from '@/stores/uiStore';
 import { useDiscoveryStore } from '@/stores/discoveryStore';
 import { useAuthStore } from '@/stores/authStore';
 import { usePremiumStore } from '@/stores/premiumStore';
-import { useSuperLikes, useSwipeLimits } from '@/features/premium/hooks/usePremium';
+import { useCanRewind, useSuperLikes, useSwipeLimits } from '@/features/premium/hooks/usePremium';
 import { useDiscoveryProfiles } from '@/api/queries';
-import { useSwipe } from '@/api/mutations';
+import { useSwipe, useUndoSwipe } from '@/api/mutations';
 import { useMatchesSubscription } from '@/api/realtime';
 import { StarOfDavid } from '@/components/icons/StarOfDavid';
 import { ProfileStory, CardStack, ActionButtons } from '@/components/discovery';
@@ -256,7 +256,9 @@ export default function DiscoveryScreen() {
 
   // Premium state and hooks
   const showPaywallModal = usePremiumStore((s) => s.showPaywallModal);
-  const { remaining: superLikesRemaining, canUseSuperLike, useSuperLike } = useSuperLikes();
+  const { remaining: superLikesRemaining, canUseSuperLike, useSuperLike, restoreSuperLike } =
+    useSuperLikes();
+  const canRewind = useCanRewind();
   const { canSwipe, useSwipe: useSwipeLimit, isUnlimited, remaining: swipesRemaining, checkAndResetLimits } = useSwipeLimits();
 
   // Interstitial ads - tracks swipes and shows ad every 10 swipes
@@ -295,6 +297,13 @@ export default function DiscoveryScreen() {
   // API queries
   const { data: apiProfiles, isLoading, refetch } = useDiscoveryProfiles();
   const swipeMutation = useSwipe();
+  const undoSwipeMutation = useUndoSwipe();
+
+  // Who a successful rewind put back in the deck, so the effect that reacts to the refetch
+  // can land on them (MEXA-372). A ref, not state: it is written inside a mutation callback
+  // and read by an effect keyed on `apiProfiles`, and a ref cannot be read stale from the
+  // render that happened to be in flight when the callback fired.
+  const rewoundUserIdRef = useRef<string | null>(null);
 
   // Subscribe to matches
   useMatchesSubscription(() => {});
@@ -476,9 +485,98 @@ export default function DiscoveryScreen() {
     );
   }, [currentProfile, swipeMutation, showCelebration, getPhotoUrl, isTransitioning, canUseSuperLike, useSuperLike, showPaywallModal, trackSwipe]);
 
-  // Reset on profile change
+  // Handle rewind (undo the last swipe)
+  //
+  // MEXA-372: the app has sold "Rewind last swipe" on the plan card, in the comparison
+  // table and in the paywall's own `rewind` prompt since long before anything called
+  // `useUndoSwipe`, which until now was exported and invoked from nowhere. This is the
+  // affordance that makes the claim true.
+  //
+  // Nothing here decides whether the rewind is allowed. `public.undo_last_swipe()` (00025,
+  // applied) owns all three rules - it is the caller's own swipe, it is under 30 seconds
+  // old by the *server's* clock, and the pair has not matched - and the hook turns a
+  // refusal into a thrown error carrying the reason. So this handler has exactly two jobs:
+  // check the entitlement the server has no way to see, and show whatever came back.
+  const handleRewind = useCallback(() => {
+    if (isTransitioning || undoSwipeMutation.isPending) return;
+
+    // The one gate that has to live on the device. There is no server-side entitlement to
+    // read - `public.subscriptions` has a SELECT policy and no writer anywhere in the repo,
+    // so it is empty and checking it would refuse every paying user (00025's header;
+    // closing that gap is MEXA-373's shape of problem, filed separately). The 30-second
+    // window in the function is the abuse bound in the meantime.
+    if (!canRewind) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      // "Rewind" has to appear in this string, and "Super" must not: PaywallPromptModal
+      // picks the feature card by scanning the reason for keywords, testing `super` before
+      // `rewind` and `rewind` before `swipe` (MEXA-315).
+      showPaywallModal(
+        'Rewind lets you undo your last swipe. Upgrade to Mazal Gold to get it.',
+        'gold'
+      );
+      return;
+    }
+
+    undoSwipeMutation.mutate(undefined, {
+      onSuccess: ({ undoneSwipe }) => {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+        // Give the Super Like back. Gold and Platinum get five a week, and the swipe it was
+        // spent on no longer exists, so keeping the charge would quietly bill a paid
+        // allowance for nothing. The daily swipe counter needs no equivalent: Rewind is
+        // Gold/Platinum only and both have `dailySwipes: Infinity`, so `useSwipeLimit()`
+        // never took anything from them.
+        if (undoneSwipe.action === 'super_like') {
+          restoreSuperLike();
+        }
+
+        // The hook has already invalidated the deck. Record who to land on; the effect
+        // below picks them out of the refetched list.
+        rewoundUserIdRef.current = undoneSwipe.swiped_id;
+      },
+      onError: (error: unknown) => {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        // Every refusal has a sentence - `no_swipe`, `too_old` and `matched` each read
+        // differently, which is the whole reason 00025 returns a reason instead of a silent
+        // zero-row delete. Showing it is what stops Rewind from lying again.
+        Alert.alert(
+          'Rewind',
+          error instanceof Error ? error.message : 'Rewind failed. Please try again.'
+        );
+      },
+    });
+  }, [
+    isTransitioning,
+    undoSwipeMutation,
+    canRewind,
+    showPaywallModal,
+    restoreSuperLike,
+  ]);
+
+  // Reset on profile change - except after a rewind, which lands on the person it undid.
+  //
+  // Every swipe invalidates `queryKeys.discovery.all`, so the deck refetches without the
+  // person just swiped on and this effect puts the pointer back at the top of it. A rewind
+  // invalidates the same key, so the deck comes back *with* that person - but where they
+  // land depends on the deck's sort (`has_liked_me`, then `elo_score`), not on where they
+  // were before. Index arithmetic (`currentIndex - 1`) would be a guess. Finding them by id
+  // in the refetched list is the only thing that actually reopens the card the user asked
+  // to see again (MEXA-372).
+  //
+  // Falls through to 0 if they are not in the new deck. That is a real case, not a
+  // defensive nicety: the deck's 50-row limit and its age/distance/gender filters can all
+  // exclude somebody the user swiped on before changing a filter.
   useEffect(() => {
-    setCurrentIndex(0);
+    const rewoundUserId = rewoundUserIdRef.current;
+    rewoundUserIdRef.current = null;
+
+    if (!rewoundUserId) {
+      setCurrentIndex(0);
+      return;
+    }
+
+    const restoredIndex = profiles.findIndex((p: any) => p.id === rewoundUserId);
+    setCurrentIndex(restoredIndex >= 0 ? restoredIndex : 0);
   }, [apiProfiles]);
 
   // Safta handlers
@@ -695,7 +793,10 @@ export default function DiscoveryScreen() {
                   onPass={handlePass}
                   onLike={() => handleLike([])}
                   onSuperLike={handleSuperLike}
-                  disabled={isTransitioning}
+                  onRewind={handleRewind}
+                  rewindLocked={!canRewind}
+                  rewindBusy={undoSwipeMutation.isPending}
+                  disabled={isTransitioning || undoSwipeMutation.isPending}
                   hasLikedSomething={false}
                   superLikesRemaining={superLikesRemaining}
                   swipesRemaining={swipesRemaining}
@@ -715,6 +816,9 @@ export default function DiscoveryScreen() {
                   onPass={handlePass}
                   onLike={handleLike}
                   onSuperLike={handleSuperLike}
+                  onRewind={handleRewind}
+                  rewindLocked={!canRewind}
+                  rewindBusy={undoSwipeMutation.isPending}
                 />
               </Animated.View>
             )
@@ -784,6 +888,16 @@ export default function DiscoveryScreen() {
                 handleCloseProfileModal();
                 handleSuperLike();
               }}
+              // Close first, like the other three. It is not just for symmetry here: the
+              // paywall prompt and the refusal Alert both render from app/_layout.tsx,
+              // underneath this `pageSheet` Modal, so a free user's tap would otherwise
+              // look like it did nothing at all.
+              onRewind={() => {
+                handleCloseProfileModal();
+                handleRewind();
+              }}
+              rewindLocked={!canRewind}
+              rewindBusy={undoSwipeMutation.isPending}
             />
           </View>
         </Modal>

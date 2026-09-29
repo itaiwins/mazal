@@ -1,12 +1,13 @@
 /**
  * ActionButtons Component
  *
- * Floating glass-morphism action buttons for Pass/Like/Super Like.
+ * Floating glass-morphism action buttons for Rewind/Pass/Like/Super Like.
  * Part of the "Constellation Dating" redesign.
  */
 
 import React, { useEffect } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   StyleSheet,
@@ -37,6 +38,19 @@ interface ActionButtonsProps {
   onPass: () => void;
   onLike: () => void;
   onSuperLike: () => void;
+  /**
+   * Rewind the last swipe (MEXA-372). Leave it out and no Rewind button is rendered,
+   * which is how this bar behaved before - the caller decides whether the screen has
+   * anything to rewind.
+   */
+  onRewind?: () => void;
+  /**
+   * Free tier. The button is still shown, because that is what the paywall's `rewind`
+   * prompt needs a trigger for, but it wears a lock so nobody reads it as broken.
+   */
+  rewindLocked?: boolean;
+  /** A rewind is in flight: spinner instead of the icon. */
+  rewindBusy?: boolean;
   disabled?: boolean;
   hasLikedSomething?: boolean;
   superLikesRemaining?: number;
@@ -48,6 +62,9 @@ export function ActionButtons({
   onPass,
   onLike,
   onSuperLike,
+  onRewind,
+  rewindLocked = false,
+  rewindBusy = false,
   disabled = false,
   hasLikedSomething = false,
   superLikesRemaining,
@@ -98,6 +115,17 @@ export function ActionButtons({
 
       {/* Action Buttons Row */}
       <View style={styles.buttonsRow}>
+        {/* Rewind Button - the affordance behind the paid "Rewind last swipe" (MEXA-372) */}
+        {onRewind && (
+          <ActionButton
+            type="rewind"
+            onPress={onRewind}
+            disabled={disabled}
+            locked={rewindLocked}
+            busy={rewindBusy}
+          />
+        )}
+
         {/* Pass Button */}
         <ActionButton
           type="pass"
@@ -136,11 +164,15 @@ export function ActionButtons({
 
 // Individual Action Button Component
 interface ActionButtonProps {
-  type: 'pass' | 'like' | 'superLike';
+  type: 'pass' | 'like' | 'superLike' | 'rewind';
   onPress: () => void;
   disabled?: boolean;
   hasLikedSomething?: boolean;
   remaining?: number;
+  /** Rewind only: the feature is sold but this user has not bought it. */
+  locked?: boolean;
+  /** Rewind only: the request is in flight. */
+  busy?: boolean;
 }
 
 function ActionButton({
@@ -149,6 +181,8 @@ function ActionButton({
   disabled = false,
   hasLikedSomething = false,
   remaining,
+  locked = false,
+  busy = false,
 }: ActionButtonProps) {
   const scale = useSharedValue(1);
 
@@ -173,6 +207,9 @@ function ActionButton({
         break;
       case 'superLike':
         HapticPatterns.superLike();
+        break;
+      case 'rewind':
+        HapticPatterns.undo();
         break;
     }
 
@@ -206,9 +243,24 @@ function ActionButton({
       iconColor: '#4A90D9',
       style: styles.superLikeButton,
     },
+    rewind: {
+      size: 48,
+      // `arrow-undo` rather than the paywall card's `refresh`: this sits next to Pass and
+      // Like, where a circular arrow reads as "reload the deck".
+      icon: 'arrow-undo',
+      iconSize: 22,
+      iconColor: locked ? colors.transparent.white40 : colors.primary.gold,
+      style: locked ? styles.rewindButtonLocked : styles.rewindButton,
+    },
   };
 
   const config = buttonConfig[type];
+
+  const label =
+    type === 'pass' ? 'Pass'
+    : type === 'superLike' ? 'Bashert'
+    : type === 'rewind' ? 'Rewind'
+    : 'Like';
 
   return (
     <Pressable
@@ -216,6 +268,11 @@ function ActionButton({
       onPressOut={handlePressOut}
       onPress={handlePress}
       disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={
+        type === 'rewind' && locked ? 'Rewind, Mazal Gold feature' : label
+      }
+      accessibilityState={{ disabled, busy }}
     >
       <Animated.View
         style={[
@@ -225,7 +282,9 @@ function ActionButton({
           animatedStyle,
         ]}
       >
-        {type === 'superLike' ? (
+        {busy ? (
+          <ActivityIndicator size="small" color={colors.primary.gold} />
+        ) : type === 'superLike' ? (
           <View style={styles.superLikeContent}>
             <LinearGradient
               colors={['#4A90D9', '#2E5F99', '#1E3A5F']}
@@ -257,13 +316,22 @@ function ActionButton({
         )}
       </Animated.View>
 
-      {/* Label */}
+      {/* Lock badge - outside the button, which clips (`overflow: 'hidden'`) */}
+      {type === 'rewind' && locked && !busy && (
+        <View style={styles.lockBadge}>
+          <Ionicons name="lock-closed" size={10} color={colors.primary.navy} />
+        </View>
+      )}
+
+      {/* Label. Read off `label` rather than re-deriving it: the old inline ternary had no
+          `rewind` arm, so a fourth type would have silently been labelled "Like". */}
       <Text style={[
         styles.buttonLabel,
         type === 'superLike' && styles.superLikeLabel,
         type === 'like' && styles.likeLabel,
+        type === 'rewind' && styles.rewindLabel,
       ]}>
-        {type === 'pass' ? 'Pass' : type === 'superLike' ? 'Bashert' : 'Like'}
+        {label}
       </Text>
     </Pressable>
   );
@@ -299,7 +367,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'flex-end',
-    gap: spacing[6],
+    // spacing[5] rather than spacing[6] since Rewind made this a four-button row
+    // (MEXA-372). At 24pt the row measured 344pt against 375pt of usable width on the
+    // narrowest device this build targets, which leaves nothing for a label grown by
+    // Dynamic Type - and these labels have no `numberOfLines`, so they widen the columns
+    // (the same class of problem as MEXA-388). 20pt gives it 31pt of slack.
+    gap: spacing[5],
     paddingHorizontal: spacing[4],
   },
   button: {
@@ -311,6 +384,27 @@ const styles = StyleSheet.create({
     backgroundColor: colors.transparent.white10,
     borderWidth: 2,
     borderColor: colors.neutral[700],
+  },
+  rewindButton: {
+    backgroundColor: colors.transparent.gold10,
+    borderWidth: 2,
+    borderColor: colors.transparent.gold50,
+  },
+  rewindButtonLocked: {
+    backgroundColor: colors.transparent.white10,
+    borderWidth: 2,
+    borderColor: colors.neutral[700],
+  },
+  lockBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.primary.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   likeButton: {
     // Gold gradient applied via LinearGradient
@@ -374,6 +468,9 @@ const styles = StyleSheet.create({
   },
   likeLabel: {
     color: colors.primary.gold,
+  },
+  rewindLabel: {
+    color: colors.transparent.gold70,
   },
   hintText: {
     textAlign: 'center',

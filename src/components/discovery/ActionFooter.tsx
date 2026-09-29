@@ -1,10 +1,11 @@
 /**
  * Action Footer Component
  *
- * Sticky footer with Pass, Bashert (super like), and Like buttons that appears on scroll
+ * Sticky footer with Rewind, Pass, Bashert (super like), and Like buttons that appears
+ * on scroll
  */
 
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { ActivityIndicator, View, Text, StyleSheet, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,6 +25,17 @@ interface ActionFooterProps {
   onPass: () => void;
   onLike: () => void;
   onSuperLike: () => void;
+  /**
+   * Rewind the last swipe (MEXA-372). Optional: without it this footer renders the three
+   * buttons it always had. Story mode is reachable from the discovery header's view
+   * toggle, so leaving Rewind out of here would have hidden a paid feature in one of the
+   * two modes - the same bug in miniature.
+   */
+  onRewind?: () => void;
+  /** Free tier: the button is shown with a lock and opens the paywall. */
+  rewindLocked?: boolean;
+  /** A rewind is in flight. */
+  rewindBusy?: boolean;
   profileName: string;
   hasLikedSomething: boolean;
 }
@@ -33,6 +45,9 @@ export function ActionFooter({
   onPass,
   onLike,
   onSuperLike,
+  onRewind,
+  rewindLocked = false,
+  rewindBusy = false,
   profileName,
   hasLikedSomething,
 }: ActionFooterProps) {
@@ -63,6 +78,12 @@ export function ActionFooter({
     onSuperLike();
   };
 
+  const handleRewind = () => {
+    if (rewindBusy) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onRewind?.();
+  };
+
   return (
     <Animated.View
       style={[
@@ -77,6 +98,41 @@ export function ActionFooter({
       />
 
       <View style={styles.content}>
+        {/* Rewind Button - the affordance behind the paid "Rewind last swipe" (MEXA-372) */}
+        {onRewind && (
+          <Pressable
+            style={styles.rewindButton}
+            onPress={handleRewind}
+            disabled={rewindBusy}
+            accessibilityRole="button"
+            accessibilityLabel={rewindLocked ? 'Rewind, Mazal Gold feature' : 'Rewind'}
+            accessibilityState={{ disabled: rewindBusy, busy: rewindBusy }}
+          >
+            <View
+              style={[
+                styles.rewindButtonInner,
+                rewindLocked && styles.rewindButtonInnerLocked,
+              ]}
+            >
+              {rewindBusy ? (
+                <ActivityIndicator size="small" color={colors.primary.gold} />
+              ) : (
+                <Ionicons
+                  name="arrow-undo"
+                  size={22}
+                  color={rewindLocked ? colors.neutral[400] : colors.primary.gold}
+                />
+              )}
+            </View>
+            {rewindLocked && !rewindBusy && (
+              <View style={styles.rewindLockBadge}>
+                <Ionicons name="lock-closed" size={10} color={colors.primary.navy} />
+              </View>
+            )}
+            <Text style={styles.rewindText}>Rewind</Text>
+          </Pressable>
+        )}
+
         {/* Pass Button */}
         <Pressable style={styles.passButton} onPress={handlePass}>
           <View style={styles.passButtonInner}>
@@ -139,8 +195,48 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: spacing[8],
-    paddingHorizontal: spacing[6],
+    // Tightened from gap spacing[8] / padding spacing[6] because Rewind made this a
+    // four-button row (MEXA-372). At the old values the row measured 376pt against 375pt
+    // of width on the narrowest device this build targets, i.e. it overflowed. The columns
+    // are 52/64/80/72 (Rewind's is set by its label, not its 48pt circle), so 16pt gaps
+    // and 16pt side padding come to 348pt and leave 27pt of slack.
+    gap: spacing[4],
+    paddingHorizontal: spacing[4],
+  },
+  rewindButton: {
+    alignItems: 'center',
+    gap: spacing[2],
+  },
+  rewindButtonInner: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.transparent.gold10,
+    borderWidth: 2,
+    borderColor: colors.transparent.gold50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadows.sm,
+  },
+  rewindButtonInnerLocked: {
+    backgroundColor: colors.transparent.white10,
+    borderColor: colors.neutral[700],
+  },
+  rewindLockBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.primary.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rewindText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.transparent.gold70,
   },
   passButton: {
     alignItems: 'center',
