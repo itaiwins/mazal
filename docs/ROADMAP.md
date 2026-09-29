@@ -490,6 +490,19 @@ TestFlight. Each one is a real finding, so it is listed here, not lost. The issu
 numbers still work in Paperclip if you need the detail. **Don't reopen any of these
 without Itai's go.** New findings go on this list as one line each, not as new issues.
 
+**Update 2026-09-29 18:10Z (Itai: "get them done").** Everything under *Before public
+launch* is being built now: the database items in **MEXA-434** (Fern, after MEXA-431) and
+the app items in **MEXA-435** (Edward). Each has a 10-run cap. Decided:
+- **Sign in with Apple/Google (MEXA-389): nothing to do.** Regular mode is email-only.
+  OAuth exists only in the hidden Safta/Orthodox screens, so guideline 4.8 doesn't apply.
+- **Rank-then-limit: yes.** **Deleted accounts: no signup refusal.** Blocks survive a
+  re-signup by keying on something the user can't edit (MEXA-435).
+- **Thrown out:** widening threat detection (MEXA-337, 343) and the `00022` guard for
+  `00023` (MEXA-404).
+- **Waiting on Itai's product call, not being built:** purchases (a RevenueCat key),
+  photo verification (AWS spending) and Safta/Orthodox (hidden). One exception:
+  `00037`, the shadchan notes fix, is already written and reviewed, so MEXA-434 applies it.
+
 ### Before public launch (App Store)
 
 - Sign in with Apple + Google, both or neither, per guideline 4.8 (MEXA-389)
