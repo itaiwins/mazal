@@ -96,6 +96,10 @@ const ALLOWED = [
   'I will shoot you details later',
   'I will shoot you pics of the dog',
   'I will shoot you that link',
+  "I'll shoot you screenshots of the thread",
+  "I'll shoot you back a time that works",
+  "I'll shoot you whatever I find",
+  "he's gonna shoot her wedding photos",
 
   // `(money|cash|$)` used `$` as an anchor, so any message ending in "send" was blocked.
   'Let me know what you want me to send',
@@ -157,6 +161,26 @@ const BLOCKED = [
   "I'm going to shoot you in the face",
   'I will shoot you if you come here',
   "I'm gonna shoot you tonight",
+  // A threat continues in more ways than anyone can list, which is why the guard on
+  // `shoot` blocks by default and carves out only the send-idiom (MEXA-343, Guts, pass 2).
+  // These 14 all walked past the earlier allow-by-default version.
+  "I'm gonna shoot you here",
+  "I'm gonna shoot you outside",
+  "I'm gonna shoot you at your house",
+  "I'm gonna shoot you at your door",
+  "I'm gonna shoot you through the window",
+  "I'm gonna shoot you for this",
+  "I'm gonna shoot you before you know it",
+  "I'm gonna shoot you where you stand",
+  "I'm gonna shoot you real quick",
+  "I'm gonna shoot you good",
+  "I'm gonna shoot you soon",
+  "I'm gonna shoot you next",
+  "I'm gonna shoot you around back",
+  "I'm gonna shoot you point blank",
+  "I'm gonna shoot you later",
+  "I'm gonna shoot you punk",
+  "I'm gonna shoot you it's over",
   'cocaine at the party',
   'send me money',
   'venmo me now',

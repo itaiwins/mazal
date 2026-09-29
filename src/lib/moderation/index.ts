@@ -55,12 +55,17 @@ const EXPLICIT_PATTERNS = [
   // "shoot" and "beat up" need their own line, keyed on the intent word rather than on the
   // speaker, so a contracted subject lands too: "he's gonna shoot you" is "gonna shoot you"
   // (MEXA-343, Guts). "shoot" also has the one harmless idiom in this whole block: "I'll
-  // shoot you a text", "shoot you the details", "shoot you pics of the dog". What separates
-  // them is what comes after the target - the idiom is followed by the thing being sent, a
-  // noun phrase, and the threat is followed by the end of the clause or by a function word
-  // ("shoot you dead", "shoot you in the face", "shoot you and your brother"). Listing the
-  // function words is the way round, because that class is closed and English nouns are not.
-  /\b(?:gonna|going\s+to|about\s+to|will|(?:'|’)ll|should|ought\s+to|needs?\s+to|wants?\s+to)\s+shoot\s+(?:you|u|her|him|them)(?=\s*(?:[.,!?;:]|$)|\s*[\r\n]|\s+(?:dead|right|now|first|too|twice|again|tonight|today|tomorrow|myself|personally|in|with|on|and|if|when|because|so|like)\b)/gi,
+  // shoot you a text", "shoot you the details", "shoot you pics of the dog".
+  //
+  // The exception is the *idiom*, never the threat. An earlier version of this line listed
+  // the words a threat continues with ("shoot you dead", "shoot you in the face") and let
+  // everything else through; it defaulted to allow, and 13 of 14 ordinary threats walked
+  // past it - "shoot you here", "at your house", "real quick", "point blank" (MEXA-343,
+  // Guts, second pass). The ways an English sentence continues are not a list anybody can
+  // finish. The ways people say "I'll send you X" are: a determiner, or one of a handful of
+  // bare nouns. So `shoot <target>` blocks by default and only that shape clears it, which
+  // fails safe - an unlisted thing to send over-blocks and gets added here.
+  /\b(?:gonna|going\s+to|about\s+to|will|(?:'|’)ll|should|ought\s+to|needs?\s+to|wants?\s+to)\s+shoot\s+(?:you|u|her|him|them)\b(?!\s+(?:a|an|the|some|any|my|your|his|her|our|their|this|that|these|those|another|over|back|guys|gals|folks|details|info|information|pics|pictures|photos|screenshots|something|anything|stuff|notes|options|dates|links|questions|wedding|video|videos|footage|portraits|film|session|whatever|couple|few|several)\b)/gi,
   /\b(?:gonna|going\s+to|about\s+to|will|(?:'|’)ll|should|ought\s+to|needs?\s+to|wants?\s+to)\s+beat\s+(?:you|u|her|him|them)\s+up\b/gi,
   // Nobody named, so the harm lands on "you": "you're gonna get murdered".
   /\byou(?:\s*(?:'|’)?re|\s+are)?\s+(?:going\s+to\s+|gonna\s+|will\s+|about\s+to\s+|deserve\s+to\s+|should\s+)?(?:get|be)\s+(?:murdered|killed|stabbed|shot|raped|beat(?:en)?\s+up)\b/gi,
