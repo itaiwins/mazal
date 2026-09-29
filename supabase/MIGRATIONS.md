@@ -42,6 +42,8 @@ Apply exactly this sequence:
 00015_scope_users_write_grants.sql
 00016_client_role_write_privileges.sql
 00017_matching_actually_matches.sql
+00018_publish_messages_to_realtime.sql
+00019_college_and_safta_stats_visibility.sql
 ```
 
 Notes on the order:
@@ -148,7 +150,13 @@ Notes on the order:
   independent sections — B (`authenticated`), C (`anon`), D (`notification_queue`),
   E (sequences), F (comments), plus A as a template for one verb on one table. **Run the
   smallest one that unblocks you.** Section C is the one to think hardest about: it hands
-  unauthenticated read access back to `colleges`, `user_badges` and `user_safta_stats`.
+  unauthenticated read access back to `colleges`, `user_badges` and `user_safta_stats` —
+  or it did. `00019` scoped `user_safta_stats`' SELECT policy `TO authenticated` and added
+  the table to section C's skip list, and `00015_prompts_badges_visibility` does the same for
+  `user_badges` when it lands (MEXA-277), which leaves `colleges` as the only table section C
+  really re-opens. `00016` is also **independent of `00019`**: `00016` changes grants and no
+  policy, `00019` changes two policies and revokes `anon` on the two tables it touches, which
+  `00016`'s schema-wide `REVOKE ALL ... FROM anon` subsumes. Either order works.
 - `00017` **is applied** — 2026-09-29 01:19:57Z, from `mazal-restart` @ `299731d`
   (MEXA-294 and MEXA-296 cause 1), after Guts's review (MEXA-316), Gojo's routing and
   Lelouch's approval (MEXA-324). It is a change users see: the "It's a Match!" screen and
@@ -191,6 +199,47 @@ Notes on the order:
   INSERT. The same run at 4m and again at 6m passed 14/14 unchanged. Nothing was fixed in
   between. Same behaviour `00018`'s apply saw; do not judge a realtime failure inside
   that window, and do not touch anything to "fix" it.
+- `00019` is **not applied yet** — written and verified, waiting on Guts's review (MEXA-289)
+  and then on Lelouch. It **depends on `00013`** for `is_discoverable_profile()` and
+  `current_app_user_id()`, and on nothing else; `00013` is applied, so there is no unmet
+  dependency on the live project. It is independent of `00014`–`00018` (see the `00016` note
+  above for the one pair worth spelling out) and of `00015_prompts_badges_visibility`
+  (MEXA-277), which does the same thing to two different tables and shares only the
+  `00013` dependency — any order works.
+  It takes `USING (true) TO public` off `user_colleges` and `user_safta_stats`, which were the
+  last two per-user tables readable by anyone holding the anon key with no session, and
+  revokes `anon` on both. **Nothing in the app reads or writes either table** — checked before
+  narrowing them, and `MEXA-289` was filed assuming otherwise. There is no college screen
+  (`education.tsx` is a hardcoded string list, the shidduch one writes
+  `shidduch_profiles.college_university`, and `mazal-map.tsx`'s `'college'` is a location
+  type), and `user_safta_stats`' only writer is the broken `update_safta_stats` trigger
+  (MEXA-297). Both tables hold 0 rows, so nothing was exposed in practice.
+  Two deliberate departures from the fix as filed, both argued at length in the header:
+  **`user_colleges`' cross-user policy tests `is_visible IS NOT FALSE`** (the column exists
+  for exactly this and no policy had ever honoured it), and **`user_safta_stats` gets an
+  own-row policy and no cross-user one** — a like counter with no reader and a flagged-off
+  surface does not get a permissive policy on spec; whoever re-enables Safta writes it with a
+  product argument, the way `00016` leaves `shidduch_messages`.
+  Its rollback is `00019_college_and_safta_stats_visibility_rollback.sql`, split into A
+  (policies) and B (`anon`'s grants), where B no-ops if `00016` has been applied. Running A
+  restores the defect exactly, so prefer writing the narrow policy you need.
+  Verified against live in rolled-back transactions by `.scratch/mazal-mexa289/verify.py`,
+  which has three modes and leaves nothing behind (re-checked: all six fixture tables back to
+  0 rows). All green:
+  **`before` 30/30** (`BEFORE.txt`) — the defect measured on the live database, not argued
+  from the policy text: as `anon`, with no session and only the publishable key, all 8
+  `user_colleges` rows, all 5 `user_safta_stats` rows and the name of every school in the
+  table. As a signed-in caller, the rows of a user who blocked them, a user they blocked, and
+  a deactivated account.
+  **`after` 31/31** (`AFTER.txt`) — own rows still visible including the `is_visible = false`
+  one, blocks refused in both directions, `is_active = false` refused, `is_visible = false`
+  hidden cross-user, `is_visible IS NULL` still visible, `anon` denied by the revoked grant
+  *and separately* by the policies when the grant is handed back, and `user_colleges`' three
+  write policies unchanged (own-row insert works, forging a row for someone else is `42501`,
+  updating someone else's row matches nothing).
+  **`rollback` 30/30** (`ROLLBACK.txt`) — `00019` then its rollback asserted against the
+  `before` expectations, so the undo is bit-for-bit and puts the defect back rather than
+  landing somewhere in between.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
 - `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values
@@ -400,3 +449,8 @@ every view column as nullable, because Postgres reports no NOT NULL through a vi
 - Re-create the verification-photo cleanup cron without a key in git.
 - Custom SMTP. Sign-up sends a confirmation email and the built-in sender allows only a
   few per hour, which will not survive a TestFlight round.
+- `user_colleges.is_visible` is `boolean` **nullable** `DEFAULT true`, so a policy has to
+  decide what an explicit NULL means. `00019` reads it as visible (`IS NOT FALSE`), matching
+  the column default. Making it `NOT NULL DEFAULT true` would remove the question; it is safe
+  on a 0-row table but it is a schema change, so it was left out of `00019`. Do it in the
+  migration that first gives the column a writer.
