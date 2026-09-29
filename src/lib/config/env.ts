@@ -68,15 +68,24 @@ export const env = {
 
   /**
    * Identity Verification API Configuration
-   * Supports: Onfido, Jumio, or AWS Rekognition
+   * Supports: Onfido or Jumio
+   *
+   * MEXA-359: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_REGION` were here and
+   * are gone. Every name in this file is read from `EXPO_PUBLIC_*`, which Metro inlines
+   * into the JS bundle - so an AWS secret key put in one of those variables would have
+   * shipped inside the app, readable by anyone who unzips the IPA. Rekognition moves to a
+   * Supabase Edge Function whose credentials live in a function secret on an IAM user
+   * scoped to `rekognition:CompareFaces` (MEXA-359 Part B). No AWS name comes back here.
+   *
+   * `ONFIDO_API_TOKEN`, `JUMIO_API_TOKEN` and `JUMIO_API_SECRET` are the same hazard for
+   * the same feature, and are only still here because nothing sets them and the flow that
+   * reads them is unreachable behind `FEATURE_PHOTO_VERIFICATION`. They should leave with
+   * the on-device providers in Part B rather than be half-removed now.
    */
-  VERIFICATION_PROVIDER: (process.env.EXPO_PUBLIC_VERIFICATION_PROVIDER || 'onfido') as 'onfido' | 'jumio' | 'aws',
+  VERIFICATION_PROVIDER: (process.env.EXPO_PUBLIC_VERIFICATION_PROVIDER || 'onfido') as 'onfido' | 'jumio',
   ONFIDO_API_TOKEN: process.env.EXPO_PUBLIC_ONFIDO_API_TOKEN || '',
   JUMIO_API_TOKEN: process.env.EXPO_PUBLIC_JUMIO_API_TOKEN || '',
   JUMIO_API_SECRET: process.env.EXPO_PUBLIC_JUMIO_API_SECRET || '',
-  AWS_ACCESS_KEY_ID: process.env.EXPO_PUBLIC_AWS_ACCESS_KEY_ID || '',
-  AWS_SECRET_ACCESS_KEY: process.env.EXPO_PUBLIC_AWS_SECRET_ACCESS_KEY || '',
-  AWS_REGION: process.env.EXPO_PUBLIC_AWS_REGION || 'us-east-1',
 } as const;
 
 /**
@@ -173,6 +182,11 @@ export function isSentryConfigured(): boolean {
 
 /**
  * Check if identity verification is configured
+ *
+ * MEXA-359: the `'aws'` case is gone with the AWS credential names above. Note that a
+ * `false` here does NOT mean verification is unavailable - it used to mean "fall through to
+ * mock mode", which is how the trust badge came to be awarded at random. `verifyIdentity()`
+ * now refuses outright instead; see `src/api/services/verificationService.ts`.
  */
 export function isVerificationConfigured(): boolean {
   const provider = env.VERIFICATION_PROVIDER;
@@ -181,8 +195,6 @@ export function isVerificationConfigured(): boolean {
       return Boolean(env.ONFIDO_API_TOKEN);
     case 'jumio':
       return Boolean(env.JUMIO_API_TOKEN && env.JUMIO_API_SECRET);
-    case 'aws':
-      return Boolean(env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY);
     default:
       return false;
   }

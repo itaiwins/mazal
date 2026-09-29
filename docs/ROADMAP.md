@@ -37,6 +37,12 @@ value makes the flag a compile-time constant.
 |---|---|---|---|
 | `FEATURE_ORTHODOX_MODE` | `EXPO_PUBLIC_FEATURE_ORTHODOX_MODE` | off | Orthodox Shidduch mode, including the `(shidduch-*)` flow |
 | `FEATURE_SAFTA_MODE` | `EXPO_PUBLIC_FEATURE_SAFTA_MODE` | off | Parents/grandparents ("Safta") matchmaker mode |
+| `FEATURE_PHOTO_VERIFICATION` | `EXPO_PUBLIC_FEATURE_PHOTO_VERIFICATION` | off | ID/selfie verification: the "Verify Your Profile" action and `app/profile/verify.tsx` |
+
+`FEATURE_PHOTO_VERIFICATION` is different from the other two: they hide *unfinished*
+features, and turning either on gives you a working (if rough) product. This one hides a
+feature that was **actively wrong**, and it must not be turned on until the server-side path
+exists — see [Photo verification](#photo-verification-off-until-it-is-server-side) below.
 
 Only the exact string `"true"` turns a flag on. They are pinned to `"false"` in the
 `env` block of every profile in [`eas.json`](../eas.json), so a stray shell variable
@@ -108,6 +114,67 @@ set `EXPO_PUBLIC_REVENUECAT_IOS_KEY` as an Expo project environment variable. Th
 Mode" fallback in [`app/premium/index.tsx`](../app/premium/index.tsx) should go at the
 same time, and the Gold/Platinum prices ($14.99/$29.99 monthly) need Itai's review before
 anyone outside the team sees them.
+
+---
+
+## Photo verification: off until it is server-side
+
+Flag: **`FEATURE_PHOTO_VERIFICATION`** (off, pinned `"false"` in all three `eas.json`
+profiles). MEXA-359.
+
+`users.is_verified` is the trust badge other users see — the swipe card, the profile story,
+the hero photo, the matches list. It is supposed to mean a selfie was matched against a
+government ID at >= 90% similarity. It meant nothing of the kind:
+
+- No verification provider is configured in any build. `EXPO_PUBLIC_AWS_*` is set nowhere —
+  not in `.env`, not in any `eas.json` profile, not in EAS environment variables — so
+  `isVerificationConfigured()` was false everywhere, including TestFlight.
+- An unconfigured provider used to mean *mock mode*, not failure. `verifyMock()` returned
+  `verified: Math.random() > 0.1` with a hardcoded `confidence: 0.95`, and
+  `verifyIdentity()` then wrote `is_verified = true` on the strength of it. **The shipped
+  app's "Verify Your Profile" button awarded the real badge on a coin flip** after the user
+  photographed anything at all.
+- `authenticated` also held `UPDATE (is_verified)` directly, so any account could set the
+  badge with a single `PATCH /rest/v1/users?id=eq.<self>`.
+- The AWS path read its key from `EXPO_PUBLIC_AWS_ACCESS_KEY_ID`, which Metro inlines into
+  the bundle. Configuring it as written would have shipped a long-lived AWS secret key
+  inside the IPA.
+
+What changed (MEXA-359 Part A):
+
+| Change | Where |
+|---|---|
+| `UPDATE (is_verified)` revoked from `authenticated`; `service_role` only | [`00024_revoke_self_awarded_verified_badge.sql`](../supabase/migrations/00024_revoke_self_awarded_verified_badge.sql) |
+| Entry point hidden, route redirects | [`app/(tabs)/profile.tsx`](../app/(tabs)/profile.tsx), [`app/profile/verify.tsx`](../app/profile/verify.tsx) |
+| `EXPO_PUBLIC_AWS_*` names deleted; `verifyWithAWS()` removed | [`src/lib/config/env.ts`](../src/lib/config/env.ts), [`src/api/services/verificationService.ts`](../src/api/services/verificationService.ts) |
+| `verifyMock()` and the client-side `is_verified` write removed | `src/api/services/verificationService.ts` |
+| Unconfigured provider is now a hard failure, not mock mode | `src/api/services/verificationService.ts` |
+
+The screen, its copy, the ID-type list and the photo capture flow are all untouched, so
+Part B has a UI to reconnect.
+
+**Turning this flag on will not restore verification, and must not be attempted as a
+shortcut.** With the flag on and 00024 applied, the flow reaches its old database write and
+gets `42501: permission denied for table users`. What it needs (MEXA-359 Part B):
+
+1. A Supabase Edge Function that receives the selfie and the ID, calls Rekognition
+   **server-side**, and writes `is_verified` as `service_role`.
+2. AWS credentials **only** as a Supabase Edge Function secret, on a dedicated IAM user
+   limited to `rekognition:CompareFaces`. Never `EXPO_PUBLIC`, never in the repo.
+3. No on-device pre-check. A device check proves nothing to anyone else, and it is what put
+   credentials in the bundle in the first place.
+4. Deletion of the ID photos after the compare, per the retention rules in MEXA-253. These
+   are people's identity documents.
+
+Rekognition is a paid AWS service and there is no Mexant AWS account, so Part B needs Itai's
+spending decision before it can start.
+
+`is_photo_verified` is the other half of the pair and needed nothing: no code has ever
+written it, and `authenticated` has never held the privilege. `ONFIDO_API_TOKEN`,
+`JUMIO_API_TOKEN` and `JUMIO_API_SECRET` are still read from `EXPO_PUBLIC_*` in
+`src/lib/config/env.ts` — the same bundling hazard as the AWS keys, harmless only because
+nothing sets them and the code reading them is unreachable behind this flag. They should
+leave with the on-device providers in Part B.
 
 ---
 

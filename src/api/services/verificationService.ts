@@ -1,10 +1,27 @@
 /**
  * Identity Verification Service
  *
- * Integrates with identity verification providers (Onfido, Jumio, or AWS Rekognition)
- * to verify user identity via ID document and selfie comparison.
+ * Integrates with identity verification providers (Onfido or Jumio) to verify user identity
+ * via ID document and selfie comparison.
  *
- * LEGAL COMPLIANCE:
+ * OFF, BEHIND `FEATURE_PHOTO_VERIFICATION` (MEXA-359). Nothing in here runs today.
+ * `verifyIdentity()` refuses before it touches a photo. Two things were wrong at once:
+ *
+ *   1. No provider is configured in any build, and the old code read that as "use mock
+ *      mode" - `verifyMock()` returns `verified: Math.random() > 0.1` - and then wrote
+ *      `users.is_verified = true` on the strength of it. So the app's own "Verify Your
+ *      Profile" button handed out the trust badge other users see, on a coin flip, after
+ *      the user photographed anything at all.
+ *   2. The AWS path read its credentials from `EXPO_PUBLIC_AWS_*`, which Metro inlines into
+ *      the bundle, so configuring it would have shipped an AWS secret key inside the IPA.
+ *
+ * `is_verified` is now `service_role`-only
+ * (`supabase/migrations/00024_revoke_self_awarded_verified_badge.sql`), so no client can
+ * write it at all. Verification comes back as a Supabase Edge Function that calls
+ * Rekognition server-side (MEXA-359 Part B); that function, not this file, will set the
+ * flag.
+ *
+ * LEGAL COMPLIANCE (unchanged, and Part B must keep it):
  * - User consent is required before collecting data
  * - ID photos are deleted immediately after verification
  * - Only verification status is stored, not ID data
@@ -13,12 +30,11 @@
  * PROVIDER OPTIONS:
  * - Onfido: Full-featured identity verification, $2-5 per verification
  * - Jumio: Enterprise-grade, $3-6 per verification
- * - AWS Rekognition: DIY face comparison, ~$0.001 per image
  */
 
 import { env, isVerificationConfigured } from '@/lib/config/env';
+import { FEATURE_PHOTO_VERIFICATION } from '@/lib/config/features';
 import { supabase } from '@/api/supabase/client';
-import { RekognitionClient, CompareFacesCommand } from '@aws-sdk/client-rekognition';
 
 // Verification result types
 export interface VerificationResult {
@@ -270,144 +286,35 @@ async function verifyWithJumio(
   }
 }
 
-// AWS Rekognition verification (DIY approach, cheapest)
-async function verifyWithAWS(
-  idPhotoBase64: string,
-  selfiePhotoBase64: string
-): Promise<VerificationResult> {
-  const accessKeyId = env.AWS_ACCESS_KEY_ID;
-  const secretAccessKey = env.AWS_SECRET_ACCESS_KEY;
-  const region = env.AWS_REGION || 'us-east-1';
+// AWS Rekognition verification lived here and is gone (MEXA-359).
+//
+// It read `env.AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, which `src/lib/config/env.ts`
+// mapped from `EXPO_PUBLIC_AWS_*` - variables Metro inlines into the JS bundle. Shipping it
+// with credentials set would have put a long-lived AWS secret key inside the IPA. It never
+// ran in any build, because no `EXPO_PUBLIC_AWS_*` value is set in `.env`, in any `eas.json`
+// profile, or in EAS environment variables.
+//
+// Rekognition comes back as a Supabase Edge Function (MEXA-359 Part B): the compare runs
+// server-side on an IAM user scoped to `rekognition:CompareFaces`, the key lives in a
+// function secret, and the function writes `users.is_verified` as `service_role` - which is
+// now the only role that can, per
+// `supabase/migrations/00024_revoke_self_awarded_verified_badge.sql`.
 
-  if (!accessKeyId || !secretAccessKey) {
-    return { success: false, verified: false, error: 'AWS not configured' };
-  }
-
-  try {
-    // Initialize AWS Rekognition client
-    const client = new RekognitionClient({
-      region,
-      credentials: {
-        accessKeyId,
-        secretAccessKey,
-      },
-    });
-
-    // Convert base64 strings to Uint8Array for AWS SDK
-    const idPhotoBytes = Uint8Array.from(atob(idPhotoBase64), c => c.charCodeAt(0));
-    const selfiePhotoBytes = Uint8Array.from(atob(selfiePhotoBase64), c => c.charCodeAt(0));
-
-    // Compare faces using AWS Rekognition
-    const command = new CompareFacesCommand({
-      SourceImage: {
-        Bytes: idPhotoBytes,
-      },
-      TargetImage: {
-        Bytes: selfiePhotoBytes,
-      },
-      SimilarityThreshold: 80, // Minimum similarity to consider a match
-    });
-
-    console.log('[AWS Rekognition] Comparing faces...');
-    const result = await client.send(command);
-    const faceMatches = result.FaceMatches || [];
-
-    console.log('[AWS Rekognition] Face matches found:', faceMatches.length);
-
-    if (faceMatches.length > 0) {
-      const similarity = faceMatches[0].Similarity || 0;
-      const isVerified = similarity >= 90; // Require 90% similarity for verification
-
-      console.log('[AWS Rekognition] Similarity:', similarity);
-
-      return {
-        success: true,
-        verified: isVerified,
-        confidence: similarity / 100,
-        reason: isVerified
-          ? 'Face match confirmed'
-          : `Face similarity too low: ${similarity.toFixed(1)}%`,
-      };
-    }
-
-    // Check for unmatched faces
-    const unmatchedFaces = result.UnmatchedFaces || [];
-    if (unmatchedFaces.length > 0) {
-      return {
-        success: true,
-        verified: false,
-        confidence: 0,
-        reason: 'Face in selfie does not match face on ID document',
-      };
-    }
-
-    return {
-      success: true,
-      verified: false,
-      confidence: 0,
-      reason: 'No face detected in one or both images. Please retake photos with clear face visibility.',
-    };
-  } catch (error) {
-    console.error('[AWS Rekognition] Error:', error);
-
-    // Handle specific AWS errors
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-
-    if (errorMessage.includes('InvalidParameterException')) {
-      return {
-        success: false,
-        verified: false,
-        error: 'Invalid image format. Please ensure photos are clear JPEG images.',
-      };
-    }
-
-    if (errorMessage.includes('ImageTooLargeException')) {
-      return {
-        success: false,
-        verified: false,
-        error: 'Image too large. Please use smaller photos.',
-      };
-    }
-
-    if (errorMessage.includes('InvalidImageFormatException')) {
-      return {
-        success: false,
-        verified: false,
-        error: 'Invalid image format. Please use JPEG or PNG images.',
-      };
-    }
-
-    return {
-      success: false,
-      verified: false,
-      error: errorMessage,
-    };
-  }
-}
-
-// Mock verification for development/testing
-async function verifyMock(): Promise<VerificationResult> {
-  // Simulate processing time
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-
-  // 90% success rate in mock mode
-  const isVerified = Math.random() > 0.1;
-
-  return {
-    success: true,
-    verified: isVerified,
-    confidence: isVerified ? 0.95 : 0.3,
-    reason: isVerified
-      ? 'Identity verified (mock mode)'
-      : 'Verification failed (mock mode)',
-  };
-}
+// `verifyMock()` lived here and is gone (MEXA-359).
+//
+// It returned `verified: Math.random() > 0.1, confidence: 0.95, reason: 'Identity verified
+// (mock mode)'` after a 2s sleep, and `verifyIdentity()` called it whenever no provider was
+// configured - which is every build ever made - and then wrote `users.is_verified` from the
+// result. A stub that reports a 0.95 confidence it did not measure is not a test double, it
+// is a forgery; it is the whole reason the badge was reachable from a button rather than only
+// from a crafted request. Part B verifies against the real Edge Function, so nothing needs a
+// stand-in that can say yes.
 
 /**
  * Main verification function
  *
  * Verifies user identity by comparing ID document with selfie photo.
- * Uses configured provider (Onfido, Jumio, or AWS Rekognition).
+ * Uses configured provider (Onfido or Jumio).
  *
  * @param request - User ID, ID photo URI, and selfie photo URI
  * @returns Verification result with success status and confidence
@@ -417,20 +324,33 @@ export async function verifyIdentity(
 ): Promise<VerificationResult> {
   const { userId, idPhotoUri, selfiePhotoUri } = request;
 
+  // MEXA-359: closed until verification is server-side. This is checked before the ID photo
+  // is read, so a caller that reaches here despite the gated route and hidden button still
+  // hands no ID document to anything. `FEATURE_PHOTO_VERIFICATION` is inlined by Metro, so
+  // the rest of this function is statically unreachable in a shipped bundle.
+  if (!FEATURE_PHOTO_VERIFICATION) {
+    console.log('[Verification] Disabled: photo verification has not moved server-side yet');
+    return {
+      success: false,
+      verified: false,
+      error: 'Profile verification is temporarily unavailable.',
+    };
+  }
+
   console.log('[Verification] Starting verification for user:', userId);
 
   try {
-    // Check if verification is configured
+    // MEXA-359: an unconfigured provider is a hard failure now. It used to mean "use mock
+    // mode", and mock mode returned `verified: true` 90% of the time and then wrote the
+    // badge - which is how a self-awarded "verified" badge became reachable by tapping a
+    // button. `verifyMock()` is gone with it - see below.
     if (!isVerificationConfigured()) {
-      console.log('[Verification] No provider configured, using mock mode');
-      const result = await verifyMock();
-
-      // Update user verification status in database
-      if (result.verified) {
-        await updateUserVerificationStatus(userId, true);
-      }
-
-      return result;
+      console.warn('[Verification] No provider configured; refusing to guess');
+      return {
+        success: false,
+        verified: false,
+        error: 'Verification is not configured. Please try again later.',
+      };
     }
 
     // Convert images to base64
@@ -451,17 +371,14 @@ export async function verifyIdentity(
       case 'jumio':
         result = await verifyWithJumio(idPhotoBase64, selfiePhotoBase64);
         break;
-      case 'aws':
-        result = await verifyWithAWS(idPhotoBase64, selfiePhotoBase64);
-        break;
       default:
-        result = await verifyMock();
+        result = { success: false, verified: false, error: 'Unknown verification provider.' };
     }
 
-    // Update user verification status in database
-    if (result.success && result.verified) {
-      await updateUserVerificationStatus(userId, true);
-    }
+    // MEXA-359: the `users.is_verified` write that used to be here is gone. The client is no
+    // longer allowed to make it - 00024 revokes `UPDATE (is_verified)` from `authenticated`,
+    // so it would return 42501 - and it should never have been the client's call. The Edge
+    // Function in Part B runs the compare and writes the flag as `service_role`.
 
     // Cleanup - delete temporary images (privacy compliance)
     await cleanupTempImages(userId);
@@ -478,30 +395,18 @@ export async function verifyIdentity(
   }
 }
 
-/**
- * Update user's verification status in the database
- */
-async function updateUserVerificationStatus(
-  userId: string,
-  isVerified: boolean
-): Promise<void> {
-  try {
-    const { error } = await supabase
-      .from('users')
-      .update({
-        is_verified: isVerified,
-      })
-      .eq('auth_id', userId);
-
-    if (error) {
-      console.error('[Verification] Failed to update user status:', error);
-    } else {
-      console.log('[Verification] User status updated successfully');
-    }
-  } catch (error) {
-    console.error('[Verification] Database error:', error);
-  }
-}
+// `updateUserVerificationStatus()` lived here and is gone (MEXA-359).
+//
+// It did `supabase.from('users').update({ is_verified })` from the device. That write is the
+// defect this issue is about: it ran on the word of on-device code - usually `verifyMock()`,
+// a coin flip - and `authenticated` held `UPDATE (is_verified)` so the database allowed it.
+// It also swallowed its own error, so a refusal would have looked like a success to the
+// caller.
+//
+// There is no client-side replacement, by design. 00024 revokes the grant, and the Edge
+// Function in Part B writes the flag as `service_role` after a server-side compare. Note for
+// whoever builds it: the badge is what other users are shown, so the write belongs on the
+// same side of the wire as the decision.
 
 /**
  * Check if user is already verified

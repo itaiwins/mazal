@@ -46,7 +46,12 @@ Apply exactly this sequence:
 00019_college_and_safta_stats_visibility.sql
 00020_safta_likes_actually_save.sql
 00021_drop_orthodox_discovery_rpc.sql
+00023_safta_connection_consent.sql
+00024_revoke_self_awarded_verified_badge.sql
 ```
+
+There is no `00022` in this repo. `00022_safta_public_profiles.sql` is MEXA-302's and is
+still on its own branch; it slots in ahead of `00023` when it lands.
 
 Notes on the order:
 
@@ -72,15 +77,21 @@ Notes on the order:
   `00016_client_role_write_privileges_rollback.sql`,
   `00017_matching_actually_matches_rollback.sql`,
   `00019_college_and_safta_stats_visibility_rollback.sql`,
-  `00020_safta_likes_actually_save_rollback.sql` and
-  `00021_drop_orthodox_discovery_rpc_rollback.sql`; read each one's header. `00014`'s,
+  `00020_safta_likes_actually_save_rollback.sql`,
+  `00021_drop_orthodox_discovery_rpc_rollback.sql`,
+  `00023_safta_connection_consent_rollback.sql` and
+  `00024_revoke_self_awarded_verified_badge_rollback.sql`; read each one's header. `00014`'s,
   `00015`'s and `00016`'s are the three that are not bit-exact inverses, and each says
   exactly where it differs and why. `00013`'s is exact except for column order, which its
   header explains. `00016`'s is split into six independent sections, `00019`'s into two and
   `00020`'s into two, smallest first — run the one that unblocks you, not the whole file.
   `00021`'s is the first one that **deletes its own ledger row** rather than leaving a
   `DELETE` in a comment, because `00021` writes that row inside its own transaction; expect
-  new rollbacks to do the same.
+  new rollbacks to do the same. `00024`'s does, and it is also **not** a bit-exact inverse:
+  `00024` revokes `UPDATE` on `is_verified` *and* `is_photo_verified`, but `authenticated`
+  never held the second one, so the rollback restores only `is_verified` — granting the other
+  would be an escalation dressed as a rollback. Its header says so and its section 2 asserts
+  it.
 - `00011` is **APPLIED** to `tayiyczmacvhokdxfqvm`, 2026-09-28 23:31Z, from commit
   `1980e6a` (MEXA-256; Alucard reviewed it on MEXA-259 and MEXA-262, Lelouch approved the
   apply). Consequences anything written after this has to assume:
@@ -320,8 +331,11 @@ Notes on the order:
   `safta_likes` until `00016` lands, but both come back `42501: permission denied for table
   users` rather than 0 rows, because `00002`'s own policies subquery `public.users` and
   `00013`/`00015` took that away from `anon`.
-- `00021` is **not applied yet** — written and verified, waiting on Guts's review (MEXA-327,
-  a `SECURITY DEFINER` function over `users` being dropped) and then on Lelouch. It
+- `00021` **is applied** — Guts PASSed it and Lelouch approved on MEXA-358. Measured on live
+  2026-09-29 (MEXA-359): `supabase_migrations.schema_migrations` carries `('00021',
+  'drop_orthodox_discovery_rpc')`. The "not applied yet" that stood here was written before
+  the apply and is corrected, not deleted; everything below it about *why* the drop is right
+  still holds. It
   **depends on nothing and nothing depends on it**: it drops the single function
   `public.get_orthodox_discovery_profiles(uuid,integer,integer,integer,text[])`, which
   `00005` created and `00010` replaced, and `pg_depend` shows 0 referrers on live, so the
@@ -362,6 +376,61 @@ Notes on the order:
   `instagram_access_token` or `instagram_user_id` — `00013` moved both to `user_integrations`
   — but `src/types/supabase.generated.ts` still lists them on `users`. That is stale drift
   unrelated to this migration; don't repeat the claim that this RPC leaked an Instagram token.
+- `00024` is **not applied yet** — written and verified, waiting on Guts's review (MEXA-359,
+  a trust/auth grant change) and then on Lelouch. One `REVOKE` and one `COMMENT`: it takes
+  `UPDATE (is_verified)` away from `authenticated`, leaving the badge writable only by
+  `service_role`. It **depends only on `00015`**, whose grant it revokes, and nothing depends
+  on it.
+  **Why it can land before the Edge Function.** `00015` kept this grant deliberately, on the
+  grounds that revoking it "would break photo verification outright rather than harden it".
+  That premise is false and was measured, not assumed: no `EXPO_PUBLIC_AWS_*` value is set in
+  `.env`, in any `eas.json` profile, or in EAS environment variables, so
+  `isVerificationConfigured()` is false in every build — and an unconfigured provider did not
+  fail, it fell through to `verifyMock()`, which returned `verified: Math.random() > 0.1` and
+  then wrote this column. So the app's own "Verify Your Profile" button was awarding the
+  badge other users see on a coin flip. There is nothing working to break.
+  **The pre-flight guard that matters.** `REVOKE UPDATE (col)` does **not** cut back a
+  table-wide `GRANT UPDATE ON TABLE`, and `has_column_privilege` returns true when either
+  covers the column — so on a database without `00015` this file would run clean, report
+  success, and leave `is_verified` fully writable. Section 0 checks
+  `has_table_privilege(...,'UPDATE')` and refuses instead. Whoever writes the next
+  column-level revoke should copy that check.
+  It names `is_photo_verified` too, which is a **no-op on live**: nothing in `app/` or `src/`
+  has ever written it and `authenticated` has never held the privilege
+  (`has_column_privilege` false before the file runs). It is in the statement so that a
+  future migration granting it by accident has to argue with section 3.
+  Live holds **0 users** and **0 rows with `is_verified = true`**, so nothing is mis-badged
+  today and the apply strands nobody.
+  Its rollback is `00024_revoke_self_awarded_verified_badge_rollback.sql`; it deletes its own
+  ledger row and restores only `is_verified` (see the rollback note above).
+  Verified against live in rolled-back transactions by `.scratch/mazal-mexa359/verify.mjs`,
+  three modes, nothing left behind (checked on a fresh connection each run). Every claim is a
+  **write as the real `authenticated` role**, not a catalog read.
+  All green: **`before` 13/13** (`BEFORE.txt`) — the defect reproduced: `is_verified := true`
+  succeeded and read back `true`, while `elo_score := 9999` and `is_photo_verified := true`
+  were already `42501`.
+  **`after` 13/13** (`AFTER.txt`) — `is_verified := true` is `42501` and reads back `false`;
+  `elo_score` still `42501`; **profile editing still works** (`bio`, `first_name`,
+  `current_city` all written in one statement — the regression a grant list cannot see);
+  `SELECT` of both columns still works; `service_role` keeps `UPDATE` so Part B has something
+  to write with; `anon` refused; ledger carries `00024`; comment updated.
+  **`rollback` 13/13** (`ROLLBACK.txt`) — identical to `before` on every probe.
+  The pre-flight guards are proven to bite, not just present: `.scratch/mazal-mexa359/dryrun.mjs`
+  **8/8** (`DRYRUN.txt`) — a clean apply, a second apply refused, a refusal when
+  `authenticated` holds table-level `UPDATE`, a refusal when `00015`'s column grants are
+  missing, a refusal when an unexpected role can write the column, the rollback refused
+  against an unapplied database, and apply→rollback→apply all clean, with live untouched
+  afterwards.
+- **The ledger lags the repo, measured 2026-09-29 (MEXA-359).**
+  `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
+  `00017`–`00019`, `00021`, `20250114`, `20250115`. So **`00012`, `00016` and `00020` are
+  absent**. `00016` is not merely missing a ledger row, it is **not applied at all**: its
+  `REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM anon` has not run (`anon` still
+  holds 126 table grants), and `colleges`, `swipes`, `user_safta_stats` and
+  `notification_queue` all still grant `DELETE,INSERT,SELECT,UPDATE` to `authenticated`.
+  It was reviewed and PASSed on MEXA-300 and then never carded for an apply — the same
+  failure this issue is about. Filed separately; do not read the per-migration notes above as
+  a statement of what is on live without checking the ledger and a privilege probe.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
 - `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values

@@ -27,7 +27,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { useUserProfile } from '@/api/queries';
 import { supabase } from '@/api/supabase/client';
 import { DEMO_PROFILES } from '@/lib/demo/demoProfiles';
-import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
+import { FEATURE_PHOTO_VERIFICATION, FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const PHOTO_SIZE = 140;
@@ -505,13 +505,16 @@ export default function ProfileScreen() {
             onPress={() => router.push('/settings/preferences')}
             delay={1200}
           />
-          <ActionButton
-            icon="shield-checkmark-outline"
-            label="Verify Your Profile"
-            onPress={() => router.push('/profile/verify')}
-            variant="gold"
-            delay={1300}
-          />
+          {/* Photo verification is off until it moves server-side (MEXA-359) */}
+          {FEATURE_PHOTO_VERIFICATION && (
+            <ActionButton
+              icon="shield-checkmark-outline"
+              label="Verify Your Profile"
+              onPress={() => router.push('/profile/verify')}
+              variant="gold"
+              delay={1300}
+            />
+          )}
           <ActionButton
             icon="moon-outline"
             label="Shabbat Mode"

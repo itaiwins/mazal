@@ -26,7 +26,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, Redirect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -38,6 +38,7 @@ import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { useAuthStore } from '@/stores/authStore';
 import { verifyIdentity, VerificationResult } from '@/api/services/verificationService';
+import { FEATURE_PHOTO_VERIFICATION } from '@/lib/config/features';
 
 type VerificationStep = 'intro' | 'id-upload' | 'selfie' | 'review' | 'processing' | 'complete';
 
@@ -49,6 +50,19 @@ const ACCEPTED_ID_TYPES = [
 ];
 
 export default function VerifyScreen() {
+  // Off until verification moves server-side (MEXA-359 Part B). Hiding only the "Verify
+  // Your Profile" button on the profile tab would leave this screen reachable by route -
+  // expo-router registers every file under app/ - so the flow is closed here too. Metro
+  // inlines EXPO_PUBLIC_* at build time, so with the flag off the body below is statically
+  // unreachable in the bundle.
+  if (!FEATURE_PHOTO_VERIFICATION) {
+    return <Redirect href="/(tabs)/profile" />;
+  }
+
+  return <VerifyScreenContent />;
+}
+
+function VerifyScreenContent() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
 
