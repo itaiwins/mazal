@@ -60,8 +60,8 @@ if (!SUPABASE_URL || !SERVICE_KEY || !ANON_KEY) {
   process.exit(2);
 }
 
-const HER = 'violet-mexa372-rewind-her@example.com';
-const HIM = 'violet-mexa372-rewind-him@example.com';
+const HER = 'violet-mexa372-undo-her@example.com';
+const HIM = 'violet-mexa372-undo-him@example.com';
 
 const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -93,14 +93,20 @@ const hisDob = (() => {
   return d.toISOString().slice(0, 10);
 })();
 
+// Their names must not contain "Rewind". The first draft called them Rewindher/Rewindhim
+// and "is Rewind on screen" was a substring test, so `Rewindhim, 28` on the card satisfied
+// it - the check passed against the *parent commit's* bundle, which has no button at all.
+// The control is the only reason that was caught (NOTES.md: without the before column a
+// pass proves nothing). The assertion below is now an exact-text element lookup, but the
+// names stay clear of the word regardless.
 const PEOPLE = {
   her: {
     email: HER,
     profile: {
       ...BASE_PROFILE,
-      first_name: 'Rewindher',
+      first_name: 'Undoher',
       last_name: 'Fixture',
-      display_name: 'Rewindher',
+      display_name: 'Undoher',
       date_of_birth: '1996-04-11',
       gender: 'female',
       gender_preference: ['male'],
@@ -111,9 +117,9 @@ const PEOPLE = {
     email: HIM,
     profile: {
       ...BASE_PROFILE,
-      first_name: 'Rewindhim',
+      first_name: 'Undohim',
       last_name: 'Fixture',
-      display_name: 'Rewindhim',
+      display_name: 'Undohim',
       date_of_birth: hisDob,
       gender: 'male',
       gender_preference: ['female'],
@@ -294,13 +300,29 @@ async function runRender() {
     await browser.shot(`${SHOTS}/deck-with-rewind.png`);
 
     record(!deck.includes("You've seen everyone!"), 'the deck drew a candidate, so the action bar is on screen');
-    record(deck.includes('Rewind'), 'the Rewind button is on the discovery screen', 'this is the whole of MEXA-372');
+
+    // "Is there an element whose text is exactly Rewind, and can it be clicked" — not
+    // `deck.includes('Rewind')`. A substring test over the page matches any sentence that
+    // happens to contain the word, which is how the first draft of this check passed
+    // against a bundle with no button in it. clickText throws when nothing matches, and
+    // that throw is the measurement.
+    let tapped = true;
+    try {
+      await browser.clickText('Rewind', { exact: true });
+    } catch (e) {
+      tapped = false;
+    }
+    record(tapped, 'the Rewind button is on the discovery screen', 'this is the whole of MEXA-372');
+    if (!tapped) {
+      console.log(`\n  screenshot: ${SHOTS}/deck-with-rewind.png`);
+      console.log(`  on-screen text:\n${deck.split('\n').filter(Boolean).map((l) => `    | ${l}`).join('\n')}`);
+      return;
+    }
 
     // Free tier (production bundle, so `DEV_BYPASS_PREMIUM = __DEV__` is false): the tap
     // must reach the paywall's own `rewind` card, not a generic one and not nothing. The
     // keyword scan in PaywallPromptModal tests `super` before `rewind`, so a reason string
     // with "Super" in it would land on the wrong card — this is what catches that.
-    await browser.clickText('Rewind', { exact: true });
     await sleep(2500);
     const paywall = await browser.text();
     await browser.shot(`${SHOTS}/rewind-paywall.png`);
@@ -314,6 +336,39 @@ async function runRender() {
     const wrongCard = OTHER_CARDS.filter((t) => paywall.includes(t));
     record(wrongCard.length === 0, "tapping it opens the paywall's own Rewind card", `FEATURE_INFO.rewind${wrongCard.length ? `, got ${wrongCard.join('/')}` : ''}`);
     record(paywall.includes('Rewind lets you undo your last swipe'), 'and the reason sentence is the one the handler sent');
+
+    // Story mode. The discovery header's left icon toggles `viewMode`, and that branch
+    // renders `ProfileStory` -> `ActionFooter`, a different button row from the one above.
+    // A paid feature visible in one of two modes the user can toggle between is the same
+    // bug this issue is about, so it gets its own measurement rather than an assumption.
+    // Clicked by position because it is an icon with no text; (300, 31) CSS px is the
+    // `albums-outline` button in the 390pt header.
+    await browser.clickText('Maybe Later', { exact: true });
+    await sleep(1500);
+    await browser.clickAt(300, 31);
+    await sleep(4000);
+    // The footer fades in on scroll (`interpolate(scrollY, [200, 400], [0, 1])`), so it is
+    // at opacity 0 until the story is scrolled - and `innerText` of a transparent element
+    // is still returned, which is why this asserts the click as well as the text.
+    await browser.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 195, y: 500, deltaX: 0, deltaY: 600 });
+    await sleep(2500);
+    await browser.shot(`${SHOTS}/story-mode-rewind.png`);
+
+    let storyTapped = true;
+    try {
+      await browser.clickText('Rewind', { exact: true });
+    } catch (e) {
+      storyTapped = false;
+    }
+    record(storyTapped, 'the Rewind button is in story mode too (ActionFooter)', 'the second of the two view modes');
+
+    await sleep(2500);
+    const storyPaywall = await browser.text();
+    await browser.shot(`${SHOTS}/story-mode-rewind-paywall.png`);
+    record(
+      storyTapped && storyPaywall.includes('Rewind lets you undo your last swipe'),
+      'and it reaches the same paywall card'
+    );
 
     console.log(`\n  screenshots: ${SHOTS}/deck-with-rewind.png, ${SHOTS}/rewind-paywall.png`);
     console.log(`  on-screen text:\n${paywall.split('\n').filter(Boolean).map((l) => `    | ${l}`).join('\n')}`);

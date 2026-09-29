@@ -38,6 +38,7 @@ import { StarOfDavid } from '@/components/icons/StarOfDavid';
 import { ProfileStory, CardStack, ActionButtons } from '@/components/discovery';
 import { AdBanner, useInterstitialAd } from '@/components/ads';
 import { AnimatedHeader } from '@/components/ui/AnimatedHeader';
+import { useDotNavigatorInset } from '@/components/navigation/DotNavigator';
 import { MatchCelebration2 } from '@/components/celebrations';
 import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
@@ -240,6 +241,7 @@ function SaftaCard({
 export default function DiscoveryScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const dotNavigatorInset = useDotNavigatorInset();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
 
@@ -819,6 +821,12 @@ export default function DiscoveryScreen() {
                   onRewind={handleRewind}
                   rewindLocked={!canRewind}
                   rewindBusy={undoSwipeMutation.isPending}
+                  // Story mode sits under the DotNavigator, which is also `bottom: 0` and
+                  // draws on top - without this the action row's labels are not merely
+                  // crowded, they are unclickable, because the navigator is what
+                  // `elementFromPoint` returns there. The modal instance below leaves it
+                  // out: no navigator in a `pageSheet`, so the inset would be dead space.
+                  bottomInset={dotNavigatorInset}
                 />
               </Animated.View>
             )

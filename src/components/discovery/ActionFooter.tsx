@@ -36,6 +36,18 @@ interface ActionFooterProps {
   rewindLocked?: boolean;
   /** A rewind is in flight. */
   rewindBusy?: boolean;
+  /**
+   * Room to leave under the row. Omit it and the footer pads by the safe-area inset alone,
+   * which is what it always did and what the full-profile modal wants.
+   *
+   * Story mode has to pass `useDotNavigatorInset()`: this footer is
+   * `position: 'absolute', bottom: 0` and so is the DotNavigator, which draws on top of it.
+   * Measured in the walkthrough render on MEXA-372 - `document.elementFromPoint()` at the
+   * centre of the "Rewind" label returned the navigator, not the button, so the tap did
+   * nothing at all. Pass, Bashert and Like were already under it the same way; this is
+   * MEXA-338 finding 9, which was fixed in `ActionButtons` and missed here.
+   */
+  bottomInset?: number;
   profileName: string;
   hasLikedSomething: boolean;
 }
@@ -48,6 +60,7 @@ export function ActionFooter({
   onRewind,
   rewindLocked = false,
   rewindBusy = false,
+  bottomInset,
   profileName,
   hasLikedSomething,
 }: ActionFooterProps) {
@@ -89,7 +102,7 @@ export function ActionFooter({
       style={[
         styles.container,
         containerStyle,
-        { paddingBottom: insets.bottom + spacing[4] },
+        { paddingBottom: (bottomInset ?? insets.bottom) + spacing[4] },
       ]}
     >
       <LinearGradient

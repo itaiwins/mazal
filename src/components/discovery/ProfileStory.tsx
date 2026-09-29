@@ -84,6 +84,8 @@ interface ProfileStoryProps {
   onRewind?: () => void;
   rewindLocked?: boolean;
   rewindBusy?: boolean;
+  /** Room under the action row; see `ActionFooter`. Story mode is under the DotNavigator. */
+  bottomInset?: number;
 }
 
 // Prompt question mapping
@@ -119,6 +121,7 @@ export function ProfileStory({
   onRewind,
   rewindLocked,
   rewindBusy,
+  bottomInset,
 }: ProfileStoryProps) {
   const insets = useSafeAreaInsets();
   const scrollY = useSharedValue(0);
@@ -315,6 +318,7 @@ export function ProfileStory({
         onRewind={onRewind}
         rewindLocked={rewindLocked}
         rewindBusy={rewindBusy}
+        bottomInset={bottomInset}
         profileName={profile.first_name}
         hasLikedSomething={hasLikedSomething}
       />
