@@ -30,8 +30,17 @@
 --   * supabase-js `.from('users').update(...)` / `.insert(...)`
 --   * `src/api/supabase/directApi.ts` - `insertUser()` (POST /users) and `updateUser()`
 --     (PATCH /users?auth_id=eq.<id>), raw PostgREST. This one does not match a
---     `.from('users')` grep and is what the real onboarding uses; `useCreateProfile()` in
---     src/api/mutations/useProfile.ts is exported but has no caller.
+--     `.from('users')` grep and is what the real onboarding uses.
+--
+-- TWO HOOKS IN src/api/mutations/useProfile.ts ARE EXPORTED BUT HAVE NO CALLER:
+-- `useCreateProfile()` and `useUpdateLocation()`. Both appear in the per-column list below,
+-- because a grant derived only from live callers would have to be widened again the moment
+-- either hook is wired up, and because every column they touch is independently justified
+-- by a live path anyway - the coordinates by app/settings/location.tsx, and
+-- `current_state` / `current_country` by the onboarding update in
+-- app/(onboarding)/complete.tsx and app/(shidduch-onboarding)/complete.tsx. Nothing in
+-- this migration rests on a dead hook alone. Said out loud because citing a dead caller as
+-- if it were live is how a column list stops being checkable (MEXA-291, Guts).
 --
 -- No function in `public` writes `users` at all (checked against tayiyczmacvhokdxfqvm:
 -- zero rows from pg_proc where the body matches insert/update/delete on users), so no RPC
@@ -130,13 +139,17 @@
 --                                 from the update payload; still sent on INSERT, where
 --                                 the policy's WITH CHECK (auth.uid() = auth_id) requires
 --                                 it.
---   updated_at                    src/api/mutations/useProfile.ts:66. The
---                                 `users_updated_at` BEFORE UPDATE trigger
---                                 (00001_initial_schema.sql:377) already sets it. Removed.
---   location_updated_at           src/api/mutations/useProfile.ts:215. The
---                                 `users_location_update` BEFORE trigger
---                                 (00001_initial_schema.sql:388) already sets it, and
---                                 `location` with it. Removed.
+--   updated_at                    src/api/mutations/useProfile.ts:66. Trigger
+--                                 `users_updated_at` (00001_initial_schema.sql:377) fires
+--                                 BEFORE UPDATE and runs update_updated_at() (:368), which
+--                                 assigns it at :371. Removed.
+--   location_updated_at           src/api/mutations/useProfile.ts:215. Trigger
+--                                 `users_location_update`
+--                                 (00001_initial_schema.sql:394) fires BEFORE INSERT OR
+--                                 UPDATE OF current_latitude, current_longitude and runs
+--                                 update_user_location() (:383), which assigns
+--                                 `location_updated_at` at :388 and `location` at :387.
+--                                 Removed.
 --   orthodox_subscription_status  app/(orthodox-auth)/paywall.tsx:109. That screen has no
 --                                 payment in it - the header comment says "For
 --                                 development, simulate subscription" and lists the four
@@ -200,8 +213,9 @@ REVOKE INSERT, UPDATE ON TABLE public.users FROM anon, authenticated;
 -- Profile columns a user edits: onboarding (app/(onboarding)/complete.tsx,
 -- app/(orthodox-onboarding)/basics.tsx and background.tsx,
 -- app/(shidduch-onboarding)/complete.tsx), profile editing (app/profile/edit.tsx via
--- useUpdateProfile), and location (app/settings/location.tsx,
--- src/api/mutations/useProfile.ts useUpdateLocation).
+-- useUpdateProfile), and location (app/settings/location.tsx; also
+-- src/api/mutations/useProfile.ts useUpdateLocation, which has no caller today - see the
+-- dead-hook note in the header).
 GRANT UPDATE (
   first_name,
   last_name,
