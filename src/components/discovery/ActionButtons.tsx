@@ -274,54 +274,58 @@ function ActionButton({
       }
       accessibilityState={{ disabled, busy }}
     >
-      <Animated.View
-        style={[
-          styles.button,
-          { width: config.size, height: config.size, borderRadius: config.size / 2 },
-          config.style,
-          animatedStyle,
-        ]}
-      >
-        {busy ? (
-          <ActivityIndicator size="small" color={colors.primary.gold} />
-        ) : type === 'superLike' ? (
-          <View style={styles.superLikeContent}>
+      <View style={{ width: config.size, height: config.size }}>
+        <Animated.View
+          style={[
+            styles.button,
+            { width: config.size, height: config.size, borderRadius: config.size / 2 },
+            config.style,
+            animatedStyle,
+          ]}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color={colors.primary.gold} />
+          ) : type === 'superLike' ? (
+            <View style={styles.superLikeContent}>
+              <LinearGradient
+                colors={['#4A90D9', '#2E5F99', '#1E3A5F']}
+                style={StyleSheet.absoluteFill}
+              />
+              <StarOfDavid size={config.iconSize} color={colors.primary.white} />
+            </View>
+          ) : type === 'like' ? (
             <LinearGradient
-              colors={['#4A90D9', '#2E5F99', '#1E3A5F']}
-              style={StyleSheet.absoluteFill}
-            />
-            <StarOfDavid size={config.iconSize} color={colors.primary.white} />
-            {remaining !== undefined && (
-              <View style={styles.remainingBadge}>
-                <Text style={styles.remainingText}>{remaining}</Text>
+              colors={hasLikedSomething
+                ? [colors.primary.gold, '#DAA520']
+                : [colors.primary.gold, '#B8860B']
+              }
+              style={[StyleSheet.absoluteFill, { borderRadius: config.size / 2 }]}
+            >
+              <View style={styles.iconContainer}>
+                <Ionicons name={config.icon as any} size={config.iconSize} color={config.iconColor} />
               </View>
-            )}
-          </View>
-        ) : type === 'like' ? (
-          <LinearGradient
-            colors={hasLikedSomething
-              ? [colors.primary.gold, '#DAA520']
-              : [colors.primary.gold, '#B8860B']
-            }
-            style={[StyleSheet.absoluteFill, { borderRadius: config.size / 2 }]}
-          >
+            </LinearGradient>
+          ) : (
             <View style={styles.iconContainer}>
               <Ionicons name={config.icon as any} size={config.iconSize} color={config.iconColor} />
             </View>
-          </LinearGradient>
-        ) : (
-          <View style={styles.iconContainer}>
-            <Ionicons name={config.icon as any} size={config.iconSize} color={config.iconColor} />
+          )}
+        </Animated.View>
+
+        {/* Super Like counter badge - a sibling of the button, which clips (`overflow: 'hidden'`) */}
+        {type === 'superLike' && remaining !== undefined && !busy && (
+          <View style={styles.remainingBadge}>
+            <Text style={styles.remainingText}>{remaining}</Text>
           </View>
         )}
-      </Animated.View>
 
-      {/* Lock badge - outside the button, which clips (`overflow: 'hidden'`) */}
-      {type === 'rewind' && locked && !busy && (
-        <View style={styles.lockBadge}>
-          <Ionicons name="lock-closed" size={10} color={colors.primary.navy} />
-        </View>
-      )}
+        {/* Lock badge - outside the button, which clips (`overflow: 'hidden'`) */}
+        {type === 'rewind' && locked && !busy && (
+          <View style={styles.lockBadge}>
+            <Ionicons name="lock-closed" size={10} color={colors.primary.navy} />
+          </View>
+        )}
+      </View>
 
       {/* Label. Read off `label` rather than re-deriving it: the old inline ternary had no
           `rewind` arm, so a fourth type would have silently been labelled "Like". */}

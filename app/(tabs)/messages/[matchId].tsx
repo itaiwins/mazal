@@ -38,7 +38,7 @@ import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { useDotNavigatorInset } from '@/components/navigation/DotNavigator';
 import { useMessages, useMatchById } from '@/api/queries';
-import { useSendMessage, useMarkMessagesAsRead } from '@/api/mutations';
+import { useSendMessage, useMarkMessagesAsRead, useBlockUser, useUnmatch } from '@/api/mutations';
 import { useMessagesSubscription, useTypingIndicator, useTypingSubscription } from '@/api/realtime';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -219,6 +219,10 @@ export default function ChatScreen() {
   // Send message mutation
   const sendMessage = useSendMessage();
 
+  // Block / unmatch mutations
+  const blockUser = useBlockUser();
+  const unmatchUser = useUnmatch();
+
   // Use demo messages or API messages
   const messages: MessageItem[] = isDemoMode
     ? demoMessages.map((m) => ({
@@ -353,9 +357,17 @@ export default function ChatScreen() {
                   text: 'Block',
                   style: 'destructive',
                   onPress: () => {
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                    Alert.alert('Blocked', 'This user has been blocked.');
-                    router.replace('/(tabs)/matches');
+                    if (!match.id) return;
+                    blockUser.mutate(match.id, {
+                      onSuccess: () => {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                        Alert.alert('Blocked', 'This user has been blocked.');
+                        router.replace('/(tabs)/matches');
+                      },
+                      onError: () => {
+                        Alert.alert('Something went wrong', 'Could not block this user. Please try again.');
+                      },
+                    });
                   },
                 },
               ]
@@ -375,9 +387,17 @@ export default function ChatScreen() {
                   text: 'Unmatch',
                   style: 'destructive',
                   onPress: () => {
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                    Alert.alert('Unmatched', 'You have been unmatched from this person.');
-                    router.replace('/(tabs)/matches');
+                    if (!matchId) return;
+                    unmatchUser.mutate(matchId, {
+                      onSuccess: () => {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                        Alert.alert('Unmatched', 'You have been unmatched from this person.');
+                        router.replace('/(tabs)/matches');
+                      },
+                      onError: () => {
+                        Alert.alert('Something went wrong', 'Could not unmatch. Please try again.');
+                      },
+                    });
                   },
                 },
               ]

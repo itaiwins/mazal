@@ -28,18 +28,13 @@ import { supabase } from '@/api/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/config/queryClient';
 
+// Only ids the `user_badges.badge_type` CHECK constraint (00001_initial_schema.sql) allows.
+// The picker used to also offer camp/hillel/gap_year/shabbat_host/kosher/volunteer/musician/
+// greek_life, none of which the constraint accepts, so picking one made Save fail (MEXA-421).
 const ALL_BADGES = [
   { id: 'birthright', label: 'Birthright Alumni', emoji: '✈️', description: 'Completed a Birthright trip' },
   { id: 'hebrew_speaker', label: 'Hebrew Speaker', emoji: '🗣️', description: 'Conversational in Hebrew' },
   { id: 'day_school', label: 'Day School', emoji: '🎓', description: 'Attended Jewish day school' },
-  { id: 'camp', label: 'Camp Alumni', emoji: '🏕️', description: 'Attended Jewish summer camp' },
-  { id: 'hillel', label: 'Hillel Active', emoji: '🕍', description: 'Active in Hillel' },
-  { id: 'gap_year', label: 'Gap Year Israel', emoji: '🇮🇱', description: 'Did a gap year in Israel' },
-  { id: 'shabbat_host', label: 'Shabbat Host', emoji: '🕯️', description: 'Loves hosting Shabbat dinners' },
-  { id: 'kosher', label: 'Keeps Kosher', emoji: '🍽️', description: 'Observes kosher dietary laws' },
-  { id: 'volunteer', label: 'Jewish Volunteer', emoji: '🤝', description: 'Volunteers with Jewish organizations' },
-  { id: 'musician', label: 'Jewish Music', emoji: '🎵', description: 'Plays Jewish/Israeli music' },
-  { id: 'greek_life', label: 'Greek Life', emoji: '🏛️', description: 'Fraternity or sorority member' },
 ];
 
 export default function BadgesScreen() {
@@ -57,6 +52,9 @@ export default function BadgesScreen() {
 
   // Initialize selected badges from profile data
   const [selectedBadges, setSelectedBadges] = useState<string[]>([]);
+  // The badges as they exist in the DB right now, so Save can diff against them instead of
+  // wiping and re-writing everything.
+  const [existingBadges, setExistingBadges] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
 
@@ -65,6 +63,7 @@ export default function BadgesScreen() {
     if (userProfile?.badges && !isInitialized) {
       const existingBadgeIds = userProfile.badges.map((b) => b.badge_type);
       setSelectedBadges(existingBadgeIds);
+      setExistingBadges(existingBadgeIds);
       setIsInitialized(true);
     }
   }, [userProfile?.badges, isInitialized]);
@@ -96,33 +95,38 @@ export default function BadgesScreen() {
     setIsSaving(true);
 
     try {
-      // Delete all existing badges for this user
-      const { error: deleteError } = await supabase
-        .from('user_badges')
-        .delete()
-        .eq('user_id', userId);
+      const badgesToAdd = selectedBadges.filter((id) => !existingBadges.includes(id));
+      const badgesToRemove = existingBadges.filter((id) => !selectedBadges.includes(id));
 
-      if (deleteError) {
-        console.error('Error deleting badges:', deleteError);
-        throw deleteError;
-      }
-
-      // Insert new badges if any are selected
-      if (selectedBadges.length > 0) {
-        const badgesToInsert = selectedBadges.map((badgeType) => ({
-          user_id: userId,
-          badge_type: badgeType,
-        }));
-
+      // Insert the newly selected badges first. If one is rejected (e.g. by the
+      // `badge_type` CHECK constraint) this throws before anything existing is touched,
+      // instead of a delete-first save wiping the profile's badges on a failed insert.
+      if (badgesToAdd.length > 0) {
         const { error: insertError } = await supabase
           .from('user_badges')
-          .insert(badgesToInsert);
+          .insert(badgesToAdd.map((badgeType) => ({ user_id: userId, badge_type: badgeType })));
 
         if (insertError) {
           console.error('Error inserting badges:', insertError);
           throw insertError;
         }
       }
+
+      // Only remove the deselected badges once the new ones are safely saved.
+      if (badgesToRemove.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('user_badges')
+          .delete()
+          .eq('user_id', userId)
+          .in('badge_type', badgesToRemove);
+
+        if (deleteError) {
+          console.error('Error deleting badges:', deleteError);
+          throw deleteError;
+        }
+      }
+
+      setExistingBadges(selectedBadges);
 
       // Invalidate user profile cache to refetch with new badges
       queryClient.invalidateQueries({ queryKey: queryKeys.user.profile() });
