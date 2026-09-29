@@ -58,7 +58,37 @@ Apply exactly this sequence:
 00034_messages_are_not_rewritable.sql
 00035_server_side_swipe_quota.sql
 00036_unmatch_is_one_way.sql
+00037_shadchan_notes_belong_to_their_shadchan.sql
 ```
+
+**`00037` has to come after `00005` and `20250114_shidduch_system_fixed`, and its guards
+0a/0c abort if it does not.** `00037_shadchan_notes_belong_to_their_shadchan.sql` (MEXA-419)
+replaces the one policy on `public.shadchan_notes` — `FOR ALL TO public USING (true)`, which
+let any signed-in caller and any anon-key holder read, rewrite, delete and forge every
+matchmaker note — with four command-scoped policies `TO authenticated`, gives
+`shadchan_notes.shadchan_id` its first foreign key (`shadchanim(id) ON DELETE CASCADE`), adds
+the SECURITY DEFINER helper `public.current_shadchan_ids()`, and revokes `anon`'s `arwd`. It
+needs `00005` for `shadchanim` (guard 0a) and the shidduch migration for the table itself.
+It is independent of `00016` in both directions: `00016` revokes `anon` across the whole
+schema in a loop and asserts the result with `has_table_privilege`, so this subset already
+being revoked is a no-op it still passes; and `00016` never names `shadchan_notes` in its own
+statements. `00016`'s **rollback** would re-grant `anon SELECT` here, which is survivable
+because all four policies are `TO authenticated` — the grant would return and RLS would still
+deny `anon` every row. Live had **0 rows in `shadchan_notes`**, so the foreign key validated
+against nothing and nobody is stranded.
+
+**Three things to read in it before approving.** (1) `shadchan_id` had no FK at all, and the
+file has to *decide* what the column means; DECISION 1 argues for `shadchanim(id)` over
+`users(id)` and says why `users.shadchan_id` is not a precedent. (2) The predicate goes
+through a DEFINER helper rather than a direct join on `shadchanim`, because a policy
+expression inherits that table's own RLS and its only SELECT policy is `is_active = true` —
+so the obvious join would silently cut a *deactivated* matchmaker off from their own notes.
+Probe E6 in the rehearsal demonstrates exactly that failure. (3) The explicit `WITH CHECK` on
+the UPDATE policy is **not** what stops a note being moved into another matchmaker's list —
+a `FOR UPDATE` policy with a NULL `WITH CHECK` falls back to its `USING`, and this `USING`
+reads `shadchan_id`. It is written out so the rule is visible in `pg_policies.with_check`
+instead of implied, which is the reading mistake that let `FOR ALL USING (true)` stand as a
+write policy for eight months. Section 3 carries the six-scenario measurement.
 
 **`00035` has to come after `00033`, and its guard 0c aborts if it does not.**
 `00035_server_side_swipe_quota.sql` (MEXA-373 items 2, 3, 5) `CREATE OR REPLACE`s
@@ -258,7 +288,19 @@ Notes on the order:
   `00033_rewind_retracts_super_like_notification_rollback.sql` and
   `00034_messages_are_not_rewritable_rollback.sql` and
   `00035_server_side_swipe_quota_rollback.sql` and
-  `00036_unmatch_is_one_way_rollback.sql`; read each one's header.
+  `00036_unmatch_is_one_way_rollback.sql` and
+  `00037_shadchan_notes_belong_to_their_shadchan_rollback.sql`; read each one's header.
+  `00037`'s **names what it restores** — the one `FOR ALL TO public USING (true)` policy
+  (verbatim from `20250114_shidduch_system_fixed.sql:459`, trailing comment included, so a
+  diff against that file comes back empty), the measured pre-apply `relacl`, the absent FK,
+  the absent helper and the two NULL comments — rather than deriving any of it at run time
+  (MEXA-364/399). It **re-opens MEXA-419 in full** and says so in a closing `RAISE WARNING`:
+  after it, any signed-in caller and any anon-key holder can read, rewrite, delete and forge
+  every matchmaker note. It checks `relacl` as a **sorted set of aclitems, not as
+  `relacl::text`** — a REVOKE-then-GRANT round trip restores the same four entries in a
+  different array order, and written as a string comparison this assertion aborted a
+  *correct* rollback in rehearsal. It touches no row, and its section 3 refuses to drop the
+  helper if any policy anywhere still calls it.
   `00036`'s **names what it restores** — the measured pre-apply `relacl`, the eight
   `attacl`s (all NULL: there were no column grants on that table at all) and the eight NULL
   column comments — rather than deriving any of it at run time (MEXA-364/399). It drops
@@ -1224,6 +1266,42 @@ Notes on the order:
   only change to the file since the PASS, it is pre-flight only and changes no statement, and
   `undo_last_swipe()`'s own `prosrc` md5 is unchanged at `b547a17b…007a` — so the rollback's
   pin still holds.
+- `00037` is **NOT applied** — written 2026-09-29 (MEXA-419), waiting on Guts's security
+  review and an apply card. It closes the one constant-`true` policy on a write command
+  anywhere in the schema: `public.shadchan_notes` had a single `FOR ALL TO public
+  USING (true)` policy, so any signed-in caller and any anon-key holder could read, rewrite,
+  delete and forge every matchmaker note. Rehearsed end to end against `tayiyczmacvhokdxfqvm`
+  in one rolled-back transaction, `.scratch/mazal-mexa419/rehearse.mjs` → `REHEARSE.txt`,
+  **53/53, three consecutive runs**, every behavioural claim executed as the real
+  `authenticated` (or `anon`) role. It opens with a **pre-fix control** — all four filed
+  probes ALLOWED, plus `anon` reading the note — so the "after" results are a change and not
+  an assertion about an empty table. Then: the four probes are refused or return 0 rows; the
+  real shadchan's own SELECT/INSERT/UPDATE/DELETE all still work; a shadchan cannot forge
+  under, move a note into, read or delete from another shadchan's list; the candidate the
+  notes are *about* reads nothing (DECISION 2); `anon` is refused `42501` at the grant layer
+  and cannot EXECUTE the helper; a **deactivated** shadchan still reads and edits their own
+  notes; and the rollback runs in the same transaction and restores the policy, the `relacl`
+  set, the FK, the helper and both comments, with the pre-fix control result coming back.
+  A fresh connection afterwards confirms no ledger row and row counts identical to baseline.
+  **The sweep the issue asked for is in the header**, done against the live catalog rather
+  than the file: of 89 policies, five have a constant-`true` expression and the other four
+  are SELECT-only on reference data (`colleges`, `community_settings`, `user_badges`,
+  `user_prompts` — the last two are MEXA-277). Every other table from
+  `20250114_shidduch_system_fixed.sql` is closed by RLS rather than open.
+  **Two things a reviewer should check by running, not reading.** `INSERT ... RETURNING` is
+  refused by the SELECT policy even with the INSERT check widened to `true` — so a forge
+  probe written with `RETURNING` proves nothing about the INSERT check, and the rehearsal's
+  probes drop it (F2 vs F2b). And the "move a note into another shadchan's list" refusal has
+  **two independent causes**, separated by mutating each alone: blinding only the UPDATE
+  policy still refuses (F1a), blinding only the SELECT policy still refuses (F1b), blinding
+  both is ALLOWED (F1c). So neither assertion is vacuous and neither is carrying the other.
+  **This file's own post-check caught a defect in its first draft**, which is worth knowing
+  because it generalises: this project carries `ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT EXECUTE ON FUNCTIONS TO anon`, so a new function is born with `anon=X/postgres` as a
+  *direct* grant, and `REVOKE ALL ... FROM PUBLIC` does not remove it — `PUBLIC` is a
+  different grantee. The house form is `FROM PUBLIC, anon` (00010); `00009`'s helpers used
+  the short form. Post-check 7f matches the whole `proacl` string rather than probing for
+  `anon`, and F5 proves the trap is real rather than theoretical.
 - `00036` is **NOT applied** — written 2026-09-29 (MEXA-418), waiting on Guts's security
   review and an apply card. It closes the only hit the MEXA-414 sweep found on the **live
   dating surface**: an unmatch was reversible by the person who was unmatched. Rehearsed end
@@ -1746,7 +1824,7 @@ Most are profile content a user is supposed to edit. What survives triage:
 | verdict | where | measured |
 |---|---|---|
 | **finding, live surface** | `matches.is_active` + `userN_unmatched` | **An unmatch is reversible by the person who was unmatched.** `useUnmatch` (src/api/mutations/useMatch.ts:41) writes own-flag + `is_active=false`; `useMatches.ts:48` lists `is_active = true`. The other participant then writes `is_active = true, <their>_unmatched = false` — **allowed, 1 row** — and the match is back in *both* lists, with the thread intact and sendable again. `qual` is match membership, which neither column changes. MEXA-418. **Fixed by `00036`** (written, rehearsed, not applied): table-wide `UPDATE` revoked from both client roles, `GRANT UPDATE (last_message_at)` kept so the INVOKER trigger on `messages` still works, and the write moved into `public.unmatch(uuid)`, which is one-way. |
-| **finding, hidden surface** | `shadchan_notes` | `shadchan_notes_select_own` is `FOR ALL USING (true)` with full column grants to `anon` **and** `authenticated`. An unrelated user reads every matchmaker's private candidate notes, rewrites them, **deletes** them and forges new ones under another shadchan's id — all measured allowed. Not this class at all: a missing ownership filter, and the policy name says what it meant to be. MEXA-419. |
+| **finding, hidden surface** | `shadchan_notes` | `shadchan_notes_select_own` is `FOR ALL USING (true)` with full column grants to `anon` **and** `authenticated`. An unrelated user reads every matchmaker's private candidate notes, rewrites them, **deletes** them and forges new ones under another shadchan's id — all measured allowed. Not this class at all: a missing ownership filter, and the policy name says what it meant to be. MEXA-419. **Fixed by `00037`** (written, rehearsed, not applied): four command-scoped policies `TO authenticated` through the DEFINER helper `current_shadchan_ids()`, `shadchan_id` given its first FK (`shadchanim(id)`), and `anon` revoked. It is the only constant-`true` policy on a write command in the schema — the other four are SELECT-only on reference data. |
 | **finding, hidden surface** | `safta_messages.content`, `.sender_id` | MEXA-406's twin. "Users can mark safta messages as read" gates on connection membership, so the connected user rewrites the Safta's message body and reassigns its sender — allowed. MEXA-420. |
 | **finding, hidden surface** | `shadchanim.is_verified`, `.successful_matches`, `.years_experience` | Self-awarded, and *readable by everyone* (`SELECT USING (is_active = true)`): 250 successful matches and a verified tick on your own matchmaker profile, allowed. MEXA-420. |
 | **finding, hidden surface** | `shidduch_references.is_verified`, `.verified_at` | The profile owner marks their own reference — the rabbi who vouches for them — verified. Allowed. MEXA-420. |
