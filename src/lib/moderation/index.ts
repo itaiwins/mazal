@@ -39,11 +39,23 @@ const EXPLICIT_PATTERNS = [
   /\b(?:xxx+|x+[-\s]?rated)\b/gi,
 
   // Violence and threats. Threats are phrases, not single words: bare "die" blocked
-  // "I will die on that hill" and bare "murder" blocked "a good murder mystery".
+  // "I will die on that hill" and bare "murder" blocked "a good murder mystery". The
+  // phrase has to match the *target*, not the speaker, or the filter only catches a
+  // first-person threat and misses "someone should murder you" (MEXA-342, Guts).
+  //
+  // Who is doing it, named: "kill you", "murder you", "stab you".
   /\b(?:k+i+l+l+\s+(?:you|yourself|u|ur\s*self)|kys)\b/gi,
+  /\b(?:m+u+r+d+e+r+|s+t+a+b+)(?:s|ing)?\s+(?:you|u|yourself|her|him|them)\b/gi,
   /\bdeath\s+threats?\b/gi,
   /\b(?:i\s*(?:'|’)?(?:ll|m)|i\s+(?:will|am)|im|we\s+(?:will|are)|gonna|going\s+to)\s+(?:gonna\s+|going\s+to\s+)?(?:kill|murder|rape|stab|hurt)\s+(?:you|u|her|him|them|yourself)\b/gi,
-  /\b(?:you\s+should\s+die|go\s+die|die\s+in\s+a\s+fire)\b/gi,
+  // Nobody named, so the harm lands on "you": "you're gonna get murdered".
+  /\byou(?:\s*(?:'|’)?re|\s+are)?\s+(?:going\s+to\s+|gonna\s+|will\s+|about\s+to\s+|deserve\s+to\s+|should\s+)?(?:get|be)\s+(?:murdered|killed|stabbed|shot|raped|beaten\s+up)\b/gi,
+  // "hurt" needs the intent spelled out, because "did you get hurt?" is a kind question.
+  /\byou(?:\s*(?:'|’)?re|\s+are)?\s+(?:going\s+to|gonna|will|deserve\s+to)\s+(?:get|be)\s+hurt\b/gi,
+  /\b(?:you\s+should\s+die|you\s+(?:deserve|ought)\s+to\s+die|go\s+die|die\s+in\s+a\s+fire)\b/gi,
+  /\bhope\s+(?:that\s+)?(?:you|u)\s+(?:get\s+)?(?:die|dies|hurt|murdered|killed|stabbed|shot|raped)\b/gi,
+  /\bwish\s+(?:you|u)\s+(?:were\s+dead|would\s+die)\b/gi,
+  /\b(?:someone|somebody|some\s?one|he|she|they|everyone)\s+(?:should|ought\s+to|will|is\s+going\s+to|needs\s+to|is\s+gonna)\s+(?:kill|murder|stab|hurt|rape|shoot)\s+(?:you|u|her|him|them)\b/gi,
   /\brap(?:e|es|ed|ing|ist|ists)\b/gi,
 
   // Drugs (context-dependent)

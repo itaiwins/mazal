@@ -62,6 +62,16 @@ const ALLOWED = [
   'True crime documentaries and hot chocolate',
   "I'll beat you at mini golf",
   "I'm going to shoot you a text later",
+  'Kill Bill is my favourite film',
+  // Guards for the target-focused threat patterns added on MEXA-342. Each one is a kind
+  // or ordinary sentence that sits one word away from a phrasing that does block.
+  'Did you get hurt on the hike?',
+  "I don't want you to get hurt",
+  'My knees get hurt when I run downhill',
+  "You're going to get hooked on my cholent",
+  'I hope you get home safely',
+  'I hope you had a good holiday',
+  'Kill your darlings is the best writing advice there is',
 
   // `(money|cash|$)` used `$` as an anchor, so any message ending in "send" was blocked.
   'Let me know what you want me to send',
@@ -89,6 +99,18 @@ const BLOCKED = [
   'he sent death threats',
   'I am going to hurt you',
   'he raped her',
+  // Indirect, passive and third-person threats. The first-person-leader pattern alone
+  // missed every one of these (MEXA-342, Guts).
+  'he should kill you',
+  'someone should murder you',
+  'somebody is going to hurt you',
+  'you deserve to die',
+  'hope you get stabbed',
+  "you're going to get hurt",
+  "you're gonna get murdered",
+  'I hope you get murdered someday',
+  'I wish you were dead',
+  'you will be killed',
   'cocaine at the party',
   'send me money',
   'venmo me now',
