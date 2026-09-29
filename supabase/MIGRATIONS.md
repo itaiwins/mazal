@@ -53,7 +53,27 @@ Apply exactly this sequence:
 00030_public_profiles_publish_age_not_dob.sql
 00026_who_liked_me.sql
 00031_safta_like_needs_a_connection.sql
+00032_has_entitlement.sql
 ```
+
+**`00032` has no ordering dependency and is listed last because it is additive.**
+`00032_has_entitlement.sql` (MEXA-373, Phase 1 item 1) creates
+`public.has_entitlement(text)` — the first server-side answer to "has this caller paid?" —
+and **calls it from nowhere**. It reads `public.subscriptions`, which has existed since
+`00001`, and needs only `public.current_app_user_id()` from `00008`/`00010`, so it is safe
+before or after everything else in this list. Two relationships worth knowing:
+
+* **It does not require `00016`, but `00016` is what makes it durable.** `00032`'s whole
+  safety argument is that `public.subscriptions` carries exactly one policy (SELECT own
+  row), so the INSERT/UPDATE/DELETE grants `authenticated` and `anon` still hold on that
+  table are inert. Guard `0f` refuses to apply if any client-write policy exists, and the
+  function's COMMENT states the rule — but the grant-level fix is `00016`'s, and `00016` is
+  still unapplied (MEXA-364).
+* **The gate inside `get_who_liked_me()` is not here.** `00026`'s header specifies it ("the
+  gate goes in `get_who_liked_me()` and nowhere else: `count_who_liked_me()` stays free by
+  design") and `00026` is unapplied, so that call site lands with or after `00026`. Same for
+  the Rewind gate in `00025`'s `undo_last_swipe()` and the daily swipe/super-like caps — the
+  rest of MEXA-373 Phase 1, all three blocked on one product decision; see the issue.
 
 **`00031` has to come after both `00023` and `00020`, which is why it is listed last.**
 `00031_safta_like_needs_a_connection.sql` (MEXA-361) requires `for_user_id` on a
@@ -132,7 +152,13 @@ Notes on the order:
   `00028_pin_function_search_path_rollback.sql`,
   `00029_reentry_restore_and_hold_rollback.sql`,
   `00030_public_profiles_publish_age_not_dob_rollback.sql` and
-  `00031_safta_like_needs_a_connection_rollback.sql`; read each one's header.
+  `00031_safta_like_needs_a_connection_rollback.sql` and
+  `00032_has_entitlement_rollback.sql`; read each one's header.
+  `00032`'s is a clean undo — `00032` gates nothing, so nothing regresses in behaviour when
+  it goes — but it **refuses while any caller exists**. A SQL function called from another
+  function's string body leaves no `pg_depend` edge, so `DROP ... RESTRICT` would succeed and
+  the caller would then fail at runtime; section 0c greps `pg_proc.prosrc` and both halves of
+  every policy expression instead. If it fires, roll back whatever added the call site first.
   `00031`'s **re-opens MEXA-361 in full** — one INSERT again queues a push notification at
   any user of the app — and its header says so at the top; it restores `00002`'s INSERT
   policy and `00020`'s UPDATE policy byte for byte, and deliberately leaves `00023` alone.
