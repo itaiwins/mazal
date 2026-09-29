@@ -36,6 +36,11 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/api/supabase/client';
 import { establishSessionFromAuthLink } from '@/lib/auth/authDeepLink';
+import {
+  createRecoverySessionGuard,
+  type AppStateValue,
+  type RecoverySessionGuard,
+} from '@/lib/auth/recoverySession';
 import { useAuthLink } from '@/lib/auth/useAuthLink';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
@@ -60,18 +65,24 @@ export default function ResetPasswordScreen() {
   // The recovery link is single-use; never hand it to GoTrue twice.
   const consumed = useRef(false);
 
-  // Set once the recovery session has been given up on, so that an exchange still
-  // in flight when the app backgrounds cannot land a live session afterwards.
-  const abandonedRef = useRef(false);
+  // Every decision about when this session ends lives in the guard, so that
+  // scripts/check-recovery-session.mjs can drive it. See that module's header for
+  // why — each previous version of this was wrong in a way only a read caught.
+  const guardRef = useRef<RecoverySessionGuard | null>(null);
+  if (!guardRef.current) {
+    guardRef.current = createRecoverySessionGuard({
+      signOut: () => supabase.auth.signOut(),
+      getAppState: () => AppState.currentState as AppStateValue,
+    });
+  }
+  const guard = guardRef.current;
 
   // The AppState listener is subscribed once; this is how it reads the current
   // status without re-subscribing on every keystroke-driven render.
   const statusRef = useRef<Status>(status);
   statusRef.current = status;
 
-  const abandonRecoverySession = useCallback(async () => {
-    abandonedRef.current = true;
-    await supabase.auth.signOut();
+  const showAbandoned = useCallback(() => {
     setAbandoned(true);
     setLinkExpired(false);
     setLinkMessage(null);
@@ -94,12 +105,9 @@ export default function ResetPasswordScreen() {
     (async () => {
       const result = await establishSessionFromAuthLink(link);
 
-      // Backgrounded mid-exchange: the listener's sign-out ran while there was
-      // still no session to end, so end this one instead of leaving it live.
-      if (abandonedRef.current) {
-        if (result.ok) await supabase.auth.signOut();
-        return;
-      }
+      // Backgrounded mid-exchange: the guard's sign-out ran while there was still no
+      // session to end, so it ends this one instead of leaving it live.
+      if (await guard.afterExchange(result.ok)) return;
 
       if (!result.ok) {
         setLinkExpired(result.expired);
@@ -110,23 +118,39 @@ export default function ResetPasswordScreen() {
 
       setStatus('ready');
     })();
-  }, [link, resolved]);
+  }, [link, resolved, guard]);
 
-  // Bound the recovery session to this visit of this screen (MEXA-264). Only
-  // 'background' — iOS reports 'inactive' for the app switcher, an incoming call
-  // and the password autofill sheet, none of which mean the user left.
+  // Bound the recovery session to this visit of this screen (MEXA-264).
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (next) => {
-      if (next !== 'background') return;
-      if (abandonedRef.current) return;
-      // 'saving' has an update in flight and 'invalid' has no session to end.
-      if (statusRef.current !== 'verifying' && statusRef.current !== 'ready') return;
-
-      void abandonRecoverySession();
+      void (async () => {
+        if (await guard.onAppStateChange(next as AppStateValue, statusRef.current)) {
+          showAbandoned();
+        }
+      })();
     });
 
     return () => subscription.remove();
-  }, [abandonRecoverySession]);
+  }, [guard, showAbandoned]);
+
+  /**
+   * A failed save is the one moment we know the password did **not** change and no
+   * write is in flight, so it is where a session the background listener had to
+   * leave alone gets closed. Without it the screen returns to `ready` with the
+   * session live, and if the app is still backgrounded no further `AppState` event
+   * is coming to catch it (Guts, re-review of `00b5ce0`).
+   */
+  const settleFailedSave = async (message: string) => {
+    const outcome = await guard.settleFailedSave(message);
+
+    if (outcome.render === 'abandoned') {
+      showAbandoned();
+      return;
+    }
+
+    setError(outcome.message);
+    setStatus('ready');
+  };
 
   const handleSave = async () => {
     if (password.length < MIN_PASSWORD_LENGTH) {
@@ -153,13 +177,12 @@ export default function ResetPasswordScreen() {
       const { error: updateError } = await supabase.auth.updateUser({ password });
 
       if (updateError) {
-        setError(updateError.message);
-        setStatus('ready');
+        await settleFailedSave(updateError.message);
         return;
       }
 
       // Sign the recovery session out so the new password is what gets them in.
-      await supabase.auth.signOut();
+      await guard.endSession();
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
@@ -169,8 +192,7 @@ export default function ResetPasswordScreen() {
         { cancelable: false }
       );
     } catch {
-      setError('Something went wrong. Please try again.');
-      setStatus('ready');
+      await settleFailedSave('Something went wrong. Please try again.');
     }
   };
 
@@ -202,7 +224,7 @@ export default function ResetPasswordScreen() {
         </Text>
         <Text style={styles.centeredSubtitle}>
           {abandoned
-            ? "We closed your reset session when you left the app, so nobody else can finish it on this phone. Your password hasn't changed."
+            ? "Your password hasn't changed. Reset links can only be used once, so request a new one when you're ready to finish."
             : `${linkMessage} Reset links can only be used once, and they expire an hour after we send them.`}
         </Text>
 
