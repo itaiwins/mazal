@@ -22,6 +22,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { useDotNavigatorInset } from '@/components/navigation/DotNavigator';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useUserProfile } from '@/api/queries';
@@ -133,6 +134,7 @@ function ActionButton({
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const dotNavigatorInset = useDotNavigatorInset();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const isDemoMode = useUIStore((s) => s.isDemoMode);
@@ -245,7 +247,9 @@ export default function ProfileScreen() {
   return (
     <View style={styles.container}>
       <ScrollView
-        contentContainerStyle={{ paddingBottom: insets.bottom + spacing[8] }}
+        // The DotNavigator is absolute over this screen, so the list needs its height
+        // too - the first row of Account used to sit under the dots (MEXA-338, finding 9).
+        contentContainerStyle={{ paddingBottom: dotNavigatorInset + spacing[8] }}
         showsVerticalScrollIndicator={false}
       >
         {/* Hero Header with Gradient */}

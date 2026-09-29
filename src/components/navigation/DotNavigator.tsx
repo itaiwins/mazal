@@ -21,6 +21,61 @@ import { spacing } from '@/theme/spacing';
 // Threshold for drag navigation
 const DRAG_THRESHOLD = 40;
 
+/**
+ * Every measurement that makes up the navigator's height, in one place.
+ *
+ * MEXA-338 (walkthrough finding 9): the navigator is `position: 'absolute'` over the
+ * screen, and the screens beneath only ever padded by `insets.bottom`, so the discover
+ * action buttons, the chat composer and the first row of the profile's Account list all
+ * sat underneath it. A screen cannot pad correctly for something whose height it has to
+ * guess, so the height is derived from these and exported.
+ *
+ * The two line heights are pinned rather than left to the platform on purpose: an
+ * unspecified `lineHeight` makes the total a function of the font metrics, which is
+ * exactly the kind of number that is right on this machine and wrong on a device.
+ */
+const METRICS = {
+  paddingTop: spacing[1], // 4
+  hintLineHeight: 12,
+  hintMarginBottom: spacing[2], // 8
+  dotsRowPaddingVertical: spacing[3], // 12
+  dotHeight: 6,
+  labelMarginTop: spacing[1.5], // 6
+  labelLineHeight: 13,
+  paddingBottom: 12,
+} as const;
+
+/** One dot plus its label. Fixed, so the row does not change height with the active tab. */
+const DOT_WRAPPER_HEIGHT =
+  METRICS.dotHeight + METRICS.labelMarginTop + METRICS.labelLineHeight;
+
+/**
+ * How much of the bottom of the screen the navigator covers, **excluding** the safe-area
+ * inset it adds on top. Summed from `METRICS` rather than written out, so it cannot drift
+ * from the stylesheet below.
+ *
+ * Prefer `useDotNavigatorInset()` — a screen wants this plus the real inset.
+ */
+export const DOT_NAVIGATOR_HEIGHT =
+  METRICS.paddingTop +
+  METRICS.hintLineHeight +
+  METRICS.hintMarginBottom +
+  METRICS.dotsRowPaddingVertical * 2 +
+  DOT_WRAPPER_HEIGHT +
+  METRICS.paddingBottom;
+
+/**
+ * The bottom padding a screen under the navigator needs to keep its own content clear of
+ * it. Add whatever breathing room the screen wants on top.
+ *
+ * Reads the live insets, so it is correct on a device without this file knowing anything
+ * about which device — the walkthrough render's inset is 0 and a notched iPhone's is 34.
+ */
+export function useDotNavigatorInset(): number {
+  const insets = useSafeAreaInsets();
+  return DOT_NAVIGATOR_HEIGHT + insets.bottom;
+}
+
 const SPRING_CONFIG = {
   damping: 15,
   stiffness: 180,
@@ -124,7 +179,9 @@ export function DotNavigator({ tabs, activeTab, onTabPress }: DotNavigatorProps)
     });
 
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom + 12 }]}>
+    <View
+      style={[styles.container, { paddingBottom: insets.bottom + METRICS.paddingBottom }]}
+    >
       <View style={styles.hintContainer}>
         <Text style={styles.hintText}>Drag dots to navigate</Text>
       </View>
@@ -156,14 +213,15 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
-    paddingTop: spacing[1],
+    paddingTop: METRICS.paddingTop,
   },
   hintContainer: {
-    marginBottom: spacing[2],
+    marginBottom: METRICS.hintMarginBottom,
     opacity: 0.3,
   },
   hintText: {
     fontSize: 10,
+    lineHeight: METRICS.hintLineHeight,
     color: colors.transparent.white50,
     textTransform: 'uppercase',
     letterSpacing: 1,
@@ -173,16 +231,17 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'center',
     gap: spacing[5],
-    paddingVertical: spacing[3],
+    paddingVertical: METRICS.dotsRowPaddingVertical,
     paddingHorizontal: spacing[6],
   },
   dotWrapper: {
     alignItems: 'center',
     minWidth: 44,
+    height: DOT_WRAPPER_HEIGHT,
   },
   dotContainer: {
     position: 'relative',
-    height: 6,
+    height: METRICS.dotHeight,
     justifyContent: 'center',
   },
   dot: {
@@ -208,8 +267,9 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 11,
+    lineHeight: METRICS.labelLineHeight,
     fontWeight: '500',
     color: colors.transparent.white60,
-    marginTop: spacing[1.5],
+    marginTop: METRICS.labelMarginTop,
   },
 });

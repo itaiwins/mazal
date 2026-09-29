@@ -36,6 +36,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+import { useDotNavigatorInset } from '@/components/navigation/DotNavigator';
 import { useMessages, useMatchById } from '@/api/queries';
 import { useSendMessage, useMarkMessagesAsRead } from '@/api/mutations';
 import { useMessagesSubscription, useTypingIndicator, useTypingSubscription } from '@/api/realtime';
@@ -180,6 +181,7 @@ function formatDate(date: Date): string {
 
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
+  const dotNavigatorInset = useDotNavigatorInset();
   const { matchId } = useLocalSearchParams<{ matchId: string }>();
   const [message, setMessage] = useState('');
   const [isOtherTyping, setIsOtherTyping] = useState(false);
@@ -530,7 +532,10 @@ export default function ChatScreen() {
       <Animated.View
         style={[
           styles.inputContainer,
-          { paddingBottom: insets.bottom + 70 },
+          // 70 was a hand-guess at the DotNavigator's height, and it was 15pt short, so
+          // the composer sat under the dots (MEXA-338, finding 9). The navigator now
+          // publishes its own height.
+          { paddingBottom: dotNavigatorInset },
           inputContainerStyle,
         ]}
       >

@@ -28,6 +28,7 @@ import Animated, { FadeIn } from 'react-native-reanimated';
 import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius, shadows } from '@/theme/spacing';
+import { useDotNavigatorInset } from '@/components/navigation/DotNavigator';
 import { useMatches, useSaftaConnections, useWhoLikedMeCount, type MatchWithPreview, type SaftaConnectionWithPreview } from '@/api/queries';
 import { useAllMessagesSubscription, useMatchesSubscription } from '@/api/realtime';
 import { AdBanner } from '@/components/ads';
@@ -330,6 +331,7 @@ const SAFTA_DEFAULT_PHOTO = 'https://images.unsplash.com/photo-1581579438747-1dc
 export default function MatchesScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const dotNavigatorInset = useDotNavigatorInset();
 
   // Check if demo mode is enabled
   const isDemoMode = useUIStore((s) => s.isDemoMode);
@@ -622,7 +624,11 @@ export default function MatchesScreen() {
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          // Clear of the absolutely-positioned DotNavigator (MEXA-338, finding 9).
+          { paddingBottom: dotNavigatorInset + spacing[4] },
+        ]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl

@@ -26,7 +26,7 @@ import Animated, {
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useDotNavigatorInset } from '@/components/navigation/DotNavigator';
 import { colors } from '@/theme/colors';
 import { borderRadius, spacing } from '@/theme/spacing';
 import { SPRING_CONFIGS } from '@/constants/animations';
@@ -54,7 +54,10 @@ export function ActionButtons({
   swipesRemaining,
   isUnlimited = false,
 }: ActionButtonsProps) {
-  const insets = useSafeAreaInsets();
+  // This bar is `position: 'absolute', bottom: 0`, and so is the DotNavigator, so padding
+  // by `insets.bottom` alone put Pass/Like/Super Like directly underneath the dots
+  // (MEXA-338, finding 9 - MEXA-328 pack screen 24).
+  const dotNavigatorInset = useDotNavigatorInset();
 
   // Breath animation for the like button
   const breathScale = useSharedValue(1);
@@ -76,7 +79,7 @@ export function ActionButtons({
   }));
 
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom + spacing[3] }]}>
+    <View style={[styles.container, { paddingBottom: dotNavigatorInset + spacing[3] }]}>
       {/* Glass Background */}
       <BlurView intensity={20} tint="dark" style={styles.blurBackground} />
       <LinearGradient

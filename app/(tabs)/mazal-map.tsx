@@ -37,6 +37,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius, shadows } from '@/theme/spacing';
+import { useDotNavigatorInset } from '@/components/navigation/DotNavigator';
 import { StarOfDavid } from '@/components/icons/StarOfDavid';
 import { usePremiumStore } from '@/stores/premiumStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -149,11 +150,15 @@ function ProfilePreview({
   onClose: () => void;
   onViewProfile: () => void;
 }) {
+  // Absolute at bottom 0, same as the DotNavigator, so it needs the navigator's height in
+  // its own padding or the "View Profile" button sits under the dots (MEXA-338, finding 9).
+  const dotNavigatorInset = useDotNavigatorInset();
+
   return (
     <Animated.View
       entering={SlideInDown.springify().damping(15)}
       exiting={SlideOutDown.springify()}
-      style={styles.previewContainer}
+      style={[styles.previewContainer, { paddingBottom: dotNavigatorInset + spacing[4] }]}
     >
       <LinearGradient
         colors={[colors.dark.elevated, colors.dark.card]}
@@ -867,7 +872,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     paddingHorizontal: spacing[4],
-    paddingBottom: spacing[4],
+    // paddingBottom comes from useDotNavigatorInset() at the call site (MEXA-338).
   },
   previewGradient: {
     borderRadius: borderRadius.xl,
