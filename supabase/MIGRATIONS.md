@@ -1077,8 +1077,35 @@ Notes on the order:
   **`rollback` 13/13** — identical to `before` on every probe afterwards, both policies back
   to `00002`'s and `00020`'s deparsed text, the trigger and its function gone, ledger row
   deleted.
-- `00033` is **NOT applied** — written 2026-09-29 (MEXA-401), waiting on Guts's security
-  review and an apply card for Lelouch. It settles the question `00025`'s header filed and
+- `00033` **is applied** — 2026-09-29 16:31Z, from `mazal-restart` @ `fab074d` (MEXA-401).
+  Guts PASSed it on MEXA-408 at `a3b25a1`; Lelouch accepted the apply card on MEXA-401.
+  Applied by `.scratch/mazal-mexa401/apply_00033.mjs --apply` (log: `APPLIED.txt`) —
+  **33 gates**, then the file sent verbatim through the `pg` driver as one simple query, so
+  its own `BEGIN`/`COMMIT` **and its own ledger `INSERT` share one transaction** (the `00011`
+  lesson: a Management-API apply can leave `schema_migrations` untouched). 236 ms. Counts
+  across the apply: public functions **44 → 44** (a replace, not a create, which is the
+  design), policies **89 → 89**, ledger **29 → 30**, `notification_queue` rows **0 → 0**,
+  `users`/`swipes` **0 → 0** — nothing stranded, and no real users to affect. Backup first:
+  `mazal-00033-preapply-20260929T162939Z.sql`, 207,606 bytes, `chmod 600`, 39 tables / 7 data
+  rows / 44 functions / 89 policies / 16 triggers / 29 ledger rows, asserted to contain
+  `00025`'s `undo_last_swipe()` body verbatim — so it is a restore source for the thing being
+  replaced — **and** to carry no `00033` ledger row, so it provably predates the apply.
+  **Verified live afterwards behaviourally, not just in the catalog.** The 33 gates prove the
+  right body is installed with the right flags; a function can carry a correct md5 and still
+  filter the wrong rows. `.scratch/mazal-mexa401/postapply.mjs`, **15/15**
+  (`POSTAPPLY.txt`), one always-rolled-back transaction, every call as the real
+  `authenticated` role with a JWT: a real super-like queues a push and the rewind **retracts
+  it on live**; a `sent` push survives; a third party's pending push to the same person
+  survives; a plain `like` still rewinds and retracts nothing; and `authenticated` still
+  reads and deletes **0 rows** from `notification_queue` directly. A fresh connection
+  afterwards confirms live row counts identical to the baseline and the body still hashing to
+  `b547a17b…007a`.
+  **Recorded rather than smoothed over:** guard `0f-bis` (`5b976d5`) was added **after**
+  Guts's PASS, on his own advisory, and he had not re-confirmed it at apply time. It is
+  pre-flight only, changes no statement, and leaves the function's `prosrc` md5 identical;
+  Lelouch accepted the card with that fact stated on it. So the applied bytes are not
+  byte-for-byte the reviewed bytes.
+  It settles the question `00025`'s header filed and
   MEXA-372 decided: **a rewind retracts the super-like push it queued, if that push is still
   unsent.** `trigger_notify_super_like` (`00005`) is `AFTER INSERT ON swipes` and queues
   `<name> thinks you are special!` with `jsonb_build_object('type','super_like','userId',
@@ -1266,11 +1293,11 @@ Notes on the order:
   the live schema untouched.
 - **The ledger lags the repo, re-measured 2026-09-29 (MEXA-326; first taken on MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
-  `00017`–`00021`, `00023`, `00024`, `00025`, `00030`, `00032`, `00034`, `20250114`,
+  `00017`–`00021`, `00023`, `00024`, `00025`, `00030`, `00032`, `00033`, `00034`, `20250114`,
   `20250115`
   (`00025` added 2026-09-29 08:10Z, MEXA-314; `00023` after the MEXA-359 reading, on
   MEXA-366; `00030` at 2026-09-29 10:43Z, MEXA-385; `00020` at 12:03Z, MEXA-394; `00032` at
-  15:23Z, MEXA-373; `00034` at 16:00Z, MEXA-406 — 29 rows).
+  15:23Z, MEXA-373; `00034` at 16:00Z, MEXA-406; `00033` at 16:31Z, MEXA-401 — 30 rows).
   So **`00012` and `00016` are absent**, and `00026`, `00028`, `00029` and `00031` are
   written but not applied. Re-read at 12:26Z on MEXA-361: still 26 rows, `00023` present,
   no `00031`.
