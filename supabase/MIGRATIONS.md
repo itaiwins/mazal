@@ -358,8 +358,30 @@ Notes on the order:
   **`rollback` 30/30** (`ROLLBACK.txt`) — `00019` then its rollback asserted against the
   `before` expectations, so the undo is bit-for-bit and puts the defect back rather than
   landing somewhere in between.
-- `00020` is **not applied yet** — written and verified, waiting on Guts's review (MEXA-297,
-  a function moving to `SECURITY DEFINER`) and then on Lelouch. It **depends on nothing**: it
+- `00020` is **reviewed and not applied yet** — Guts passed it on MEXA-349 (2026-09-29), both
+  parts, after re-diffing the function body against `00001` and re-running `verify.mjs`
+  himself in all three modes. It waits only on Lelouch. **Re-verified against the current
+  baseline** on 2026-09-29 after `00021`, `00023`, `00024`, `00025` and `00030` had gone on:
+  `after` still **27/27**, nothing left behind (`.scratch/mazal-mexa297/AFTER_rebaseline.txt`).
+  `00023_safta_connection_consent` is the only migration since that touches the Safta surface
+  and it changes no `safta_likes` policy — it only cites `00020`'s one-way rule as precedent —
+  so there is no overlap to reconcile. Pre-apply backup:
+  `.scratch/mazal-mexa297/BACKUP_public_before_00020_2026-09-29T12-00-30-091Z.sql` (`chmod 600`,
+  it carries the `moderation_secrets` pepper; it holds the pre-state of both objects this file
+  changes — the `update_safta_stats` body and `safta_likes`' two existing policies, with no
+  UPDATE among them).
+  **One known gap it inherits rather than introduces:** `SET search_path = public` does not stop
+  `pg_temp` shadowing an unqualified relation name, so once this is applied
+  `update_safta_stats` becomes the **26th** DEFINER function in the set MEXA-379 sweeps to
+  `public, pg_temp` — the count `00028`'s header puts at 25. Guts raised it on the review as
+  MEXA-353 and explicitly did not block on it: the vector needs `CREATE TEMP TABLE`, PostgREST
+  exposes no DDL, and the worst case here is a Safta corrupting the counter on her own like.
+  `00020` is deliberately **not** amended for it — it is reviewed, and the pin belongs in
+  MEXA-379's sweep with the other 25 and with `check_for_match`, which is already live and
+  which `00020` cannot reach. Whoever writes that sweep: `CREATE OR REPLACE FUNCTION … SET
+  search_path = public` **overwrites** `proconfig`, so if the sweep lands before this file the
+  pin is silently reverted — apply `00020` first, or re-run the sweep after it.
+  It **depends on nothing**: it
   replaces one function defined in `00001` and adds one policy to a table `00002` created,
   and no other file names either. In particular it is independent of `00016` and changes no
   grant at all, so `00016`'s post-check section 7c — which raises if
