@@ -52,7 +52,21 @@ Apply exactly this sequence:
 00025_rewind_undo_last_swipe.sql
 00030_public_profiles_publish_age_not_dob.sql
 00026_who_liked_me.sql
+00031_safta_like_needs_a_connection.sql
 ```
+
+**`00031` has to come after both `00023` and `00020`, which is why it is listed last.**
+`00031_safta_like_needs_a_connection.sql` (MEXA-361) requires `for_user_id` on a
+`safta_likes` row to hold an **`accepted`** `safta_connections` row to the recommending
+Safta, and that predicate only means consent because `00023` took `'accepted'` out of the
+Safta's own hands — before `00023` an attacker awarded herself the connection first and the
+new check was decorative. It also replaces `00020`'s `"Safta can send own likes"` UPDATE
+policy, so `00020` has to have written it. Unlike the `00022`/`00023` pair this is **not
+merely documentation**: `00031`'s section 0 aborts with
+`00023 (safta_connection_consent) is not in the ledger` and again if the
+`safta_connections` INSERT check does not pin `status` to `pending`, so applying it early
+fails loudly and changes nothing. `00028` and `00029` are absent from this list — see the
+note at the end of this section.
 
 **`00022` is deliberately listed after `00023`**, which is not where the placeholder note
 here used to say it would go. `00022_safta_public_profiles.sql` (MEXA-302) publishes a
@@ -114,8 +128,14 @@ Notes on the order:
   `00023_safta_connection_consent_rollback.sql`,
   `00024_revoke_self_awarded_verified_badge_rollback.sql`,
   `00025_rewind_undo_last_swipe_rollback.sql`,
-  `00026_who_liked_me_rollback.sql` and
-  `00030_public_profiles_publish_age_not_dob_rollback.sql`; read each one's header.
+  `00026_who_liked_me_rollback.sql`,
+  `00028_pin_function_search_path_rollback.sql`,
+  `00029_reentry_restore_and_hold_rollback.sql`,
+  `00030_public_profiles_publish_age_not_dob_rollback.sql` and
+  `00031_safta_like_needs_a_connection_rollback.sql`; read each one's header.
+  `00031`'s **re-opens MEXA-361 in full** — one INSERT again queues a push notification at
+  any user of the app — and its header says so at the top; it restores `00002`'s INSERT
+  policy and `00020`'s UPDATE policy byte for byte, and deliberately leaves `00023` alone.
   `00030`'s **refuses to run while `00026` is applied**, because putting `date_of_birth`
   back would leave `get_who_liked_me()` selecting a column that no longer exists; roll
   `00026` back first. It is otherwise a bit-exact inverse, grants included. `00022`'s is a
@@ -830,13 +850,72 @@ Notes on the order:
   is still own-row-only, `anon` is `42501` on both the view and `profile_age()`, and `00026`
   on top returns `age: 29` with no birthdate. **`rollback` 15/15** — identical to `before` on
   every probe afterwards, and the refusal fires when `00026` is on top.
+- `00031` is **NOT applied** — written 2026-09-29 (MEXA-361), waiting on Guts's review and
+  an apply card for Lelouch. It closes the last unconstrained `WITH CHECK` on the Safta
+  surface, the sibling of the one `00023` closed one table over, and it is the worse of the
+  two: `00005`'s `trigger_notify_safta_like` is `AFTER INSERT OR UPDATE OF sent_to_user …
+  WHEN (NEW.sent_to_user = true)`, so on live today **one INSERT queues a push notification
+  at any user id in the app**, under a `display_name` the attacker picked, with no
+  relationship to that person and no action by them. Becoming a Safta is one unvetted INSERT
+  (`00002`'s `"Safta can create account"`), and `users.id` values are readable by every
+  signed-in account through `user_public_profiles` (`00013`). `notification_queue`'s only
+  unique constraint is its primary key, so `send_push_notification`'s `ON CONFLICT DO
+  NOTHING` deduplicates nothing, and `UNIQUE (safta_account_id, for_user_id, liked_user_id)`
+  is walked around by varying `liked_user_id`. **Not reachable through the app** — no screen
+  calls `useSendRecommendation`, the Recommend button at `app/(safta-tabs)/index.tsx:388`
+  spends a usage credit and `console.log`s, and the table holds 0 rows — but reachable over
+  PostgREST with any user JWT and the public anon key, independent of
+  `EXPO_PUBLIC_FEATURE_SAFTA_MODE`, which is a client-bundle constant.
+  Three sections, and its header is explicit about which one refuses what, because the
+  rehearsal showed the layering is not the obvious one: the INSERT policy makes every row a
+  draft aimed at a grandchild with an **`accepted`** connection; the **BEFORE UPDATE
+  trigger** is what refuses the re-aim attack (it runs before any `WITH CHECK`, so the
+  policy's `EXISTS` never sees that statement); and the UPDATE `WITH CHECK`'s `EXISTS` is
+  the **consent-withdrawal** rule, the one case a trigger on this table cannot see, since it
+  is another table that moved. `sent_at` becomes trigger-derived rather than client-supplied.
+  **It depends on `00023`, hard**, and section 0 aborts if `00023` is not in the ledger or
+  the `safta_connections` INSERT check does not pin `status` — see the order-list note above.
+  It changes **no grant**, adds no policy to any other table, and asserts in section 5 that
+  `safta_likes:UPDATE` is still held at table level, which is what `00016`'s section 7c
+  raises on, and that `00020`'s `update_safta_stats` is still DEFINER with a pinned
+  `search_path`.
+  **It comes with a client change in the same commit**: `useSendRecommendation` inserted
+  `sent_to_user: true, sent_at: now()` in one statement, which the new INSERT check makes
+  42501, so it now drafts and then sends — two statements, `sent_at` omitted — and recovers
+  from a half-completed earlier attempt by re-selecting the draft on `23505`. No screen calls
+  it, so nothing a tester can reach changes. `npx tsc --noEmit` is clean.
+  Verified against live in rolled-back transactions by `.scratch/mazal-mexa361/verify.mjs`,
+  three modes, nothing left behind (a fresh connection checks the two policies, the trigger
+  count, the ledger row and the row counts of `safta_likes`, `notification_queue` and
+  `user_safta_stats` each run). All green: **`before` 8/8** — the attacker's single INSERT
+  lands, a push is queued at the victim carrying `Your Loving Grandmother thinks you should
+  meet someone special.`, an uninvolved third party's public `total_safta_likes` goes to 1,
+  and a legitimate draft re-aimed at the victim queues a **second** push at her.
+  **`after` 25/25** — both of those are 42501; a plain draft to a non-connected user is
+  42501 too, and so is one from a different Safta to somebody else's grandchild; a like
+  cannot be born sent or born stamped; `liked_user_id` cannot be moved; the real Safta still
+  sends to her own grandchild, the push arrives, and `total_safta_likes` still increments, so
+  `00020` is intact; the send is still one-way (0 rows on un-send); a client-supplied
+  `sent_at` of `2020-01-01` is overwritten with the real time; and after the grandchild
+  **rejects** the connection her Safta can neither send an existing draft nor write a new one,
+  while `anon` is refused on both verbs — the victim's queue is empty at the end of all of it.
+  **`rollback` 13/13** — identical to `before` on every probe afterwards, both policies back
+  to `00002`'s and `00020`'s deparsed text, the trigger and its function gone, ledger row
+  deleted.
 - **The ledger lags the repo, re-measured 2026-09-29 (MEXA-326; first taken on MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
   `00017`–`00021`, `00023`, `00024`, `00025`, `00030`, `20250114`, `20250115`
   (`00025` added 2026-09-29 08:10Z, MEXA-314; `00023` after the MEXA-359 reading, on
   MEXA-366; `00030` at 2026-09-29 10:43Z, MEXA-385; `00020` at 12:03Z, MEXA-394 — 26 rows).
-  So **`00012` and `00016` are absent**, and `00026`, `00028` and `00029` are written but
-  not applied.
+  So **`00012` and `00016` are absent**, and `00026`, `00028`, `00029` and `00031` are
+  written but not applied. Re-read at 12:26Z on MEXA-361: still 26 rows, `00023` present,
+  no `00031`.
+  **`00028` and `00029` are missing from the fresh-database order list at the top of this
+  section**, though both exist in `supabase/migrations/` with rollbacks. That is a gap in
+  this document, not a decision — filed on MEXA-361 for an owner rather than guessed at
+  here, because where `00028` (`pin_function_search_path`) sits relative to the migrations
+  that define the functions it pins is a real ordering question and not a typo to patch
+  in passing.
   One thing the version column cannot tell you: it keys on the numeric prefix alone, so
   the second file of each colliding pair — `00003_push_tokens`, `00004_safta_messages`,
   `00005_notification_triggers` — has **no row of its own**. `00003`–`00005` being present

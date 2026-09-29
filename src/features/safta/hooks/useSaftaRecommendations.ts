@@ -145,7 +145,19 @@ export function useGrandchildRecommendations(userId: string | undefined) {
 }
 
 /**
- * Send a recommendation from Safta to their grandchild
+ * Send a recommendation from Safta to their grandchild.
+ *
+ * TWO STATEMENTS, NOT ONE, since 00031 (MEXA-361). A `safta_likes` row is now born a draft:
+ * the INSERT policy requires `sent_to_user IS NOT TRUE AND sent_at IS NULL`, so the single
+ * insert this hook used to do - `sent_to_user: true, sent_at: now()` - is 42501. Sending is
+ * the UPDATE, which is what fires `trigger_notify_safta_like` and queues the push, and which
+ * 00020 made one-way so a row can never notify twice. `sent_at` is not sent at all any more:
+ * 00031's BEFORE UPDATE trigger derives it, because a device clock is not evidence of when a
+ * push went out.
+ *
+ * The INSERT also now requires `forUserId` to hold an `accepted` `safta_connections` row to
+ * this Safta, so recommending to someone who never connected fails 42501 instead of queueing
+ * a push notification at them.
  */
 export function useSendRecommendation() {
   const queryClient = useQueryClient();
@@ -162,16 +174,67 @@ export function useSendRecommendation() {
       likedUserId: string;
       note?: string;
     }) => {
-      const { data, error } = await supabase
+      // 1. The draft. `sent_to_user` and `sent_at` are omitted so the column defaults supply
+      //    them, which is the shape 00031's INSERT check admits.
+      const { data: draft, error: insertError } = await supabase
         .from('safta_likes')
         .insert({
           safta_account_id: saftaAccountId,
           for_user_id: forUserId,
           liked_user_id: likedUserId,
           note: note || null,
-          sent_to_user: true,
-          sent_at: new Date().toISOString(),
         })
+        .select()
+        .single();
+
+      let recommendationId: string | undefined = draft?.id;
+
+      if (insertError) {
+        // 23505 is `UNIQUE (safta_account_id, for_user_id, liked_user_id)`: this exact
+        // recommendation already exists. That happens when an earlier call inserted the
+        // draft and then failed before sending it - the two statements are not one
+        // transaction, so a retry has to be able to finish the job instead of dying on its
+        // own leftovers.
+        if (insertError.code !== '23505') {
+          console.error('Error drafting recommendation:', insertError);
+          throw insertError;
+        }
+
+        const { data: existing, error: findError } = await supabase
+          .from('safta_likes')
+          .select('id, sent_to_user')
+          .eq('safta_account_id', saftaAccountId)
+          .eq('for_user_id', forUserId)
+          .eq('liked_user_id', likedUserId)
+          .single();
+
+        if (findError) {
+          console.error('Error finding the existing recommendation:', findError);
+          throw findError;
+        }
+
+        // Already sent. Nothing is left to do, and the UPDATE below would match 0 rows
+        // anyway (00020's one-way `USING`), which `.single()` would turn into a PGRST116.
+        // The caller asked for this person to have been recommended, and they have been.
+        if (existing.sent_to_user) return existing;
+        recommendationId = existing.id;
+      }
+
+      // Neither branch above can leave this unset - the insert either returned a row or set
+      // `insertError`, and every path through that block either throws, returns, or assigns.
+      // Asserted rather than non-null-asserted so a future edit that breaks the invariant
+      // fails here instead of sending `?id=eq.undefined` to PostgREST.
+      if (!recommendationId) {
+        throw new Error('safta_likes: no recommendation row to send');
+      }
+
+      // 2. The send. This is the statement that queues the push. It is 42501 if the
+      //    grandchild has rejected the connection since the draft was written - 00031
+      //    re-checks consent here, not only at insert.
+      const { data, error } = await supabase
+        .from('safta_likes')
+        .update({ sent_to_user: true })
+        .eq('id', recommendationId)
         .select()
         .single();
 
