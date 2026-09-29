@@ -47,15 +47,31 @@ const EXPLICIT_PATTERNS = [
   /\b(?:k+i+l+l+\s+(?:you|yourself|u|ur\s*self)|kys)\b/gi,
   /\b(?:m+u+r+d+e+r+|s+t+a+b+)(?:s|ing)?\s+(?:you|u|yourself|her|him|them)\b/gi,
   /\bdeath\s+threats?\b/gi,
-  /\b(?:i\s*(?:'|’)?(?:ll|m)|i\s+(?:will|am)|im|we\s+(?:will|are)|gonna|going\s+to)\s+(?:gonna\s+|going\s+to\s+)?(?:kill|murder|rape|stab|hurt)\s+(?:you|u|her|him|them|yourself)\b/gi,
+  /\b(?:i\s*(?:'|’)?(?:ll|m)|i\s+(?:will|am)|im|we\s+(?:will|are)|gonna|going\s+to)\s+(?:gonna\s+|going\s+to\s+)?(?:(?:kill|murder|rape|stab)\s+(?:you|u|her|him|them|yourself)|hurt\s+(?:you|u|him|them|yourself|her\b(?!\s+(?:feelings|ankle|wrist|knee|back|shoulder|neck|head|hand|foot|arm|leg|pride|ego|chances|career|reputation))))\b/gi,
+  // "shoot" and "beat up" need their own line, keyed on the intent word rather than on the
+  // speaker, so a contracted subject lands too: "he's gonna shoot you" is "gonna shoot you"
+  // (MEXA-343, Guts). "shoot" also has the one harmless idiom in this whole block: "I'll
+  // shoot you a text", "shoot you the details", "shoot you pics of the dog". What separates
+  // them is what comes after the target - the idiom is followed by the thing being sent, a
+  // noun phrase, and the threat is followed by the end of the clause or by a function word
+  // ("shoot you dead", "shoot you in the face", "shoot you and your brother"). Listing the
+  // function words is the way round, because that class is closed and English nouns are not.
+  /\b(?:gonna|going\s+to|about\s+to|will|(?:'|’)ll|should|ought\s+to|needs?\s+to|wants?\s+to)\s+shoot\s+(?:you|u|her|him|them)(?=\s*(?:[.,!?;:]|$)|\s*[\r\n]|\s+(?:dead|right|now|first|too|twice|again|tonight|today|tomorrow|myself|personally|in|with|on|and|if|when|because|so|like)\b)/gi,
+  /\b(?:gonna|going\s+to|about\s+to|will|(?:'|’)ll|should|ought\s+to|needs?\s+to|wants?\s+to)\s+beat\s+(?:you|u|her|him|them)\s+up\b/gi,
   // Nobody named, so the harm lands on "you": "you're gonna get murdered".
-  /\byou(?:\s*(?:'|’)?re|\s+are)?\s+(?:going\s+to\s+|gonna\s+|will\s+|about\s+to\s+|deserve\s+to\s+|should\s+)?(?:get|be)\s+(?:murdered|killed|stabbed|shot|raped|beaten\s+up)\b/gi,
+  /\byou(?:\s*(?:'|’)?re|\s+are)?\s+(?:going\s+to\s+|gonna\s+|will\s+|about\s+to\s+|deserve\s+to\s+|should\s+)?(?:get|be)\s+(?:murdered|killed|stabbed|shot|raped|beat(?:en)?\s+up)\b/gi,
   // "hurt" needs the intent spelled out, because "did you get hurt?" is a kind question.
   /\byou(?:\s*(?:'|’)?re|\s+are)?\s+(?:going\s+to|gonna|will|deserve\s+to)\s+(?:get|be)\s+hurt\b/gi,
   /\b(?:you\s+should\s+die|you\s+(?:deserve|ought)\s+to\s+die|go\s+die|die\s+in\s+a\s+fire)\b/gi,
   /\bhope\s+(?:that\s+)?(?:you|u)\s+(?:get\s+)?(?:die|dies|hurt|murdered|killed|stabbed|shot|raped)\b/gi,
   /\bwish\s+(?:you|u)\s+(?:were\s+dead|would\s+die)\b/gi,
-  /\b(?:someone|somebody|some\s?one|he|she|they|everyone)\s+(?:should|ought\s+to|will|is\s+going\s+to|needs\s+to|is\s+gonna)\s+(?:kill|murder|stab|hurt|rape|shoot)\s+(?:you|u|her|him|them)\b/gi,
+  // Someone else is the one doing it. The subject may be contracted - "he's gonna hurt you",
+  // "he'll hurt you" - so the joiner takes 's/'re/'ll as well as a spelled-out modal. A modal
+  // is still required: bare "someone hurt you" is a past-tense disclosure, not a threat.
+  // `shoot` is on its own line above, so its determiner guard lives in one place. "hurt her"
+  // carries the same spelled-out guard as the line above: "her" is also a possessive, so
+  // "she's going to hurt her ankle" and "he'll hurt her feelings" are ordinary sentences.
+  /\b(?:someone|somebody|some\s?one|he|she|they|everyone)(?:(?:\s*(?:'|’)?(?:s|re)|\s+is|\s+are)?\s+(?:going\s+to|gonna|about\s+to)|\s*(?:'|’)ll|\s+(?:will|should|ought\s+to|needs?\s+to|has\s+to|wants?\s+to))\s+(?:(?:kill|murder|stab|rape)\s+(?:you|u|her|him|them)|hurt\s+(?:you|u|him|them|her\b(?!\s+(?:feelings|ankle|wrist|knee|back|shoulder|neck|head|hand|foot|arm|leg|pride|ego|chances|career|reputation))))\b/gi,
   /\brap(?:e|es|ed|ing|ist|ists)\b/gi,
 
   // Drugs (context-dependent)
