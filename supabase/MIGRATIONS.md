@@ -208,6 +208,22 @@ await c.query(
 await c.query('commit');
 ```
 
+**Every apply path has to write that row, in the same transaction as the file.** `00011`
+went on through the Management API's query endpoint instead of this script, with only the
+file body inside its `BEGIN…COMMIT`. The objects landed but the ledger row did not, so a
+re-run would have tried to apply `00011` a second time. The row was backfilled on
+2026-09-29 (MEXA-325) after checking that every object the file creates, down to its last
+statement, is on live. If you apply by any other route, put the `insert` above inside your
+own transaction. A separate statement run afterwards can leave the ledger claiming a
+migration that did not run, or leave out one that did. After an apply, compare
+`select version from supabase_migrations.schema_migrations` with the APPLIED notes above.
+
+Two limits of keying on the prefix. The second `00003`, `00004` and `00005` files and
+`20250114_add_creator_tracking` have no row of their own, because `on conflict do nothing`
+drops them against their twin. A re-run skips them, which is right today because they are
+applied. But **never give a new file a prefix that is already in the table.** It would be
+skipped silently.
+
 ## Result of the 2026-09-28 run
 
 - 16 files applied, 0 failures, **36 tables** in `public`.
