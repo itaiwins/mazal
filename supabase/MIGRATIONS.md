@@ -72,10 +72,15 @@ needs `00005` for `shadchanim` (guard 0a) and the shidduch migration for the tab
 It is independent of `00016` in both directions: `00016` revokes `anon` across the whole
 schema in a loop and asserts the result with `has_table_privilege`, so this subset already
 being revoked is a no-op it still passes; and `00016` never names `shadchan_notes` in its own
-statements. `00016`'s **rollback** would re-grant `anon SELECT` here, which is survivable
-because all four policies are `TO authenticated` — the grant would return and RLS would still
-deny `anon` every row. Live had **0 rows in `shadchan_notes`**, so the foreign key validated
-against nothing and nobody is stranded.
+statements. `00016`'s **rollback** would re-grant `anon` the whole of
+`INSERT, SELECT, UPDATE, DELETE` here — `shadchan_notes` is one of the 31 names in that
+file's `v_restore` array and is not in its `v_insert_select_only` exception, which holds only
+`reports` — i.e. exactly the `arwd` this file takes away. That is survivable, and for all
+four commands, because all four policies are `TO authenticated`: the grants would return and
+RLS would still deny `anon` every row, with the INSERT denied outright for want of any
+applicable policy. Rehearsal mutations F4/F4b/F4c/F4d restore that exact grant set and probe
+all four. Live had **0 rows in `shadchan_notes`**, so the foreign key validated against
+nothing and nobody is stranded.
 
 **Three things to read in it before approving.** (1) `shadchan_id` had no FK at all, and the
 file has to *decide* what the column means; DECISION 1 argues for `shadchanim(id)` over
@@ -1272,7 +1277,7 @@ Notes on the order:
   USING (true)` policy, so any signed-in caller and any anon-key holder could read, rewrite,
   delete and forge every matchmaker note. Rehearsed end to end against `tayiyczmacvhokdxfqvm`
   in one rolled-back transaction, `.scratch/mazal-mexa419/rehearse.mjs` → `REHEARSE.txt`,
-  **53/53, three consecutive runs**, every behavioural claim executed as the real
+  **56/56, three consecutive runs**, every behavioural claim executed as the real
   `authenticated` (or `anon`) role. It opens with a **pre-fix control** — all four filed
   probes ALLOWED, plus `anon` reading the note — so the "after" results are a change and not
   an assertion about an empty table. Then: the four probes are refused or return 0 rows; the
@@ -1280,7 +1285,8 @@ Notes on the order:
   under, move a note into, read or delete from another shadchan's list; the candidate the
   notes are *about* reads nothing (DECISION 2); `anon` is refused `42501` at the grant layer
   and cannot EXECUTE the helper; a **deactivated** shadchan still reads and edits their own
-  notes; and the rollback runs in the same transaction and restores the policy, the `relacl`
+  notes; `anon` handed back `00016`'s-rollback grant set still gets nothing on any of the
+  four commands; and the rollback runs in the same transaction and restores the policy, the `relacl`
   set, the FK, the helper and both comments, with the pre-fix control result coming back.
   A fresh connection afterwards confirms no ledger row and row counts identical to baseline.
   **The sweep the issue asked for is in the header**, done against the live catalog rather

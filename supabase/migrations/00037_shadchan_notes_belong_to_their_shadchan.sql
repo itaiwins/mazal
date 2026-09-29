@@ -182,11 +182,20 @@
 --   it means a probe written with `RETURNING` does not prove the INSERT check works - the
 --   rehearsal's forge probes deliberately drop it. Worth knowing before writing the next
 --   one of these.
--- * **`00016`'s rollback would re-grant `anon` SELECT on this table** if `00016` is ever
---   applied and then rolled back. That is survivable *because* the four policies below are
---   `TO authenticated`: the grant would come back, and RLS would still deny `anon` every
---   row, since no policy names it. The revoke and the role restriction are two independent
---   locks on purpose.
+-- * **`00016`'s rollback would re-grant `anon` the whole of `INSERT, SELECT, UPDATE,
+--   DELETE` on this table** if `00016` is ever applied and then rolled back - not just
+--   SELECT. `shadchan_notes` is one of the 31 names in that file's `v_restore` array and is
+--   *not* in its `v_insert_select_only` exception (which holds only `reports`), so the loop
+--   runs `GRANT INSERT, SELECT, UPDATE, DELETE ON TABLE public.shadchan_notes TO anon` -
+--   i.e. exactly the `arwd` section 4 takes away. Correction from Guts's review on
+--   MEXA-424; the first draft of this bullet said SELECT.
+--   It is survivable anyway, and for all four commands, *because* the four policies below
+--   are `TO authenticated`: the grants would come back and RLS would still deny `anon`
+--   every row, since no policy names it - and a command with no applicable policy is denied
+--   outright, which covers the INSERT. Measured rather than argued: rehearsal mutation F4
+--   restores that exact grant set and probes all four commands as `anon`. The revoke and
+--   the role restriction are two independent locks on purpose, and the role restriction is
+--   the one that survives someone else's rollback.
 
 BEGIN;
 
