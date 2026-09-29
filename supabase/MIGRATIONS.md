@@ -1094,6 +1094,49 @@ Notes on the order:
   12:51Z: 126 pairs, no `00016` row, 41 of its 42 asserted `authenticated` pairs still granted
   (`users` DELETE was already gone, by `00015`). Do not read the per-migration notes above as
   a statement of what is on live without checking the ledger and a privilege probe.
+- `00032` is **APPLIED** to `tayiyczmacvhokdxfqvm`, 2026-09-29 15:23Z, from `mazal-restart`
+  @ `3a9906e` (MEXA-373). Guts PASSed it on MEXA-407 after re-running both suites himself;
+  Lelouch approved the apply on MEXA-373 conditional on that review and on the backup and
+  rollback being named. Applier: Violet, via
+  `.scratch/mazal-mexa373/apply_00032.mjs --apply` — **69/69 gates**, log in
+  `archive/backups/mazal-00032-postapply-20260929T152Z.txt`.
+
+  It adds exactly one object, `public.has_entitlement(text)`, plus its ledger row. It drops
+  nothing, alters no table, adds no policy and changes no table grant — measured across the
+  apply: functions 43 → 44, policies 89 → 89, `subscriptions` policies 1 → 1, and `users`,
+  `swipes` and `subscriptions` row counts all unchanged at 0.
+
+  Post-apply on a fresh connection: SECURITY DEFINER, STABLE, `proconfig` exactly
+  `search_path=public, pg_temp`, one signature, `proacl` non-NULL and equal to
+  `{postgres=X/postgres,authenticated=X/postgres}` — so PUBLIC, `anon` and `service_role`
+  hold nothing. **Behaviour was proven by execution against the applied function, not read
+  off the catalog**: a seeded paying caller gets `TRUE` (which is what rules out a constant
+  false), a caller with no row gets `FALSE`, and the real `anon` role gets `42501`. Those
+  fixtures were rolled back and a third connection confirmed none survived.
+
+  **The REST layer was checked too, and it is the check that is easy to skip.** A brand-new
+  function is invisible to PostgREST until the schema cache reloads, so the SQL can be
+  perfect while every call 404s. After `NOTIFY pgrst, 'reload schema'`:
+  `POST /rest/v1/rpc/has_entitlement` with the anon key returns **401 `42501 permission
+  denied for function has_entitlement`** — in the cache, and refused by the grant. The
+  control, `POST /rest/v1/rpc/has_entitlement_nope`, returns **404 `PGRST202 Could not find
+  the function … in the schema cache`**, which is what a missing function looks like and is
+  why the 401 means something.
+
+  **Nothing calls it yet, on the server or the device.** The three call sites — the daily
+  swipe/super-like caps, the Rewind gate in `undo_last_swipe()`, and the gate inside
+  `get_who_liked_me()` once `00026` lands — are MEXA-373 items 2/3/5 and come after
+  MEXA-406. So applying this changed no behaviour for any caller; it created the thing the
+  gates will ask.
+
+  **The standing item this leaves open is `00016` (MEXA-364).** `public.subscriptions` still
+  grants `INSERT, UPDATE, DELETE, SELECT` to **both** `anon` and `authenticated` — recorded
+  verbatim in the apply log. Those grants are inert *only* because the table has exactly one
+  policy and it is SELECT, which is what guard 0f checks and what the function's COMMENT
+  states in the catalog. Guts's words on the review: "00016/MEXA-364 is the only thing
+  between now and a silent premium bypass … today it's inert-by-absence-of-policy, which is
+  a thin margin." Do not add a write policy to `subscriptions`; apply `00016` instead.
+
 - `00022` is **APPLIED** to `tayiyczmacvhokdxfqvm`, 2026-09-29 14:00Z, from commit `a54f014`
   (Guts PASSed it on MEXA-356; Lelouch approved the apply on MEXA-396). It adds exactly one
   object, `public.safta_public_profiles`, and changes no policy, grant or column on any
