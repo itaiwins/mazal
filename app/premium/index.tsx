@@ -25,7 +25,8 @@ import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { usePremiumStore } from '@/stores/premiumStore';
 import {
-  PRICING,
+  // No PRICING here. Every price on this screen comes from the store, so that the app
+  // never quotes a number StoreKit did not (MEXA-338 finding 6, MEXA-387 option (a)).
   PREMIUM_FEATURES,
   ENTITLEMENTS,
   PLAN_COMPARISON,
@@ -33,6 +34,13 @@ import {
   restorePurchases,
   getOfferings,
 } from '@/lib/config/revenuecat';
+import {
+  planPricesFromPackages,
+  paywallAvailability,
+  findPackage,
+  PRICES_UNAVAILABLE_MESSAGE,
+  type OfferingsState,
+} from '@/lib/premium/storePricing';
 import type { PurchasesPackage } from 'react-native-purchases';
 
 type PlanType = 'gold' | 'platinum';
@@ -52,17 +60,27 @@ export default function PremiumPaywallScreen() {
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('yearly');
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [packages, setPackages] = useState<PurchasesPackage[]>([]);
+  // 'loading' until the store answers. It has to be a state and not `packages.length === 0`,
+  // because "still asking" and "asked and got nothing" look the same in an empty array and
+  // must not look the same on screen (MEXA-387).
+  const [offeringsState, setOfferingsState] = useState<OfferingsState>('loading');
 
   useEffect(() => {
     loadOfferings();
   }, []);
 
   const loadOfferings = async () => {
+    setOfferingsState('loading');
     try {
       const offerings = await getOfferings();
       setPackages(offerings);
+      // `getOfferings()` returns [] both on error and when RevenueCat has no current
+      // offering. Either way there is no price to show, so both are 'unavailable'.
+      setOfferingsState(offerings.length > 0 ? 'ready' : 'unavailable');
     } catch (error) {
       console.error('Failed to load offerings:', error);
+      setPackages([]);
+      setOfferingsState('unavailable');
     }
   };
 
@@ -70,24 +88,23 @@ export default function PremiumPaywallScreen() {
     selectedPlan === 'gold' ? ENTITLEMENTS.GOLD : ENTITLEMENTS.PLATINUM
   ];
 
-  const pricing = selectedPlan === 'gold' ? PRICING.gold : PRICING.platinum;
+  // Store-quoted prices for the selected plan, and what the screen may therefore do.
+  const prices = planPricesFromPackages(packages, selectedPlan);
+  const availability = paywallAvailability(offeringsState, prices, billingPeriod);
 
   const handlePurchase = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setIsPurchasing(true);
 
     try {
-      // Find the right package based on selection
-      const productId = `mazal_${selectedPlan}_${billingPeriod}`;
-      const pkg = packages.find((p) => p.product.identifier === productId);
+      const pkg = findPackage(packages, selectedPlan, billingPeriod);
 
       if (!pkg) {
-        // For development/testing without RevenueCat configured
-        Alert.alert(
-          'Demo Mode',
-          `In production, this would purchase Mazal ${selectedPlan.charAt(0).toUpperCase() + selectedPlan.slice(1)} (${billingPeriod}).\n\nPrice: ${billingPeriod === 'yearly' ? pricing.yearly.displayPrice : pricing.monthly.displayPrice}`,
-          [{ text: 'OK' }]
-        );
+        // There used to be an Alert titled "Demo Mode" here, quoting the hardcoded price —
+        // so a tester who wanted to pay was told the app was a demo (MEXA-387). The button
+        // is disabled in this state now, so this is only reachable if the offerings drop
+        // out between render and tap. Say the true thing and stop.
+        Alert.alert('Not available', PRICES_UNAVAILABLE_MESSAGE);
         setIsPurchasing(false);
         return;
       }
@@ -315,9 +332,13 @@ export default function PremiumPaywallScreen() {
                 setBillingPeriod('yearly');
               }}
             >
-              <View style={styles.savingsBadge}>
-                <Text style={styles.savingsText}>SAVE {pricing.yearly.savings}</Text>
-              </View>
+              {/* Only when both store prices are in, since the figure is computed from
+                  the two of them (MEXA-387). */}
+              {prices.savingsPercent !== null && (
+                <View style={styles.savingsBadge}>
+                  <Text style={styles.savingsText}>SAVE {prices.savingsPercent}%</Text>
+                </View>
+              )}
               <Text
                 style={[
                   styles.billingPeriodText,
@@ -326,17 +347,27 @@ export default function PremiumPaywallScreen() {
               >
                 Yearly
               </Text>
-              <Text
-                style={[
-                  styles.billingPrice,
-                  billingPeriod === 'yearly' && styles.billingPriceActive,
-                ]}
-              >
-                {pricing.yearly.displayPrice}
-              </Text>
-              <Text style={styles.billingSubtext}>
-                {pricing.yearly.monthlyEquivalent}/month
-              </Text>
+              {offeringsState === 'loading' ? (
+                <ActivityIndicator size="small" color={colors.primary.gold} />
+              ) : prices.yearly ? (
+                <>
+                  <Text
+                    style={[
+                      styles.billingPrice,
+                      billingPeriod === 'yearly' && styles.billingPriceActive,
+                    ]}
+                  >
+                    {prices.yearly.displayPrice}
+                  </Text>
+                  {prices.yearly.monthlyEquivalent ? (
+                    <Text style={styles.billingSubtext}>
+                      {prices.yearly.monthlyEquivalent}/month
+                    </Text>
+                  ) : null}
+                </>
+              ) : (
+                <Text style={styles.billingPriceUnavailable}>—</Text>
+              )}
             </Pressable>
 
             {/* Monthly Option */}
@@ -358,15 +389,23 @@ export default function PremiumPaywallScreen() {
               >
                 Monthly
               </Text>
-              <Text
-                style={[
-                  styles.billingPrice,
-                  billingPeriod === 'monthly' && styles.billingPriceActive,
-                ]}
-              >
-                {pricing.monthly.displayPrice}
-              </Text>
-              <Text style={styles.billingSubtext}>/month</Text>
+              {offeringsState === 'loading' ? (
+                <ActivityIndicator size="small" color={colors.primary.gold} />
+              ) : prices.monthly ? (
+                <>
+                  <Text
+                    style={[
+                      styles.billingPrice,
+                      billingPeriod === 'monthly' && styles.billingPriceActive,
+                    ]}
+                  >
+                    {prices.monthly.displayPrice}
+                  </Text>
+                  <Text style={styles.billingSubtext}>/month</Text>
+                </>
+              ) : (
+                <Text style={styles.billingPriceUnavailable}>—</Text>
+              )}
             </Pressable>
           </View>
         </Animated.View>
@@ -435,26 +474,41 @@ export default function PremiumPaywallScreen() {
 
         {/* CTA */}
         <Animated.View entering={FadeInDown.delay(500).springify()}>
+          {/* Disabled with no store price, because that is also exactly when the purchase
+              would fail. The price on the button is the store's string, never a constant. */}
           <Pressable
-            style={[styles.ctaButton, isPurchasing && styles.ctaButtonDisabled]}
+            style={[
+              styles.ctaButton,
+              (isPurchasing || !availability.canPurchase) && styles.ctaButtonDisabled,
+            ]}
             onPress={handlePurchase}
-            disabled={isPurchasing}
+            disabled={isPurchasing || !availability.canPurchase}
           >
-            {isPurchasing ? (
+            {isPurchasing || availability.showSpinner ? (
               <ActivityIndicator color={colors.primary.navy} />
-            ) : (
+            ) : availability.canPurchase ? (
               <>
                 <Text style={styles.ctaText}>
                   Get {currentFeatures.name}
                 </Text>
                 <Text style={styles.ctaPrice}>
                   {billingPeriod === 'yearly'
-                    ? `${pricing.yearly.displayPrice}/year`
-                    : `${pricing.monthly.displayPrice}/month`}
+                    ? `${prices.yearly!.displayPrice}/year`
+                    : `${prices.monthly!.displayPrice}/month`}
                 </Text>
               </>
+            ) : (
+              <Text style={styles.ctaText}>{PRICES_UNAVAILABLE_MESSAGE}</Text>
             )}
           </Pressable>
+
+          {/* Why the button is dead, plus a way out that is not force-quitting the app. */}
+          {availability.showUnavailable && (
+            <Pressable style={styles.retryButton} onPress={loadOfferings}>
+              <Ionicons name="refresh" size={16} color={colors.primary.gold} />
+              <Text style={styles.retryText}>Try again</Text>
+            </Pressable>
+          )}
 
           <Text style={styles.legalText}>
             Payment will be charged to your {Platform.OS === 'ios' ? 'Apple ID' : 'Google Play'} account.
@@ -468,6 +522,24 @@ export default function PremiumPaywallScreen() {
 }
 
 const styles = StyleSheet.create({
+  // Stands in for a price that did not come from the store (MEXA-387).
+  billingPriceUnavailable: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.transparent.white40,
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing[2],
+    paddingVertical: spacing[3],
+  },
+  retryText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.primary.gold,
+  },
   container: {
     flex: 1,
   },
