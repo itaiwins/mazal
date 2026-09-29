@@ -37,7 +37,7 @@ import { useNotificationHandler, useNotificationNavigation } from '@/lib/notific
 
 // Premium
 import { PaywallPromptModal } from '@/components/premium/PaywallPromptModal';
-import { initializeRevenueCat } from '@/lib/config/revenuecat';
+import { initializeRevenueCat, setPurchaseIdentity } from '@/lib/config/revenuecat';
 
 // Keep splash screen visible while loading
 SplashScreen.preventAutoHideAsync();
@@ -94,7 +94,12 @@ export default function RootLayout() {
           await Font.loadAsync(fontsToLoad);
         }
 
-        // Initialize RevenueCat for in-app purchases
+        // Initialize RevenueCat for in-app purchases.
+        //
+        // No user id here on purpose: the auth listener below owns that, and this call
+        // adopts whatever it has already asked for (MEXA-346). The two start from the
+        // same effect and neither orders the other, which is exactly the race
+        // src/lib/purchases/identity.ts absorbs.
         console.log('[Layout] Initializing RevenueCat...');
         await initializeRevenueCat();
 
@@ -187,6 +192,12 @@ export default function RootLayout() {
       setHasShidduchProfile,
       setProfileLoading,
       orthodoxModeEnabled: FEATURE_ORTHODOX_MODE,
+      // Point RevenueCat at the signed-in account, so an entitlement belongs to the
+      // account and not to the install (MEXA-346). Fire-and-forget by contract: this
+      // runs in the listener's deferred tail and nothing here may be awaited.
+      onIdentityChange: (authId) => {
+        void setPurchaseIdentity(authId);
+      },
       onSignedOut: () => {
         // Reset onboarding stores to prevent data leaking between accounts
         useOnboardingStore.getState().reset();

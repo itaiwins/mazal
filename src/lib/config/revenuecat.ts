@@ -21,6 +21,7 @@ import Purchases, {
 import { Platform } from 'react-native';
 import { FEATURE_WHO_LIKES_YOU } from './features';
 import { isEntitlementActive } from '@/lib/purchases/entitlements';
+import { createPurchaseIdentity } from '@/lib/purchases/identity';
 
 // RevenueCat API keys (replace with your actual keys)
 const REVENUECAT_IOS_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY || '';
@@ -62,41 +63,96 @@ function isExpoGo(): boolean {
 }
 
 /**
- * Initialize RevenueCat SDK
+ * Who the SDK is buying as (MEXA-346).
+ *
+ * The ordering rules and the choice of `auth.users.id` are documented on
+ * `src/lib/purchases/identity.ts`; this is just the wiring to the real SDK. Everything
+ * below that reads a `CustomerInfo` or moves money waits on `purchaseIdentity.settled()`
+ * first, so nothing answers from the anonymous customer while a sign-in is in flight.
  */
-export async function initializeRevenueCat(userId?: string): Promise<void> {
-  // Skip RevenueCat in Expo Go - it requires a development build
-  if (isExpoGo()) {
-    console.log('[RevenueCat] Skipping initialization in Expo Go - use DEV_BYPASS_PREMIUM for testing');
-    return;
-  }
+const purchaseIdentity = createPurchaseIdentity({
+  configure: async (appUserId) => {
+    // Skip RevenueCat in Expo Go - it requires a development build
+    if (isExpoGo()) {
+      console.log('[RevenueCat] Skipping initialization in Expo Go - use DEV_BYPASS_PREMIUM for testing');
+      return false;
+    }
 
-  const apiKey = Platform.OS === 'ios' ? REVENUECAT_IOS_KEY : REVENUECAT_ANDROID_KEY;
+    const apiKey = Platform.OS === 'ios' ? REVENUECAT_IOS_KEY : REVENUECAT_ANDROID_KEY;
 
-  if (!apiKey) {
-    console.warn('[RevenueCat] API key not configured');
-    return;
-  }
+    if (!apiKey) {
+      console.warn('[RevenueCat] API key not configured');
+      return false;
+    }
 
-  try {
     if (__DEV__) {
       Purchases.setLogLevel(LOG_LEVEL.DEBUG);
     }
 
-    await Purchases.configure({ apiKey, appUserID: userId });
-    console.log('[RevenueCat] Initialized successfully');
-  } catch (error: any) {
-    // Check if this is an Expo Go limitation error
+    // `appUserID: undefined` is RevenueCat's "pick an anonymous id"; passing the auth
+    // id straight in means a user who was already signed in at launch never gets an
+    // anonymous customer to begin with.
+    await Purchases.configure({ apiKey, appUserID: appUserId ?? undefined });
+    console.log(
+      `[RevenueCat] Initialized successfully (${appUserId ? 'identified' : 'anonymous'})`
+    );
+    return true;
+  },
+  logIn: async (appUserId) => {
+    await Purchases.logIn(appUserId);
+    console.log('[RevenueCat] Identified with the signed-in account');
+  },
+  logOut: async () => {
+    await Purchases.logOut();
+    console.log('[RevenueCat] Back to an anonymous app user id');
+  },
+  onError: (stage, error: any) => {
+    // Expo Go and the simulator report a missing native store here rather than at
+    // configure; that is the known-unavailable case, not a fault.
     if (error?.message?.includes('Expo Go') || error?.message?.includes('native store')) {
       console.log('[RevenueCat] Native store not available - using DEV_BYPASS_PREMIUM for testing');
-    } else {
-      console.warn('[RevenueCat] Failed to initialize:', error?.message || error);
+      return;
     }
-  }
+    console.warn(`[RevenueCat] ${stage} failed:`, error?.message || error);
+  },
+});
+
+/**
+ * Initialize RevenueCat SDK
+ *
+ * Call once, from `app/_layout.tsx`. `userId` is optional and rarely needed — the auth
+ * listener supplies the identity through `setPurchaseIdentity()`, and this call adopts
+ * whatever it has already asked for.
+ */
+export async function initializeRevenueCat(userId?: string): Promise<void> {
+  if (userId) void purchaseIdentity.setIdentity(userId);
+  await purchaseIdentity.configure();
+}
+
+/**
+ * Point RevenueCat at the signed-in account, or back at an anonymous id on sign-out.
+ *
+ * Wired to `onAuthStateChange` through `src/lib/auth/authStateSync.ts`, which calls it
+ * from a `setTimeout` and never awaits it — awaiting anything inside that callback
+ * deadlocks the Supabase auth client (MEXA-335).
+ *
+ * The argument is the Supabase **`auth.users.id`**. See `src/lib/purchases/identity.ts`
+ * for why, and do not change it: purchases made under the old id would be orphaned.
+ */
+export async function setPurchaseIdentity(authUserId: string | null): Promise<void> {
+  await purchaseIdentity.setIdentity(authUserId);
+}
+
+/** Resolves once RevenueCat is configured and pointed at the current account. */
+export async function whenPurchaseIdentitySettled(): Promise<void> {
+  await purchaseIdentity.settled();
 }
 
 /**
  * Identify user with RevenueCat
+ *
+ * The low-level call. Prefer `setPurchaseIdentity()`, which orders this against
+ * `configure()` and against other identity changes.
  */
 export async function identifyUser(userId: string): Promise<CustomerInfo | null> {
   try {
@@ -113,6 +169,7 @@ export async function identifyUser(userId: string): Promise<CustomerInfo | null>
  */
 export async function getCustomerInfo(): Promise<CustomerInfo | null> {
   try {
+    await purchaseIdentity.settled();
     const customerInfo = await Purchases.getCustomerInfo();
     return customerInfo;
   } catch (error) {
@@ -128,6 +185,7 @@ export async function hasEntitlement(
   entitlementId: EntitlementId
 ): Promise<boolean> {
   try {
+    await purchaseIdentity.settled();
     const customerInfo = await Purchases.getCustomerInfo();
     return isEntitlementActive(customerInfo, entitlementId);
   } catch (error) {
@@ -190,6 +248,9 @@ export async function purchasePackage(
   pkg: PurchasesPackage
 ): Promise<CustomerInfo | null> {
   try {
+    // Never charge before we know who is buying: a purchase that lands on the anonymous
+    // customer has to be transferred afterwards, and until it is the payer sees nothing.
+    await purchaseIdentity.settled();
     const { customerInfo } = await Purchases.purchasePackage(pkg);
     return customerInfo;
   } catch (error: any) {
@@ -207,6 +268,9 @@ export async function purchasePackage(
  */
 export async function restorePurchases(): Promise<CustomerInfo | null> {
   try {
+    // Restoring onto the anonymous customer is how a subscription ends up attached to
+    // the install rather than the account - the defect this whole path exists around.
+    await purchaseIdentity.settled();
     const customerInfo = await Purchases.restorePurchases();
     return customerInfo;
   } catch (error) {
@@ -217,6 +281,9 @@ export async function restorePurchases(): Promise<CustomerInfo | null> {
 
 /**
  * Log out user
+ *
+ * The low-level call. Prefer `setPurchaseIdentity(null)`, which knows whether the SDK is
+ * already anonymous — `Purchases.logOut()` on an anonymous app user id is an error.
  */
 export async function logoutUser(): Promise<void> {
   try {

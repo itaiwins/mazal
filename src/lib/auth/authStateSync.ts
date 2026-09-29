@@ -75,6 +75,24 @@ export type AuthStateBinding = {
   /** Run synchronously on `SIGNED_OUT`, to clear stores that outlive the session. */
   onSignedOut?: () => void;
   /**
+   * Tell the billing SDK which account is signed in — the **`auth.users.id`**, or `null`
+   * when there is no session (MEXA-346).
+   *
+   * RevenueCat files entitlements under an app user id of its own. Nothing ever called
+   * `Purchases.logIn`, so that id stayed an anonymous per-install one: a subscription
+   * followed the phone instead of the account, and two accounts on one phone shared a
+   * customer. This is the seam that fixes it, and it lives here rather than in a second
+   * `onAuthStateChange` subscription because there must only ever be one (see
+   * `generation` below).
+   *
+   * Called through `defer()` and never awaited — `Purchases.logIn` is a network call,
+   * and awaiting anything in this callback deadlocks the auth client (see the header).
+   * Fired at most once per distinct id, but always at least once per launch, including
+   * for `null`: RevenueCat persists its app user id across launches, so a fresh JS
+   * context cannot assume the SDK is where it left it.
+   */
+  onIdentityChange?: (authId: string | null) => void;
+  /**
    * `FEATURE_ORTHODOX_MODE`, injected. The shidduch lookup is pointless while the
    * mode is hidden (docs/ROADMAP.md), and injecting it keeps this module free of
    * runtime imports.
@@ -151,6 +169,12 @@ export function createAuthStateHandler(
   let generation = 0;
   // Which auth id the store's profile belongs to, so a token refresh is a no-op.
   let loadedAuthId: string | null = null;
+  // Which auth id the billing SDK was last pointed at, and whether it has been pointed
+  // anywhere at all in this JS context. Separate from `loadedAuthId`: the profile row
+  // and the RevenueCat customer are different things, and a failed profile fetch must
+  // not make the app re-identify a purchase account it already identified.
+  let identityAuthId: string | null = null;
+  let identitySent = false;
 
   return (event, session) => {
     const current = ++generation;
@@ -165,6 +189,22 @@ export function createAuthStateHandler(
     binding.setSession(session);
 
     const authId = session?.user?.id ?? null;
+
+    // Billing identity (MEXA-346). Deferred, exactly like the profile fetch below and
+    // for the same reason. The first event of a launch always sends, even for `null`,
+    // because RevenueCat's app user id outlives the JS context.
+    if (binding.onIdentityChange && (!identitySent || identityAuthId !== authId)) {
+      identitySent = true;
+      identityAuthId = authId;
+      defer(() => {
+        // Not the `generation` check the profile fetch uses: a *newer* event that wants
+        // the same id would be skipped above, so its own defer would never run and the
+        // id would never be sent. What matters is only that this is still the target.
+        if (identityAuthId !== authId) return;
+        binding.onIdentityChange?.(authId);
+      });
+    }
+
     if (!authId) {
       loadedAuthId = null;
       binding.setUser(null);
@@ -207,6 +247,17 @@ export function createAuthStateHandler(
             console.log('[AuthState] found shidduch profile');
             binding.setHasShidduchProfile(true);
           }
+        } catch (error) {
+          // `loadUserProfile` turns a *query* error into `failed: true`, so reaching
+          // here means the client itself threw — offline in a way PostgREST never saw,
+          // or a bad client. The `finally` below already handles the spinner; this is
+          // only so the rejection is reported rather than left unhandled on a promise
+          // nobody is holding (MEXA-346). The persisted profile is left alone, exactly
+          // as in the `failed` branch.
+          console.warn(
+            '[AuthState] profile load threw:',
+            error instanceof Error ? error.message : error
+          );
         } finally {
           // Always lowered, including on a throw: a stuck flag is a spinner that never
           // clears, which is the bug this whole module exists to remove.
