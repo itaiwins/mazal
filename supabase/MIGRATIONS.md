@@ -438,8 +438,21 @@ Notes on the order:
   missing, a refusal when an unexpected role can write the column, the rollback refused
   against an unapplied database, and apply→rollback→apply all clean, with live untouched
   afterwards.
-- `00025` is **NOT applied** — written 2026-09-29 (MEXA-314), waiting on a security review and
-  an apply card. It makes **Rewind** real. `public.swipes` had no DELETE policy, so
+- `00025` **is applied** — 2026-09-29 08:10Z, from `mazal-restart` @ `1712a22` (MEXA-314).
+  Guts PASSed it on MEXA-371 at `af58137`; Lelouch approved the apply on MEXA-314 under his
+  standing migration authority and named Violet the only applier. Applied by
+  `.scratch/mazal-mexa314/apply_00025.mjs --apply` (log: `APPLIED.txt`) — **33 gates**, then the
+  file sent verbatim through the `pg` driver as one simple query so its own `BEGIN`/`COMMIT`
+  **and its own ledger `INSERT` share one transaction**. That last part is the 00011 lesson: a
+  Management-API apply can leave `schema_migrations` untouched. Counts across the apply:
+  public functions **41 → 42**, policies **88 → 88** (unchanged, which is the design), ledger
+  **23 → 24**, `users`/`swipes`/`matches` **0 → 0** — so nothing was stranded and there were no
+  real users to affect. Backup first:
+  `BACKUP_public_before_00025_2026-09-29T08-07-32-664Z.sql`, 101,862 bytes, `chmod 600`,
+  39 tables / 7 data rows / 41 functions / 88 policies / 16 triggers / 23 ledger rows, with
+  8 substring assertions proving `swipes`, `matches`, the policies, `check_for_match`,
+  `current_app_user_id` and the ledger are really in it **and** that `undo_last_swipe` is not
+  (i.e. it predates the apply). It makes **Rewind** real. `public.swipes` had no DELETE policy, so
   `useUndoSwipe`'s `delete().eq('id', ...)` matched zero rows — which **is not an error** — and
   the hook reported a successful rewind while the row sat there and the person stayed out of
   the deck. Measured on live: the client DELETE returns `code=null, rowCount=0`
@@ -500,8 +513,23 @@ Notes on the order:
   `authenticated` and the owner.
   **`rollback` 22/22** (`ROLLBACK.txt`) — identical to `before` on every probe, the function
   gone, the ledger row gone, the comment back to NULL.
+  **Post-apply, against the committed schema:** `.scratch/mazal-mexa314/postapply.mjs`
+  **42/42** (`POSTAPPLY.txt`). This exists because **`verify.mjs after` cannot run once the
+  migration is real** — that mode applies 00025 inside its own rolled-back transaction and
+  00025's pre-flight guard 0a refuses with `public.undo_last_swipe() already exists`. Measured
+  right after the apply; the guard doing its job, not a failure. `postapply.mjs` carries every
+  behavioural probe from `after` verbatim, run as the real `authenticated` / `anon` /
+  `service_role` roles against live, with only the fixtures in a rolled-back transaction. Its
+  leave-nothing-behind check is inverted: the fixtures must be **gone** and the function must
+  **remain**. It adds a `service_role` probe (`42501`, EXECUTE revoked on purpose) that the
+  rehearsal did not have. Whoever writes the next migration should copy this split — an apply
+  script's catalog post-check only proves the *object* is there, never that a real caller gets
+  the right answer.
+  **And the real HTTP surface, not just SQL role simulation:** one
+  `POST /rest/v1/rpc/undo_last_swipe` with the publishable anon key returns
+  **`401` / `{"code":"42501","message":"permission denied for function undo_last_swipe"}`**.
   The pre-flight guards are proven to bite, not just present: `.scratch/mazal-mexa314/dryrun.mjs`
-  **23/23** (`DRYRUN.txt`) — a clean apply, then a refusal (with the right message each time)
+  **29/29** (`DRYRUN.txt`) — a clean apply, then a refusal (with the right message each time)
   for a second apply, a DELETE policy already on `swipes`, `check_for_match` back to
   `SECURITY INVOKER`, `current_app_user_id()` no longer DEFINER, `UNIQUE (swiper_id, swiped_id)`
   dropped, and RLS disabled; the rollback refused against an unapplied database and refused
@@ -588,8 +616,9 @@ Notes on the order:
   with the function's RETURNS TABLE.**
 - **The ledger lags the repo, measured 2026-09-29 (MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
-  `00017`–`00019`, `00021`, `00024`, `20250114`, `20250115`. So **`00012`, `00016` and `00020`
-  are absent**. `00016` is not merely missing a ledger row, it is **not applied at all**: its
+  `00017`–`00019`, `00021`, `00024`, `00025`, `20250114`, `20250115` (`00025` added
+  2026-09-29 08:10Z, MEXA-314). So **`00012`, `00016` and `00020`
+  are absent**, and `00026` is written but not applied. `00016` is not merely missing a ledger row, it is **not applied at all**: its
   `REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM anon` has not run (`anon` still
   holds 126 table grants), and `colleges`, `swipes`, `user_safta_stats` and
   `notification_queue` all still grant `DELETE,INSERT,SELECT,UPDATE` to `authenticated`.
