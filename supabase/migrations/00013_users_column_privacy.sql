@@ -12,8 +12,14 @@
 -- `instagram_access_token` - a bearer token for somebody's third-party account. A client
 -- did not have to ask for those columns, it only had to ask for the row.
 --
--- 00010 closed the RPC route to the same data (`get_orthodox_discovery_profiles` returned
--- `SETOF users`). This closes the direct table route, which is what the app actually uses.
+-- 00010 did NOT close the RPC route to the same data, and an earlier version of this
+-- comment wrongly said it had (corrected on MEXA-327). 00010 fixed
+-- `get_orthodox_discovery_profiles`' *authorisation* - `requesting_user_id` has to be the
+-- caller - but not what the function returns, which stayed `SETOF public.users`. A view
+-- cannot stand in for that return type, so this file could not narrow it either, and the
+-- RPC kept handing whole rows of other people to any signed-in caller until `00021`
+-- dropped it outright (MEXA-327 / MEXA-348). This file closes the direct table route,
+-- which is what the app actually uses.
 --
 -- THE SHAPE OF THE FIX
 --

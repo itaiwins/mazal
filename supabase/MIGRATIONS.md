@@ -45,6 +45,7 @@ Apply exactly this sequence:
 00018_publish_messages_to_realtime.sql
 00019_college_and_safta_stats_visibility.sql
 00020_safta_likes_actually_save.sql
+00021_drop_orthodox_discovery_rpc.sql
 ```
 
 Notes on the order:
@@ -70,12 +71,16 @@ Notes on the order:
   `00015_scope_users_write_grants_rollback.sql`,
   `00016_client_role_write_privileges_rollback.sql`,
   `00017_matching_actually_matches_rollback.sql`,
-  `00019_college_and_safta_stats_visibility_rollback.sql` and
-  `00020_safta_likes_actually_save_rollback.sql`; read each one's header. `00014`'s,
+  `00019_college_and_safta_stats_visibility_rollback.sql`,
+  `00020_safta_likes_actually_save_rollback.sql` and
+  `00021_drop_orthodox_discovery_rpc_rollback.sql`; read each one's header. `00014`'s,
   `00015`'s and `00016`'s are the three that are not bit-exact inverses, and each says
   exactly where it differs and why. `00013`'s is exact except for column order, which its
   header explains. `00016`'s is split into six independent sections, `00019`'s into two and
   `00020`'s into two, smallest first — run the one that unblocks you, not the whole file.
+  `00021`'s is the first one that **deletes its own ledger row** rather than leaving a
+  `DELETE` in a comment, because `00021` writes that row inside its own transaction; expect
+  new rollbacks to do the same.
 - `00011` is **APPLIED** to `tayiyczmacvhokdxfqvm`, 2026-09-28 23:31Z, from commit
   `1980e6a` (MEXA-256; Alucard reviewed it on MEXA-259 and MEXA-262, Lelouch approved the
   apply). Consequences anything written after this has to assume:
@@ -315,6 +320,48 @@ Notes on the order:
   `safta_likes` until `00016` lands, but both come back `42501: permission denied for table
   users` rather than 0 rows, because `00002`'s own policies subquery `public.users` and
   `00013`/`00015` took that away from `anon`.
+- `00021` is **not applied yet** — written and verified, waiting on Guts's review (MEXA-327,
+  a `SECURITY DEFINER` function over `users` being dropped) and then on Lelouch. It
+  **depends on nothing and nothing depends on it**: it drops the single function
+  `public.get_orthodox_discovery_profiles(uuid,integer,integer,integer,text[])`, which
+  `00005` created and `00010` replaced, and `pg_depend` shows 0 referrers on live, so the
+  `DROP` is deliberately RESTRICT. It only needs `00013` applied, which it asserts, because
+  `user_public_profiles` is what the Orthodox deck reads instead.
+  **Why a drop and not a reshape.** The function is `RETURNS SETOF public.users` and
+  `SECURITY DEFINER`, with EXECUTE to `authenticated`, so one call returns up to 50 whole
+  rows of other people. `00010` fixed its *authorisation* (`requesting_user_id` must be the
+  caller) but not its return type, and `00013` could not narrow it — a view cannot stand in
+  for `SETOF users` — so `00013`'s own header claim that "00010 closed the RPC route" was
+  wrong and is corrected in the same commit. Reshaping the columns would still have left the
+  second defect: **the caller's entitlement is never checked.** It filters the pool on
+  `is_orthodox_user` and never the caller, and `is_orthodox_user` is written from the device
+  (`app/(orthodox-auth)/register.tsx:103`), so any signed-in account can page the Orthodox
+  pool. Nothing calls it — the deck reads `user_public_profiles` directly since MEXA-279 and
+  the only non-SQL reference was the generated-types entry — so there was no behaviour to
+  preserve. A replacement RPC, if ever wanted, is a separate issue: view columns plus a
+  server-side entitlement check.
+  The pool is **0 rows on live**, so nothing has leaked; the exposure opens when the first
+  Orthodox user finishes onboarding, which is why this blocks MEXA-292 and nothing else.
+  Its rollback is `00021_drop_orthodox_discovery_rpc_rollback.sql`, a bit-exact inverse
+  asserted down to `proacl`, and the first rollback here that deletes its own ledger row.
+  Verified against live in rolled-back transactions by `.scratch/mazal-mexa327/verify.mjs`,
+  three modes, nothing left behind (checked on a fresh connection each run).
+  All green: **`before` 21/21** (`BEFORE.txt`) — the leak *reproduced*, not just read off the
+  catalog: as a caller with `is_orthodox_user = false` and no subscription, the RPC returned
+  both Orthodox fixtures with all **53** columns, and their `email`, `phone`, `auth_id`,
+  `current_latitude`, `date_of_birth` and `elo_score` read back by value.
+  **`after` 17/17** (`AFTER.txt`) — `to_regprocedure` null, no function of that name under any
+  signature, `has_function_privilege` cannot resolve it for `authenticated` or `anon`, the
+  call is `42883` for both roles, the public function count moved by exactly −1 while
+  relations, policies and `users` rows did not move, `00010`'s three DEFINER siblings intact,
+  ledger carries `00021`, and the deck's own `user_public_profiles` query still returns both
+  profiles with no contact, coordinate or auth column.
+  **`rollback` 21/21** (`ROLLBACK.txt`) — identical to `before` on every probe including the
+  exact `proacl`, so the undo puts the defect back rather than landing in between.
+  One measured detail worth carrying forward: the live `users` table has **no**
+  `instagram_access_token` or `instagram_user_id` — `00013` moved both to `user_integrations`
+  — but `src/types/supabase.generated.ts` still lists them on `users`. That is stale drift
+  unrelated to this migration; don't repeat the claim that this RPC leaked an Instagram token.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
 - `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values
