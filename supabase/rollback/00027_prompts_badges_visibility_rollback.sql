@@ -69,6 +69,7 @@ DECLARE
   t   TEXT;
   suffix TEXT;
   v_n INTEGER;
+  v_bad TEXT;
 BEGIN
   FOREACH t IN ARRAY ARRAY['user_prompts', 'user_badges'] LOOP
     suffix := CASE t WHEN 'user_prompts' THEN 'prompts' ELSE 'badges' END;
@@ -89,19 +90,22 @@ BEGIN
       RAISE EXCEPTION 'MEXA-277 rollback: public.% does not carry the original USING (true) policy', t;
     END IF;
 
-    -- The four RLS-filtered verbs back, and not the three 00014 revoked live.
-    SELECT count(*) INTO v_n FROM information_schema.role_table_grants
-     WHERE table_schema = 'public' AND table_name = t AND grantee = 'anon'
-       AND privilege_type IN ('SELECT', 'INSERT', 'UPDATE', 'DELETE');
-    IF v_n <> 4 THEN
-      RAISE EXCEPTION 'MEXA-277 rollback: anon holds % of the 4 RLS-filtered verbs on public.%', v_n, t;
+    -- The four RLS-filtered verbs back, and not the four 00014 revoked live.
+    -- `has_table_privilege` rather than `information_schema.role_table_grants` for the same
+    -- reason as the migration's 4d: the grantee filter cannot see a grant made to PUBLIC,
+    -- which anon holds through the pseudo-role (Guts, MEXA-377).
+    SELECT string_agg(p.priv, ', ' ORDER BY p.priv) INTO v_bad
+      FROM (VALUES ('SELECT'),('INSERT'),('UPDATE'),('DELETE')) AS p(priv)
+     WHERE NOT has_table_privilege('anon', ('public.' || t)::regclass, p.priv);
+    IF v_bad IS NOT NULL THEN
+      RAISE EXCEPTION 'MEXA-277 rollback: anon is still missing % on public.%', v_bad, t;
     END IF;
 
-    SELECT count(*) INTO v_n FROM information_schema.role_table_grants
-     WHERE table_schema = 'public' AND table_name = t AND grantee = 'anon'
-       AND privilege_type IN ('TRUNCATE', 'TRIGGER', 'REFERENCES', 'MAINTAIN');
-    IF v_n <> 0 THEN
-      RAISE EXCEPTION 'MEXA-277 rollback: re-granted % privileges 00014 revoked on public.%', v_n, t;
+    SELECT string_agg(p.priv, ', ' ORDER BY p.priv) INTO v_bad
+      FROM (VALUES ('TRUNCATE'),('TRIGGER'),('REFERENCES'),('MAINTAIN')) AS p(priv)
+     WHERE has_table_privilege('anon', ('public.' || t)::regclass, p.priv);
+    IF v_bad IS NOT NULL THEN
+      RAISE EXCEPTION 'MEXA-277 rollback: re-granted % on public.%, which 00014 revoked', v_bad, t;
     END IF;
   END LOOP;
 
