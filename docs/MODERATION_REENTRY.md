@@ -1,9 +1,16 @@
 ---
-title: "Re-entry after a deleted account: what we know, and the one decision left"
-status: awaiting a product decision (Itai)
+title: "Re-entry after a deleted account: the decision, and what was built from it"
+status: decided (Itai, 2026-09-29) - built as 00029, not applied, in security review
 issue: MEXA-258
-updated: 2026-09-28
+updated: 2026-09-29
 ---
+
+> **Decided.** Itai picked **D plus the manual hold**: let them in, silently restore the
+> blocks, flag the account for review; refuse a signup only where a human has set
+> `moderation_hold` by hand. Built as
+> `supabase/migrations/00029_reentry_restore_and_hold.sql`. The four options below are kept
+> because they are the reasoning behind D, not a live question. What changed between the
+> plan and the build is in **What was actually built**, at the end.
 
 # Re-entry after a deleted account
 
@@ -175,3 +182,44 @@ Retention is already built and does not depend on the answer:
 `00012_deleted_accounts_retention.sql` purges a tombstone 12 months after deletion when
 every report about it was dismissed, 24 months when one ended `action_taken`, and never
 while a hold or an open report is on it.
+
+## What was actually built
+
+`00029_reentry_restore_and_hold.sql`. Three things differ from the plan above, and all
+three are worth knowing before reading the migration.
+
+**Step 1 was wrong: the `blocks` cascades are not dropped.** Un-cascading `blocked_id`
+preserves rows that point at the *old* `users.id`, and the returning person gets a new
+one — the rows would survive and match nobody, while costing the same insert-time
+integrity trigger `reports` needed in 00011. What is actually needed is the *set of
+people who blocked the account*, recorded against the tombstone and re-applied to
+whatever id they come back with. That is `public.deleted_account_blockers`. `blocks`
+is untouched.
+
+**The restore cannot live in the hook.** The hook runs before `auth.users` exists, so
+there is no `users.id` to attach a block to. Restoration is an `AFTER INSERT` trigger on
+`public.users` — the first moment that id exists. The hook does one thing only: refuse a
+held address. Two mechanisms, not one.
+
+**The hook fails open.** If the payload shape is not what we expect, or the lookup
+throws, it returns `{}` and the signup proceeds. Fail-closed would turn any mistake into
+"nobody can create an account" on all three signup paths at once, detectable only by
+users complaining. A hold that does not bite is a far smaller problem than a dark signup
+page. **The payload shape must be confirmed against a real hook invocation before the
+hook is enabled** — that is a gate on turning it on, not on merging.
+
+### Still open after 00029
+
+- **An account that was blocked but never reported still leaves nothing behind**, so its
+  blocks are lost on return. 00011 writes a tombstone only where there is a report, and
+  widening that to "was ever blocked" would keep a record for a large share of everyone
+  who deletes. That is a retention expansion beyond what 00011's review covered and is
+  filed separately rather than smuggled in here.
+- **Changing the auth email before deleting still moves your own hash.** It is a verified,
+  deliberate act rather than a free rewrite (MEXA-262 closed the free version), but a
+  determined person can still shed the tombstone this way. Closing it means keeping a
+  hash per address an account has ever been verified at, or refusing an auth email change
+  while a report is open.
+- **Nothing reads `account_reentry_events`.** It is the review queue Itai's option asks
+  for, and there is no moderator role and no admin UI to work it. The rows accumulate
+  correctly in the meantime.
