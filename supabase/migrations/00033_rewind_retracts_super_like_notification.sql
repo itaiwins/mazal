@@ -239,6 +239,30 @@ BEGIN
     RAISE EXCEPTION 'MEXA-401: notify_super_like() no longer addresses the push to NEW.swiped_id - the user_id predicate below would be wrong';
   END IF;
 
+  -- 0f-bis. `notify_super_like()` only names the *recipient argument*. What turns that
+  -- argument into `notification_queue.user_id` is `send_push_notification()`, one call
+  -- deeper, and the check above cannot see it: an edit to that helper alone - leaving
+  -- `notify_super_like` untouched - could remap the column and every other guard here would
+  -- still pass while the DELETE silently filtered on the wrong person. Guts raised exactly
+  -- this seam on MEXA-408 (advisory on an otherwise-PASS review). So pin the mapping too.
+  --
+  -- Low risk in practice: four stable triggers share this helper. But "low risk" is not the
+  -- same as "checked", and this is the one hop between the payload shape and the column the
+  -- DELETE keys on.
+  SELECT p.prosrc INTO v_src
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'send_push_notification'
+     AND pg_get_function_identity_arguments(p.oid) = 'p_user_id uuid, p_title text, p_body text, p_data jsonb';
+  IF v_src IS NULL THEN
+    RAISE EXCEPTION 'MEXA-401: public.send_push_notification(uuid, text, text, jsonb) is missing - apply 00005/00010 first';
+  END IF;
+  IF v_src NOT LIKE '%INSERT INTO notification_queue (user_id, title, body, data, created_at)%' THEN
+    RAISE EXCEPTION 'MEXA-401: send_push_notification() no longer inserts into notification_queue (user_id, title, body, data, created_at) - the column the DELETE filters on may have moved';
+  END IF;
+  IF v_src NOT LIKE '%VALUES (p_user_id, p_title, p_body, p_data, NOW())%' THEN
+    RAISE EXCEPTION 'MEXA-401: send_push_notification() no longer maps p_user_id onto notification_queue.user_id in that column order - the user_id predicate below would filter on the wrong person';
+  END IF;
+
   -- 0g. And the trigger that runs it is still per-row AFTER INSERT on `swipes`, so the
   -- queue row really is created inside the swipe's own transaction, which is what makes
   -- `created_at >= v_swipe.created_at` exact.
