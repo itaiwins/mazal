@@ -65,7 +65,6 @@ export type PublicProfile = Pick<
   | 'is_photo_verified'
   | 'is_orthodox_only'
   | 'is_orthodox_user'
-  | 'elo_score'
 > & {
   /**
    * Age in completed years, computed by the view with `public.profile_age()` (00030,
@@ -232,7 +231,8 @@ export type WhoLikedMeRow = Pick<
 /**
  * The generated schema plus the `user_public_profiles` view added by migration 00013, the
  * `undo_last_swipe` function added by migration 00025, the two who-liked-me functions added
- * by migration 00026, and the `unmatch` function added by migration 00036.
+ * by migration 00026, the `unmatch` function added by migration 00036, and
+ * `get_discovery_deck` added by migration 00039.
  *
  * The view is declared here by hand instead of being regenerated into
  * src/types/supabase.generated.ts, because `supabase gen types` shells out to Docker and
@@ -268,6 +268,22 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
       };
     };
     Functions: GeneratedDatabase['public']['Functions'] & {
+      /**
+       * The caller's discovery deck, filtered, ranked and then limited on the server (00039,
+       * MEXA-435). Rows of `user_public_profiles`, in rank order; the server clamps
+       * `p_limit` to 1..100. Empty arrays mean "any".
+       */
+      get_discovery_deck: {
+        Args: {
+          p_age_min?: number;
+          p_age_max?: number;
+          p_distance_max_miles?: number;
+          p_genders?: string[];
+          p_backgrounds?: string[];
+          p_limit?: number;
+        };
+        Returns: PublicProfile[];
+      };
       undo_last_swipe: {
         Args: Record<PropertyKey, never>;
         Returns: UndoLastSwipeResult[];

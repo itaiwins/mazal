@@ -36,41 +36,24 @@ async function fetchDiscoveryProfiles(
     jewish_backgrounds?: string[];
   }
 ): Promise<DiscoveryUser[]> {
-  // Fetch users who haven't been swiped and match basic criteria.
+  // The deck comes ranked from the server (MEXA-435, migration 00039): `get_discovery_deck`
+  // drops people you already swiped and applies every filter below FIRST, ranks (people who
+  // liked you, then elo_score), and only then takes 50. It used to be "any 50 rows of
+  // `user_public_profiles`, then filter and sort here", which gave a heavy swiper a short or
+  // empty deck and needed the view to publish `elo_score` to every client. It returns rows
+  // of the same view, so nothing here can see a column the view does not publish.
   //
-  // `user_public_profiles`, not `users`: since 00013 (MEXA-261) the table only ever returns
-  // the signed-in user's own row, and the view is what publishes other people. It also
-  // excludes the caller and inactive users itself and hands back a precomputed
-  // `distance_miles` instead of coordinates. The filters below are kept anyway, so the
-  // deck is still correct if the view's own rules are ever loosened.
-  //
-  // The age filter is on `age`, not on a date range over `date_of_birth` (MEXA-320): the
-  // view publishes the age the card renders and withholds the birthdate. It is also exactly
-  // inclusive at both ends: the date arithmetic it replaces set the lower bound a full year
-  // back and so admitted somebody who turned `age_max + 1` today.
-  let query = supabase
-    .from('user_public_profiles')
-    .select('*')
-    .neq('id', userId)
-    .eq('is_active', true)
-    .eq('onboarding_complete', true)
-    .gte('age', filters.age_min)
-    .lte('age', filters.age_max);
-
-  // Add gender filter if specified
-  if (filters.gender_preference.length > 0) {
-    query = query.in('gender', filters.gender_preference);
-  }
-
-  // Add Jewish background filter if specified
-  if (filters.jewish_backgrounds && filters.jewish_backgrounds.length > 0) {
-    query = query.in('jewish_background', filters.jewish_backgrounds);
-  }
-
-  // Limit results for performance
-  query = query.limit(50);
-
-  const { data: users, error } = await query;
+  // The age filter is on `age`, not on `date_of_birth` (MEXA-320), inclusive at both ends.
+  // Distance is compared on the rounded miles the card shows; no location on either side
+  // does not hide anyone, which is what this file did before.
+  const { data: users, error } = await supabase.rpc('get_discovery_deck', {
+    p_age_min: filters.age_min,
+    p_age_max: filters.age_max,
+    p_distance_max_miles: filters.distance_max_miles,
+    p_genders: filters.gender_preference,
+    p_backgrounds: filters.jewish_backgrounds ?? [],
+    p_limit: 50,
+  });
 
   if (error) {
     console.error('Error fetching discovery profiles:', error);
@@ -80,14 +63,6 @@ async function fetchDiscoveryProfiles(
   if (!users || users.length === 0) {
     return [];
   }
-
-  // Get already swiped users
-  const { data: swipes } = await supabase
-    .from('swipes')
-    .select('swiped_id')
-    .eq('swiper_id', userId);
-
-  const swipedIds = new Set((swipes || []).map((s) => s.swiped_id));
 
   // Get users who have liked current user
   const { data: incomingLikes } = await supabase
@@ -114,11 +89,8 @@ async function fetchDiscoveryProfiles(
     saftaApprovedCounts[like.liked_user_id] = (saftaApprovedCounts[like.liked_user_id] || 0) + 1;
   });
 
-  // Filter out already swiped users
-  const availableUsers = users.filter((u) => !swipedIds.has(u.id));
-
-  // Fetch photos, prompts, and badges for available users in parallel
-  const userIds = availableUsers.map((u) => u.id);
+  // Fetch photos, prompts, and badges for the deck in parallel
+  const userIds = users.map((u) => u.id);
 
   const [photosResult, promptsResult, badgesResult] = await Promise.all([
     supabase
@@ -155,8 +127,9 @@ async function fetchDiscoveryProfiles(
   });
 
   // Build discovery profiles
-  const profiles: DiscoveryUser[] = availableUsers
-    .map((user) => {
+  // Kept in the server's order: the rank lives there now, and rewindDeckPosition.ts needs
+  // the same order on every fetch.
+  return users.map((user): DiscoveryUser => {
       // Computed by the view (public.profile_age), for the same reason distance_miles is:
       // the client no longer receives the input it was derived from (MEXA-320).
       const age = user.age;
@@ -166,15 +139,6 @@ async function fetchDiscoveryProfiles(
       // when either side has no location, which is the old `undefined`.
       const distance =
         user.distance_miles === null ? undefined : Math.round(user.distance_miles);
-
-      // Filter by distance if specified
-      if (
-        filters.distance_max_miles > 0 &&
-        distance !== undefined &&
-        distance > filters.distance_max_miles
-      ) {
-        return null;
-      }
 
       // Calculate simple compatibility score based on matching criteria
       let compatibilityScore = 50; // Base score
@@ -216,15 +180,7 @@ async function fetchDiscoveryProfiles(
         has_liked_me: likedByIds.has(user.id),
         safta_approved_count: saftaCount,
       };
-    })
-    .filter((p) => p !== null) as DiscoveryUser[];
-
-  // Sort: Users who liked you first, then by ELO score
-  return profiles.sort((a, b) => {
-    if (a.has_liked_me && !b.has_liked_me) return -1;
-    if (!a.has_liked_me && b.has_liked_me) return 1;
-    return (b.elo_score ?? 0) - (a.elo_score ?? 0);
-  });
+    });
 }
 
 /**

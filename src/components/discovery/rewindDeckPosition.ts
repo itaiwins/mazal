@@ -15,7 +15,7 @@
  * The screen holds `currentIndex` into a deck that arrives from React Query, and both a
  * swipe and a rewind invalidate `queryKeys.discovery.all`. A rewind has to put the user
  * back on the person it undid, and that person's position is not something the screen can
- * compute: the deck is sorted by `has_liked_me` then `elo_score`, so `currentIndex - 1` is
+ * compute: the deck is ranked server-side (00039) by who liked you then `elo_score`, so `currentIndex - 1` is
  * a guess. They have to be found by id.
  *
  * The subtle half is *which* deck to search, and it is what MEXA-403's review caught:
