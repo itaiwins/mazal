@@ -49,6 +49,7 @@ Apply exactly this sequence:
 00023_safta_connection_consent.sql
 00024_revoke_self_awarded_verified_badge.sql
 00025_rewind_undo_last_swipe.sql
+00026_who_liked_me.sql
 ```
 
 There is no `00022` in this repo. `00022_safta_public_profiles.sql` is MEXA-302's and is
@@ -81,8 +82,9 @@ Notes on the order:
   `00020_safta_likes_actually_save_rollback.sql`,
   `00021_drop_orthodox_discovery_rpc_rollback.sql`,
   `00023_safta_connection_consent_rollback.sql`,
-  `00024_revoke_self_awarded_verified_badge_rollback.sql` and
-  `00025_rewind_undo_last_swipe_rollback.sql`; read each one's header. `00014`'s,
+  `00024_revoke_self_awarded_verified_badge_rollback.sql`,
+  `00025_rewind_undo_last_swipe_rollback.sql` and
+  `00026_who_liked_me_rollback.sql`; read each one's header. `00014`'s,
   `00015`'s and `00016`'s are the three that are not bit-exact inverses, and each says
   exactly where it differs and why. `00013`'s is exact except for column order, which its
   header explains. `00016`'s is split into six independent sections, `00019`'s into two and
@@ -501,6 +503,71 @@ Notes on the order:
   a SELECT policy and no writer anywhere in the repo, so there is no server-side entitlement to
   check. A queued super-like notification is also not retracted by a rewind (moot today —
   `send-notification` is not deployed).
+- `00026` is **NOT applied** — written 2026-09-29 (MEXA-315), waiting on Guts's review and
+  an apply card. It builds **"See who likes you"**, the headline Gold benefit the paywall has
+  sold from the start with nothing behind it: `queryKeys.swipes.whoLikedMe()` existed and its
+  only reference in the repo was an `invalidateQueries` inside the realtime hook MEXA-294
+  deleted. No query function, no hook, no screen, no route — nothing had ever read "who
+  liked me". Measured on live before writing it: a client asking `swipes` for its own inbound
+  likes gets `code=null, rowCount=0` (`.scratch/mazal-mexa315/BEFORE.txt`).
+  **It adds no policy, no grant on any table, no column and no publication entry** — only
+  three functions and a comment. The central decision is in the header: **not** a cross-side
+  SELECT policy on `swipes`, because RLS restricts rows and not values, so a policy admitting
+  `swiped_id = <me>` publishes **"who passed on you"** in the same breath. `00017` and
+  MEXA-294 both declined to widen it and this does not either; post-check 4d asserts `swipes`
+  still carries exactly `00002`'s two policies, and 4e that it is still out of
+  `supabase_realtime`.
+  Three functions: `public.pending_likers()` holds the predicate once and is **internal** —
+  `EXECUTE` revoked from PUBLIC, `anon`, `authenticated` *and* `service_role`, so
+  `/rest/v1/rpc/pending_likers` is a 403 for everyone; `public.count_who_liked_me()` returns
+  an integer and is granted to **every** signed-in caller on purpose (it is the upsell, it
+  names nobody); `public.get_who_liked_me(limit, offset)` is the list, and its two arguments
+  are paging only, clamped server-side to 1..100 and >= 0, so **no argument names a user** and
+  `00010`'s rule 1 still holds. All three `STABLE`, `SECURITY DEFINER`,
+  `SET search_path = public`. `service_role` is deliberately left out of every grant, like
+  `00025`: it has no `public.users` row, so `current_app_user_id()` is NULL and it would get
+  an empty list that reads as "nobody likes you".
+  The visibility rule is **not restated** here — `pending_likers()` joins
+  `public.user_public_profiles`, so `00013`'s WHERE (not you, active, no `blocks` row either
+  way, `auth.uid()` present) *is* the rule, and this feature tracks it for free if it ever
+  changes. `auth.uid()` still resolves inside a DEFINER function because it reads the
+  `request.jwt.claims` GUC, which SECURITY DEFINER does not touch. Five exclusions on top:
+  `pass`, mid-onboarding, already swiped on, already matched, plus the view's own.
+  **No entitlement check, and that is deliberate.** There is nothing server-side to read —
+  `public.subscriptions` is RevenueCat's webhook table, no webhook is deployed, so it is empty
+  and a gate there would refuse every paying user. The Gold gate is `useCanSeeLikes()` on the
+  device, as Rewind's is. A free user calling the RPC directly gets the list: **a revenue leak,
+  not a privacy leak** — the list only ever holds likes aimed at the caller, a `pass` never
+  leaves the database whatever anyone paid, and every row rule above is server-side. **MEXA-373**
+  closes it; when it lands the gate goes in `get_who_liked_me()` only, never in the count.
+  Its rollback is `00026_who_liked_me_rollback.sql`, a bit-exact inverse; it deletes its own
+  ledger row, and the `swipes` comment it restores is **conditional on the ledger** (`00016`
+  if applied, else `00025`, else NULL) because three files now write that comment.
+  Verified against live in rolled-back transactions by `.scratch/mazal-mexa315/verify.mjs`,
+  three modes, nothing left behind (a fresh connection checks objects, ledger, row counts and
+  fixtures each run). Every behavioural claim is a statement run as the real `authenticated` /
+  `anon` role against eleven fixture users.
+  All green: **`before` 10/10** (`BEFORE.txt`) — the question is unaskable client-side.
+  **`after` 35/35** (`AFTER.txt`) — a like and a super like appear; a **`pass` does not**; a
+  liker blocked in either direction, a deactivated one, one mid-onboarding, one already passed
+  on, one already matched through the `00017` trigger, and one with a bare `matches` row are
+  all absent; the super like sorts above a newer plain like; the returned row carries the 13
+  card columns and no more; the count equals the list; the person who liked you sees nobody
+  (it is inbound, not a mirror); paging does not repeat or skip; an absurd limit and a negative
+  offset clamp instead of erroring; a JWT with no `users` row gets an empty list and a count of
+  0, not somebody else's; `anon` is `42501` on all three and `authenticated` is `42501` on
+  `pending_likers()`; a direct cross-side read of `swipes` still returns 0 rows; and answering
+  somebody drops them from the list and the count together.
+  **`rollback` 43/43** (`ROLLBACK.txt`) — identical to `before` on every probe afterwards, all
+  three functions gone, ledger row gone; a second apply and a second rollback both abort with
+  the right message.
+  **Client half, same commit** (behind `FEATURE_WHO_LIKES_YOU`, off, pinned `"false"` in all
+  three `eas.json` profiles): `src/api/queries/useWhoLikedMe.ts`, `app/likes/`, an entry row
+  with the badge on the Matches tab, and the paywall copy gated on the same flag so a build
+  that cannot deliver the feature does not sell it. Both functions are declared by hand in
+  `src/types/database.types.ts` (same reason as the `00013` view — `supabase gen types` needs
+  Docker), so `npx tsc --noEmit` covers the calls; it is green. **Keep `WhoLikedMeRow` in step
+  with the function's RETURNS TABLE.**
 - **The ledger lags the repo, measured 2026-09-29 (MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
   `00017`–`00019`, `00021`, `00024`, `20250114`, `20250115`. So **`00012`, `00016` and `00020`

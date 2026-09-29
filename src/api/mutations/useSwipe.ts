@@ -115,6 +115,18 @@ export function useSwipe() {
       // Invalidate discovery to remove swiped user
       queryClient.invalidateQueries({ queryKey: queryKeys.discovery.all });
 
+      // "See who likes you" is "people waiting on you", so answering somebody takes them
+      // out of the list and off the badge (MEXA-315). This is the only thing that keeps
+      // the two current: `get_who_liked_me` has no realtime subscription behind it and
+      // cannot have one, because a `postgres_changes` event on `swipes` never survives the
+      // cross-side RLS check (MEXA-294, MEXA-313). The key is the whoLikedMe() prefix, so
+      // the list and its count are refreshed together.
+      //
+      // Unconditional: it fires for a pass as well as a like, because a pass is just as
+      // much an answer, and for a swipe on somebody who had not liked us - where it costs
+      // one refetch of a list the user is not looking at.
+      queryClient.invalidateQueries({ queryKey: queryKeys.swipes.whoLikedMe() });
+
       // If it's a match, invalidate matches
       if (result.isMatch) {
         queryClient.invalidateQueries({ queryKey: queryKeys.matches.all });

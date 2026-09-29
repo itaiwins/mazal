@@ -110,9 +110,49 @@ export interface UndoLastSwipeResult {
   swiped_at: string | null;
 }
 
+// ============================================================================
+// See who likes you (migration 00026, MEXA-315)
+// ============================================================================
+
 /**
- * The generated schema plus the `user_public_profiles` view added by migration 00013 and
- * the `undo_last_swipe` function added by migration 00025.
+ * One row from `public.get_who_liked_me()`: somebody who liked or super-liked you and is
+ * still waiting on an answer.
+ *
+ * Spelled as a Pick of {@link PublicProfile} on purpose - the function selects a subset of
+ * `public.user_public_profiles`, so this stays tied to the view and stops compiling if a
+ * column is renamed out from under it. The profile columns are the ones the Likes card
+ * draws and no more; widening this means widening the function in
+ * supabase/migrations/00026_who_liked_me.sql first.
+ *
+ * A `pass` is never in this list, and that is enforced in the database rather than here:
+ * the only SELECT policy on `swipes` is own-swiper-only, so "who rejected you" has no path
+ * to a client at all. It is why the feature is a pair of SECURITY DEFINER functions and
+ * not a cross-side policy.
+ */
+export type WhoLikedMeRow = Pick<
+  PublicProfile,
+  | 'id'
+  | 'first_name'
+  | 'display_name'
+  | 'date_of_birth'
+  | 'bio'
+  | 'occupation'
+  | 'current_city'
+  | 'current_state'
+  | 'is_verified'
+  | 'is_photo_verified'
+  | 'distance_miles'
+> & {
+  /** When they swiped on you - `swipes.created_at`, as an ISO timestamp. */
+  liked_at: string;
+  /** True for a Super Like. Derived from `swipes.action`; no column stores it. */
+  is_super_like: boolean;
+};
+
+/**
+ * The generated schema plus the `user_public_profiles` view added by migration 00013, the
+ * `undo_last_swipe` function added by migration 00025, and the two who-liked-me functions
+ * added by migration 00026.
  *
  * The view is declared here by hand instead of being regenerated into
  * src/types/supabase.generated.ts, because `supabase gen types` shells out to Docker and
@@ -137,6 +177,22 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
       undo_last_swipe: {
         Args: Record<PropertyKey, never>;
         Returns: UndoLastSwipeResult[];
+      };
+      /**
+       * The free teaser: how many unanswered likes you have, naming nobody. Deliberately
+       * not entitlement-gated - see the header of 00026.
+       */
+      count_who_liked_me: {
+        Args: Record<PropertyKey, never>;
+        Returns: number;
+      };
+      /**
+       * The paid list. Both arguments are paging only and neither names a user; the server
+       * clamps them to 1..100 and >= 0, so a caller cannot ask for the whole table.
+       */
+      get_who_liked_me: {
+        Args: { p_limit?: number; p_offset?: number };
+        Returns: WhoLikedMeRow[];
       };
     };
   };

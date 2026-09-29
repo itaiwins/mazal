@@ -19,6 +19,7 @@
         "EXPO_PUBLIC_FEATURE_ORTHODOX_MODE": "false",
         "EXPO_PUBLIC_FEATURE_SAFTA_MODE": "false",
         "EXPO_PUBLIC_FEATURE_PHOTO_VERIFICATION": "false",
+        "EXPO_PUBLIC_FEATURE_WHO_LIKES_YOU": "false",
         "EXPO_PUBLIC_USE_TEST_ADS": "true"
       }
     },
@@ -36,6 +37,7 @@
         "EXPO_PUBLIC_FEATURE_ORTHODOX_MODE": "false",
         "EXPO_PUBLIC_FEATURE_SAFTA_MODE": "false",
         "EXPO_PUBLIC_FEATURE_PHOTO_VERIFICATION": "false",
+        "EXPO_PUBLIC_FEATURE_WHO_LIKES_YOU": "false",
         "EXPO_PUBLIC_USE_TEST_ADS": "true"
       }
     },
@@ -53,6 +55,7 @@
         "EXPO_PUBLIC_FEATURE_ORTHODOX_MODE": "false",
         "EXPO_PUBLIC_FEATURE_SAFTA_MODE": "false",
         "EXPO_PUBLIC_FEATURE_PHOTO_VERIFICATION": "false",
+        "EXPO_PUBLIC_FEATURE_WHO_LIKES_YOU": "false",
         "EXPO_PUBLIC_USE_TEST_ADS": "true"
       }
     }

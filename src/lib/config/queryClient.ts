@@ -118,6 +118,12 @@ export const queryKeys = {
     all: ['swipes'] as const,
     likes: () => [...queryKeys.swipes.all, 'likes'] as const,
     whoLikedMe: () => [...queryKeys.swipes.all, 'who-liked-me'] as const,
+    // The badge count is its own RPC (`count_who_liked_me`) because callers render the
+    // number without ever fetching the list. Keyed as a prefix-child of whoLikedMe() on
+    // purpose: React Query matches keys by prefix, so invalidating whoLikedMe() refreshes
+    // the count too and the two can never disagree after a swipe
+    // (src/api/mutations/useSwipe.ts).
+    whoLikedMeCount: () => [...queryKeys.swipes.all, 'who-liked-me', 'count'] as const,
   },
 } as const;
 

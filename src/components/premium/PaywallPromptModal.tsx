@@ -29,6 +29,7 @@ import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { usePremiumStore } from '@/stores/premiumStore';
 import { StarOfDavid } from '@/components/icons/StarOfDavid';
+import { FEATURE_WHO_LIKES_YOU } from '@/lib/config/features';
 
 // Feature icons and descriptions for common paywall triggers
 const FEATURE_INFO: Record<string, { icon: string; title: string; description: string }> = {
@@ -70,13 +71,27 @@ export function PaywallPromptModal() {
   const selectedPlan = usePremiumStore((s) => s.selectedPlan);
   const hidePaywallModal = usePremiumStore((s) => s.hidePaywallModal);
 
-  // Get feature info based on reason if available
-  const featureKey = paywallReason?.toLowerCase().includes('like') ? 'see_likes'
-    : paywallReason?.toLowerCase().includes('super') ? 'super_likes'
-    : paywallReason?.toLowerCase().includes('rewind') ? 'rewind'
-    : paywallReason?.toLowerCase().includes('boost') ? 'boost'
-    : paywallReason?.toLowerCase().includes('map') ? 'map_profiles'
-    : paywallReason?.toLowerCase().includes('swipe') ? 'unlimited_swipes'
+  // Get feature info based on reason if available.
+  //
+  // `super` is tested before `like`, which is a fix rather than tidying (MEXA-315). Every
+  // Super Like prompt in the app reads "You've used all your Super Likes this week!", which
+  // contains "like" - so the old order matched `see_likes` first and this modal offered
+  // "See Who Likes You / Unlock the ability to see everyone who has liked your profile" to
+  // somebody who had simply run out of Super Likes. The modal's one job is to name the
+  // feature the user just hit, and it was naming a different one.
+  //
+  // `see_likes` also has to clear the feature flag: it is the only entry here whose feature
+  // can be switched off, and offering to unlock something the build cannot deliver is the
+  // thing MEXA-315 was filed about.
+  const reason = paywallReason?.toLowerCase();
+  const featureKey = !reason
+    ? null
+    : reason.includes('super') ? 'super_likes'
+    : reason.includes('rewind') ? 'rewind'
+    : reason.includes('boost') ? 'boost'
+    : reason.includes('map') ? 'map_profiles'
+    : reason.includes('swipe') ? 'unlimited_swipes'
+    : reason.includes('like') && FEATURE_WHO_LIKES_YOU ? 'see_likes'
     : null;
 
   const featureInfo = featureKey ? FEATURE_INFO[featureKey] : null;

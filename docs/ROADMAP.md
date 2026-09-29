@@ -38,11 +38,15 @@ value makes the flag a compile-time constant.
 | `FEATURE_ORTHODOX_MODE` | `EXPO_PUBLIC_FEATURE_ORTHODOX_MODE` | off | Orthodox Shidduch mode, including the `(shidduch-*)` flow |
 | `FEATURE_SAFTA_MODE` | `EXPO_PUBLIC_FEATURE_SAFTA_MODE` | off | Parents/grandparents ("Safta") matchmaker mode |
 | `FEATURE_PHOTO_VERIFICATION` | `EXPO_PUBLIC_FEATURE_PHOTO_VERIFICATION` | off | ID/selfie verification: the "Verify Your Profile" action and `app/profile/verify.tsx` |
+| `FEATURE_WHO_LIKES_YOU` | `EXPO_PUBLIC_FEATURE_WHO_LIKES_YOU` | off | "See who likes you": `app/likes/`, its entry point and badge on the Matches tab, **and the three places the paywall promises it** |
 
 `FEATURE_PHOTO_VERIFICATION` is different from the other two: they hide *unfinished*
 features, and turning either on gives you a working (if rough) product. This one hides a
 feature that was **actively wrong**, and it must not be turned on until the server-side path
 exists — see [Photo verification](#photo-verification-off-until-it-is-server-side) below.
+
+`FEATURE_WHO_LIKES_YOU` is different again: it is the only flag that gates a **promise** as
+well as a feature — see [See who likes you](#see-who-likes-you-built-flag-off) below.
 
 Only the exact string `"true"` turns a flag on. They are pinned to `"false"` in the
 `env` block of every profile in [`eas.json`](../eas.json), so a stray shell variable
@@ -114,6 +118,84 @@ set `EXPO_PUBLIC_REVENUECAT_IOS_KEY` as an Expo project environment variable. Th
 Mode" fallback in [`app/premium/index.tsx`](../app/premium/index.tsx) should go at the
 same time, and the Gold/Platinum prices ($14.99/$29.99 monthly) need Itai's review before
 anyone outside the team sees them.
+
+---
+
+## See who likes you: built, flag off
+
+Flag: **`FEATURE_WHO_LIKES_YOU`** (off, pinned `"false"` in all three `eas.json` profiles).
+MEXA-315.
+
+Every other flag hides a feature. This one also hides the **promise** of one, and that is
+the reason it exists. The paywall has been selling "See who likes you" as the headline Gold
+benefit since the beginning and nothing behind it had ever been built: there was a React
+Query key, `queryKeys.swipes.whoLikedMe()`, whose only reference in the repo was an
+`invalidateQueries` inside a realtime hook that MEXA-294 deleted because it could never
+fire. No query function, no hook, no screen, no route. Nothing had ever read "who liked me".
+
+### What the flag covers
+
+| On | Off |
+|---|---|
+| `app/likes/` — the Likes screen | not reachable; a deep link redirects to Matches |
+| The "Likes You" row and its badge at the top of the Matches tab | not rendered |
+| `see_likes` in the Gold feature list (`PREMIUM_FEATURES`) | absent |
+| The "See who likes you" row in `PLAN_COMPARISON` | absent |
+| The upgrade banner's "See who likes you, unlimited swipes & more" | "Unlimited swipes, Super Likes & more" |
+| `PaywallPromptModal`'s `see_likes` card | never selected |
+
+"Off" means **not rendered**, not "absent from the binary". `babel-preset-expo` inlines
+`process.env.EXPO_PUBLIC_*` inside `features.ts`, but the flag then crosses a module
+boundary as an imported binding and neither Metro's minifier nor Hermes does cross-module
+constant propagation — so the branches stay, and both strings sit in the Hermes string
+table. Every flag here behaves that way: with `FEATURE_SAFTA_MODE` off, the literal "Safta"
+still appears 14 times in an `npx expo export --platform ios` bundle. **Do not grep a
+`.hbc` to check a flag** — Hermes packs and dedups its string table, so `grep -a -F` finds
+some present strings and misses others. `.scratch/mazal-mexa315/check-paywall-copy.mjs` is
+the check: it loads the real modules with the env var set both ways and reads the exported
+arrays.
+
+### The backend
+
+`supabase/migrations/00026_who_liked_me.sql` — two `SECURITY DEFINER` functions over one
+internal one. Not a policy on `swipes`, and that is the central decision: the only SELECT
+policy there is `swiper_id = <me>`, and a policy admitting `swiped_id = <me>` would publish
+**"who passed on you"** in the same breath, because RLS restricts rows and not values.
+MEXA-294 and `00017` both declined to widen it for that reason and this feature does not
+either. `public.swipes` keeps exactly the two policies `00002` gave it, asserted in the
+migration's post-check.
+
+- `count_who_liked_me()` → an integer, granted to **every** signed-in caller. It is the
+  upsell ("3 people like you"), it names nobody, and it never counts a `pass`.
+- `get_who_liked_me(limit, offset)` → the list. Both arguments are paging only and clamped
+  server-side; neither names a user, so identity still comes from `current_app_user_id()`.
+- Excluded from both: a `pass`, anyone blocked in either direction, anyone deactivated or
+  mid-onboarding, anyone you have already swiped on, and anyone you have already matched.
+  All of it server-side — `src/api/queries/useWhoLikedMe.ts` filters nothing.
+
+### Before turning it on
+
+1. **Apply `00026`** to the project the build points at. Without it both RPCs are 404s from
+   PostgREST and the screen shows its error state. It needs Guts's review (it is a new
+   SECURITY DEFINER path over other people's data) and Lelouch's approval, like every
+   migration.
+2. **Lelouch signs off on shipping it**, because it is a user-visible new feature on a paid
+   tier (MEXA-273).
+3. Know that **the Gold gate is `useCanSeeLikes()` on the device only.** There is nothing
+   server-side to check: `public.subscriptions` is RevenueCat's webhook table and no webhook
+   is deployed, so it is empty and a server-side gate would refuse every paying user. A free
+   user who called `/rest/v1/rpc/get_who_liked_me` directly would get the list. That is a
+   revenue leak and not a privacy one — the list only ever contains likes aimed at the
+   caller, and a `pass` never leaves the database whatever anyone has paid. **MEXA-373** is
+   what closes it; the migration header argues the distinction at length.
+
+### No realtime
+
+The badge is polled, not subscribed. A `postgres_changes` subscription on `swipes` is what
+MEXA-294 removed and MEXA-313 explains: the event never survives realtime's RLS re-check for
+the person who was swiped on, and publishing the table would put `pass` rows on the
+replication stream. The count refetches on focus and `useSwipe` invalidates it, so answering
+somebody removes them from the list and the badge together.
 
 ---
 

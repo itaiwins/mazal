@@ -19,6 +19,7 @@ import Purchases, {
   LOG_LEVEL,
 } from 'react-native-purchases';
 import { Platform } from 'react-native';
+import { FEATURE_WHO_LIKES_YOU } from './features';
 
 // RevenueCat API keys (replace with your actual keys)
 const REVENUECAT_IOS_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY || '';
@@ -313,6 +314,26 @@ export const SAFTA_FEATURE_LIMITS = {
 } as const;
 
 /**
+ * The "See who likes you" bullet, or nothing.
+ *
+ * Both paywall surfaces below promised this feature from the start and nothing behind it
+ * was ever built (MEXA-315) - there was a React Query key and no query. It is built now,
+ * but it is behind `FEATURE_WHO_LIKES_YOU`, so the promise goes behind the same flag: a
+ * build that cannot deliver the feature does not list it in what Gold buys you.
+ *
+ * Spread into the arrays (`...SEE_LIKES_FEATURE`) rather than filtered out afterwards, so
+ * the flag-off shape is a literal one bullet shorter and not an array that has to be
+ * post-processed at every read site.
+ */
+const SEE_LIKES_FEATURE = FEATURE_WHO_LIKES_YOU
+  ? ([{ id: 'see_likes', label: 'See who likes you', icon: 'heart', included: true }] as const)
+  : ([] as const);
+
+const SEE_LIKES_COMPARISON = FEATURE_WHO_LIKES_YOU
+  ? ([{ feature: 'See who likes you', free: false, gold: true, platinum: true }] as const)
+  : ([] as const);
+
+/**
  * Premium features by tier
  */
 export const PREMIUM_FEATURES = {
@@ -325,7 +346,7 @@ export const PREMIUM_FEATURES = {
     yearlySavings: PRICING.gold.yearly.savings,
     features: [
       { id: 'unlimited_swipes', label: 'Unlimited daily swipes', icon: 'infinite', included: true },
-      { id: 'see_likes', label: 'See who likes you', icon: 'heart', included: true },
+      ...SEE_LIKES_FEATURE,
       { id: 'super_likes', label: '5 Super Likes per week', icon: 'star', included: true },
       { id: 'rewind', label: 'Rewind last swipe', icon: 'refresh', included: true },
       { id: 'advanced_filters', label: 'Advanced filters', icon: 'options', included: true },
@@ -391,7 +412,7 @@ export const PREMIUM_FEATURES = {
 export const PLAN_COMPARISON = [
   { feature: 'Daily swipes', free: '25', gold: 'Unlimited', platinum: 'Unlimited' },
   { feature: 'Super Likes', free: '1/week', gold: '5/week', platinum: '5/week' },
-  { feature: 'See who likes you', free: false, gold: true, platinum: true },
+  ...SEE_LIKES_COMPARISON,
   { feature: 'Rewind last swipe', free: false, gold: true, platinum: true },
   { feature: 'Advanced filters', free: false, gold: true, platinum: true },
   { feature: 'Read receipts', free: false, gold: true, platinum: true },

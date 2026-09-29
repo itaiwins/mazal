@@ -45,8 +45,32 @@ export const FEATURE_SAFTA_MODE =
 export const FEATURE_PHOTO_VERIFICATION =
   process.env.EXPO_PUBLIC_FEATURE_PHOTO_VERIFICATION === 'true';
 
+/**
+ * "See who likes you": the Likes screen, its entry point and badge on the Matches tab, and
+ * the three places the paywall promises the feature.
+ *
+ * It gates the **promise** as well as the feature, which the other flags do not, and that
+ * is the point. The copy shipped long before anything behind it did (MEXA-315): the Gold
+ * feature list, the plan comparison table and the upgrade banner have all been telling
+ * users they get this when nothing had ever read "who liked me". With the flag off none of
+ * those three mentions it, so a build that cannot deliver the feature does not sell it.
+ *
+ * Turning it on needs **both** halves:
+ *
+ *  1. `supabase/migrations/00026_who_liked_me.sql` applied to the project the build points
+ *     at. Without it `get_who_liked_me` and `count_who_liked_me` are 404s from PostgREST
+ *     and the screen shows its error state.
+ *  2. Lelouch's sign-off, because it is a user-visible new feature on a paid tier
+ *     (MEXA-273). Worth knowing before flipping it: the Gold gate is `useCanSeeLikes()` on
+ *     the device only, because there is no server-side entitlement to read. MEXA-373 is
+ *     what closes that.
+ */
+export const FEATURE_WHO_LIKES_YOU =
+  process.env.EXPO_PUBLIC_FEATURE_WHO_LIKES_YOU === 'true';
+
 export const FEATURES = {
   orthodoxMode: FEATURE_ORTHODOX_MODE,
   saftaMode: FEATURE_SAFTA_MODE,
   photoVerification: FEATURE_PHOTO_VERIFICATION,
+  whoLikesYou: FEATURE_WHO_LIKES_YOU,
 } as const;

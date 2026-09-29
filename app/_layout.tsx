@@ -329,6 +329,17 @@ export default function RootLayout() {
                 }}
               />
 
+              {/* "Likes You" (MEXA-315). Registered unconditionally, unlike the Safta tab:
+                  the screen itself redirects away when FEATURE_WHO_LIKES_YOU is off, and
+                  `href: null` is a Tabs option with no Stack equivalent. Nothing links
+                  here in a flag-off build. */}
+              <Stack.Screen
+                name="likes"
+                options={{
+                  headerShown: false,
+                }}
+              />
+
               {/* Legal screens */}
               <Stack.Screen
                 name="legal"

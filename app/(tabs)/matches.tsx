@@ -28,14 +28,14 @@ import Animated, { FadeIn } from 'react-native-reanimated';
 import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius, shadows } from '@/theme/spacing';
-import { useMatches, useSaftaConnections, type MatchWithPreview, type SaftaConnectionWithPreview } from '@/api/queries';
+import { useMatches, useSaftaConnections, useWhoLikedMeCount, type MatchWithPreview, type SaftaConnectionWithPreview } from '@/api/queries';
 import { useAllMessagesSubscription, useMatchesSubscription } from '@/api/realtime';
 import { AdBanner } from '@/components/ads';
 import { useUIStore } from '@/stores/uiStore';
 import { AnimatedHeader } from '@/components/ui/AnimatedHeader';
 import { NewMatchCarousel, ConversationCard } from '@/components/matches';
 import { DEMO_MATCHES, DEMO_MESSAGES, DEMO_SAFTA_CONNECTIONS, getDemoConversations } from '@/lib/demo/demoProfiles';
-import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
+import { FEATURE_SAFTA_MODE, FEATURE_WHO_LIKES_YOU } from '@/lib/config/features';
 
 // Message category types
 type MessageCategory = 'matches' | 'saftas' | 'others';
@@ -107,6 +107,58 @@ function NewMatchItemCard({ match, onPress }: { match: NewMatchItem; onPress: ()
       </View>
       <Text style={styles.newMatchName} numberOfLines={1}>{match.name}</Text>
     </Pressable>
+  );
+}
+
+/**
+ * The "Likes You" entry point and its badge (MEXA-315).
+ *
+ * The count comes from `count_who_liked_me()`, which is free for every signed-in user on
+ * purpose - it names nobody, and seeing "3 people like you" is what makes the Gold paywall
+ * worth tapping. What is behind the row differs: a subscriber gets the list, a free user
+ * gets the same number and an upgrade card. `app/likes/index.tsx` decides which.
+ *
+ * Deliberately **not** fed by a realtime subscription. `useLikesSubscription` used to
+ * invalidate a who-liked-me key off `postgres_changes` on `swipes`, and MEXA-294 deleted it
+ * because the event can never reach the person who was swiped on: the only SELECT policy on
+ * that table is own-swiper-only, so realtime's RLS re-check filters it away. The number
+ * refetches on focus and is invalidated by `useSwipe`.
+ *
+ * Renders nothing at all when the count is 0 - an entry point promising likes you do not
+ * have is the same kind of empty promise this issue was filed about.
+ */
+function LikesYouRow() {
+  const theme = useTheme();
+  const count = useWhoLikedMeCount();
+
+  if (!FEATURE_WHO_LIKES_YOU || count === 0) return null;
+
+  return (
+    <Animated.View entering={FadeIn.duration(400)} style={styles.section}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${count} ${count === 1 ? 'person likes' : 'people like'} you`}
+        style={styles.likesYouRow}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          router.push('/likes');
+        }}
+      >
+        <View style={styles.likesYouIcon}>
+          <Ionicons name="heart" size={22} color={colors.primary.gold} />
+          <View style={styles.likesYouBadge}>
+            <Text style={styles.likesYouBadgeText}>{count > 99 ? '99+' : count}</Text>
+          </View>
+        </View>
+        <View style={styles.likesYouText}>
+          <Text style={[styles.likesYouTitle, { color: theme.colors.text }]}>Likes You</Text>
+          <Text style={[styles.likesYouSubtitle, { color: theme.colors.textSecondary }]}>
+            {count === 1 ? '1 person is waiting on you' : `${count} people are waiting on you`}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={colors.primary.gold} />
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -583,6 +635,11 @@ export default function MatchesScreen() {
         {/* MATCHES TAB */}
         {activeTab === 'matches' && (
           <>
+            {/* "Likes You" (MEXA-315) - the only entry point to the feature, and the badge
+                the issue asked for. It sits above the new-match carousel because an
+                unanswered like is the thing with an action attached to it. */}
+            <LikesYouRow />
+
             {/* New Matches Carousel with Golden Thread */}
             {newMatches.length > 0 && (
               <NewMatchCarousel
@@ -781,6 +838,56 @@ const styles = StyleSheet.create({
   section: {
     marginTop: spacing[4],
   },
+
+  // "Likes You" entry point (MEXA-315)
+  likesYouRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[3],
+    marginHorizontal: spacing[4],
+    padding: spacing[3],
+    backgroundColor: colors.transparent.gold10,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.transparent.gold20,
+  },
+  likesYouIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.transparent.gold20,
+  },
+  likesYouBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -4,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: spacing[1],
+    borderRadius: 10,
+    backgroundColor: colors.primary.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  likesYouBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.primary.navy,
+  },
+  likesYouText: {
+    flex: 1,
+  },
+  likesYouTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  likesYouSubtitle: {
+    fontSize: 13,
+    marginTop: spacing[0.5],
+  },
+
   sectionTitle: {
     fontSize: 13,
     fontWeight: '600',

@@ -12,7 +12,20 @@ import { useTheme } from '@/theme';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { useFeatureGate } from '@/features/premium/hooks/usePremium';
+import { FEATURE_WHO_LIKES_YOU } from '@/lib/config/features';
 import type { PremiumFeature } from '@/types';
+
+/**
+ * The upgrade banner's one-line pitch.
+ *
+ * It led with "See who likes you" while nothing behind that feature had ever been built
+ * (MEXA-315), so the headline claim on the most-seen premium surface in the app was the one
+ * thing Gold did not do. It goes behind the same flag as the feature; with the flag off the
+ * banner sells what the build actually ships.
+ */
+const UPGRADE_BANNER_SUBTITLE = FEATURE_WHO_LIKES_YOU
+  ? 'See who likes you, unlimited swipes & more'
+  : 'Unlimited swipes, Super Likes & more';
 
 interface FeatureGateProps {
   feature: PremiumFeature;
@@ -116,9 +129,7 @@ export function UpgradeBanner({ onPress }: { onPress?: () => void }) {
         <Ionicons name="star" size={24} color={colors.primary.gold} />
         <View style={styles.bannerText}>
           <Text style={styles.bannerTitle}>Upgrade to Mazal Gold</Text>
-          <Text style={styles.bannerSubtitle}>
-            See who likes you, unlimited swipes & more
-          </Text>
+          <Text style={styles.bannerSubtitle}>{UPGRADE_BANNER_SUBTITLE}</Text>
         </View>
       </View>
       <Ionicons name="chevron-forward" size={20} color={colors.primary.gold} />
