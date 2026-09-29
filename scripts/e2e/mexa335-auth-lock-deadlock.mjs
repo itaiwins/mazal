@@ -55,6 +55,8 @@
  *  11. a stale deferred fetch that returns after SIGNED_OUT does not resurrect the user
  *  12. the router gate is raised inside the callback and lowered when the fetch lands
  *  13. ...and lowered when the fetch fails, so the spinner cannot stick
+ *  14. switching account A -> B with no sign-out in between never writes A's row
+ *  15. ...and A's stale fetch does not lower the router gate out from under B's
  *
  * One fixture account, per scripts/README.md: a fixed `violet-e2e-*@example.com`
  * address reclaimed at setup, torn down in `finally`, and a teardown failure exits
@@ -488,6 +490,55 @@ async function main() {
           `profile-loading is raised in the callback and lowered after ${label}`,
           raisedSynchronously && flags.length === 2 && flags[1] === false,
           `flags=${JSON.stringify(flags)}`
+        );
+      }
+
+      // --- cases 14-15: the same generation guard, on the path that actually puts the
+      // wrong person on screen. Case 11 goes through SIGNED_OUT; this is a bare A -> B
+      // switch with no sign-out in between, and A's fetch comes back first while B's
+      // event has already been handled. The stub answers by the `auth_id` it was asked
+      // for, so a stale write would be visibly A's row rather than just an extra write
+      // (Guts, MEXA-340).
+      {
+        const rowFor = { [fixture.authId]: fixture.userId, [otherSession.user.id]: 'row-B' };
+        const deferred14 = [];
+        const writes14 = [];
+        const flags14 = [];
+        const handler14 = createAuthStateHandler({
+          client: {
+            from: () => ({
+              select: () => ({
+                eq: (_column, authId) => ({
+                  maybeSingle: async () => ({ data: { id: rowFor[authId] }, error: null }),
+                }),
+              }),
+            }),
+          },
+          setSession: () => {},
+          setUser: (u) => writes14.push(u),
+          setHasShidduchProfile: () => {},
+          setProfileLoading: (v) => flags14.push(v),
+          defer: (fn) => deferred14.push(fn),
+        });
+
+        handler14('SIGNED_IN', session); // account A, queues fetch A
+        handler14('SIGNED_IN', otherSession); // straight to account B, queues fetch B
+        deferred14.shift()?.(); // fetch A comes back (stale)
+        deferred14.shift()?.(); // fetch B comes back (live)
+        await waitFor(() => writes14.length > 0, 2000);
+        await sleep(300);
+        check(
+          14,
+          "switching A -> B without a sign-out never writes A's row",
+          writes14.length === 1 && writes14[0]?.id === 'row-B',
+          `writes=${JSON.stringify(writes14)}`
+        );
+        check(
+          15,
+          'and the stale fetch does not lower the router gate under the live one',
+          flags14.filter((v) => v === false).length === 1 &&
+            flags14[flags14.length - 1] === false,
+          `flags=${JSON.stringify(flags14)}`
         );
       }
     }
