@@ -72,7 +72,7 @@ section 6 writes `COMMENT ON TABLE public.messages`, which is why `00034` record
 invariant in **column** comments instead — neither file overwrites the other and neither
 rollback has to know about the other (the `00025`/`00026` lesson, MEXA-361). `00018` puts
 this table in `supabase_realtime`; replication does not run as `authenticated`, so a client
-grant change does not touch it, and `00034` section 5g asserts the publication membership
+grant change does not touch it, and `00034` section 4f asserts the publication membership
 survived anyway.
 
 **`00033` must come after `00025`, and that is the only ordering it has.**
@@ -1100,8 +1100,40 @@ Notes on the order:
   only change to the file since the PASS, it is pre-flight only and changes no statement, and
   `undo_last_swipe()`'s own `prosrc` md5 is unchanged at `b547a17b…007a` — so the rollback's
   pin still holds.
-- `00034` is **NOT applied** — written 2026-09-29 (MEXA-406). **Guts PASSed it with no
-  findings** on MEXA-413 (commit `1a5f087`); the apply card is with Lelouch on MEXA-415.
+- `00034` is **APPLIED** to `tayiyczmacvhokdxfqvm`, 2026-09-29 16:00Z, from `mazal-restart`
+  @ `56a039f` (reviewed text `1a5f087`; the only `supabase/` difference between them is this
+  file). Approved by Lelouch on MEXA-415 under MEXA-33, with me named as the single applier.
+  Backup `archive/backups/mazal-00034-preapply-20260929T155910Z.sql` (207,735 bytes, chmod
+  600 — it carries the `moderation_secrets` pepper), taken 0.2 min before the apply. Gate log
+  in `.scratch/mazal-mexa406/APPLIED.txt`. `relacl` on `public.messages` went
+  `anon=arwd,authenticated=arwd` → **`anon=ard,authenticated=ard`** — the `w` is gone from
+  both — with `attacl` on `is_read`/`read_at` carrying `authenticated=w`. 89 public policies
+  before and after, 0 rows touched, ledger row `00034` committed.
+  **The apply aborted at gate 59, AFTER the transaction had committed, on a check of mine
+  that was wrong.** Gates 1–57 passed, including the behavioural proof against the committed
+  schema. Gate 59 was an `anon` HTTP probe added to satisfy Guts's PostgREST note, and it is
+  **blind to this migration**: PostgREST's generated UPDATE puts `public.users` in the range
+  table (the policy's subquery reads it), and `anon` has had no SELECT on `users` since
+  `00013`, so the executor's permission pass raises *permission denied for table **users***
+  before it ever reaches the column privilege on `messages` — the same answer before and
+  after. A direct SQL `UPDATE public.messages` as `anon` *does* flip from naming `users` to
+  naming `messages`, which is exactly why the gate looked sound at SQL level and was not one
+  over REST. Both defects are fixed in `apply_00034.mjs`: the gate is replaced by the
+  authenticated end-to-end check, and the abort banner no longer says "nothing was applied"
+  once the transaction has committed (it said that here, which sent me hunting for a failed
+  apply that had succeeded).
+  **The real transport check is `.scratch/mazal-mexa406/postapply_http.mjs`, 11/11**
+  (`POSTAPPLY_HTTP.txt`) — what Lelouch's card actually asked for, through PostgREST, as a
+  signed-in user with a real GoTrue JWT, on two throwaway accounts created with
+  `email_confirm: true` (no mail, no Resend quota) and deleted afterwards with the counts
+  proved back to 0. Control first: u1 *can* read `public.users`, so a refusal below cannot be
+  the `users` check firing. Then `PATCH messages.content` → **403 `42501 permission denied
+  for table messages`**, hint `GRANT UPDATE ON public.messages TO authenticated`;
+  `PATCH sender_id` → the same; `PATCH {is_read, read_at}` filtered exactly as
+  `useMarkMessagesAsRead` sends it → **204**, and re-read confirms the receipt landed while
+  `content` and `sender_id` are unchanged; `POST` a new message → **201**.
+  Written 2026-09-29 (MEXA-406). **Guts PASSed it with no findings** on MEXA-413
+  (commit `1a5f087`).
   He re-derived the mechanism correction himself before reading the conclusion, confirmed no
   SECURITY DEFINER function anywhere writes `content`/`sender_id` on a client's behalf (so
   there is no RPC bypass around the new column grant), and checked the `00016` independence
@@ -1185,9 +1217,11 @@ Notes on the order:
   the live schema untouched.
 - **The ledger lags the repo, re-measured 2026-09-29 (MEXA-326; first taken on MEXA-359).**
   `supabase_migrations.schema_migrations` on live holds `00000`–`00011`, `00013`–`00015`,
-  `00017`–`00021`, `00023`, `00024`, `00025`, `00030`, `20250114`, `20250115`
+  `00017`–`00021`, `00023`, `00024`, `00025`, `00030`, `00032`, `00034`, `20250114`,
+  `20250115`
   (`00025` added 2026-09-29 08:10Z, MEXA-314; `00023` after the MEXA-359 reading, on
-  MEXA-366; `00030` at 2026-09-29 10:43Z, MEXA-385; `00020` at 12:03Z, MEXA-394 — 26 rows).
+  MEXA-366; `00030` at 2026-09-29 10:43Z, MEXA-385; `00020` at 12:03Z, MEXA-394; `00032` at
+  15:23Z, MEXA-373; `00034` at 16:00Z, MEXA-406 — 29 rows).
   So **`00012` and `00016` are absent**, and `00026`, `00028`, `00029` and `00031` are
   written but not applied. Re-read at 12:26Z on MEXA-361: still 26 rows, `00023` present,
   no `00031`.
