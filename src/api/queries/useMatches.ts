@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/api/supabase/client';
 import { queryKeys } from '@/lib/config/queryClient';
 import { useAuthStore } from '@/stores/authStore';
+import { useUIStore } from '@/stores/uiStore';
 import type { Match, UserPhoto, Message } from '@/types/database.types';
 
 /**
@@ -171,6 +172,27 @@ export function useMatches() {
     enabled: !!user?.id,
     staleTime: 1000 * 30, // 30 seconds - matches update frequently
   });
+}
+
+/**
+ * How many matches have at least one unread message — the number the tab-bar badge shows.
+ *
+ * Derived from the same query the Matches screen renders from, so the badge and the screen
+ * cannot disagree. `matchStore.unreadMatchesCount` used to feed the badge, but nothing ever
+ * called `setMatches`, so it was pinned at 0 forever (MEXA-336).
+ *
+ * In demo mode the Matches screen substitutes `getDemoConversations()`, which carries no
+ * unread messages, so the badge is 0 there too.
+ */
+export function useUnreadMatchesCount(): number {
+  const isDemoMode = useUIStore((s) => s.isDemoMode);
+  const { data } = useMatches();
+
+  if (isDemoMode) {
+    return 0;
+  }
+
+  return data?.filter((m) => m.unreadCount > 0).length ?? 0;
 }
 
 /**

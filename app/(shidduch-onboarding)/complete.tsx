@@ -536,11 +536,11 @@ export default function ShidduchCompleteScreen() {
             {data.lookingForDescription && (
               <Text style={styles.cardDetail}>{data.lookingForDescription}</Text>
             )}
-            {(data.ageRangeMin || data.ageRangeMax) && (
+            {data.ageRangeMin || data.ageRangeMax ? (
               <Text style={styles.cardDetail}>
                 Age range: {data.ageRangeMin || '18'} - {data.ageRangeMax || '40'}
               </Text>
-            )}
+            ) : null}
           </View>
         </Animated.View>
 

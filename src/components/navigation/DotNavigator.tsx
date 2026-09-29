@@ -57,11 +57,17 @@ function Dot({
     <View style={styles.dotWrapper}>
       <View style={styles.dotContainer}>
         <Animated.View style={[styles.dot, dotStyle]} />
-        {badge && badge > 0 && (
+        {/*
+          Ternary, not `&&`: `badge` is a number, so `badge && …` returns 0 when the count is
+          0 and React renders that 0 as a bare text child of this View, which react-native
+          treats as an invariant violation ("Text strings must be rendered within a <Text>
+          component"). That is every user with nothing unread (MEXA-336).
+        */}
+        {badge !== undefined && badge > 0 ? (
           <View style={styles.badge}>
             <Text style={styles.badgeText}>{badge > 9 ? '9+' : badge}</Text>
           </View>
-        )}
+        ) : null}
       </View>
       {isActive && (
         <Text style={styles.label}>{label}</Text>

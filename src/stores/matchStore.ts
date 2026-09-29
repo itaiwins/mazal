@@ -9,6 +9,12 @@ import type { MatchWithUser } from '@/types';
 
 interface MatchState {
   // Matches
+  //
+  // NOT a source of truth: nothing calls `setMatches`, so `matches`, `totalMatches` and
+  // `unreadMatchesCount` sit at their initial values for the whole session. The tab-bar badge
+  // used to read `unreadMatchesCount` and was therefore pinned at 0 (MEXA-336); it now uses
+  // `useUnreadMatchesCount()`, which derives from the same query the Matches screen renders.
+  // Read matches through `useMatches()`, not from here.
   matches: MatchWithUser[];
   totalMatches: number;
   unreadMatchesCount: number;

@@ -335,7 +335,7 @@ export default function BrowseProfilesScreen() {
             <View style={styles.profileHeader}>
               <Text style={styles.profileName}>
                 {profile.first_name || 'Anonymous'}
-                {profile.age && `, ${profile.age}`}
+                {profile.age ? `, ${profile.age}` : null}
               </Text>
               {profile.hebrew_name && (
                 <Text style={styles.profileHebrew}>{profile.hebrew_name}</Text>

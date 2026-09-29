@@ -6,7 +6,7 @@
 
 export { useUserProfile, useProfileById } from './useUserProfile';
 export { useDiscoveryProfiles } from './useDiscoveryProfiles';
-export { useMatches, useMatchById, type MatchWithPreview } from './useMatches';
+export { useMatches, useMatchById, useUnreadMatchesCount, type MatchWithPreview } from './useMatches';
 export { useMessages, useInfiniteMessages, useUnreadCount } from './useMessages';
 export { useSaftaConnections, useSaftaLikesCount, type SaftaConnectionWithPreview } from './useSaftaConnections';
 export { useSaftaMessages, useSaftaConnectionById, useSaftaUnreadCount, type SaftaMessage } from './useSaftaMessages';

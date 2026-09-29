@@ -345,15 +345,16 @@ export function SwipeableCard({
             </View>
 
             {/* Location and Distance */}
-            {(locationString || profile.distance) && (
+            {/* `distance` is a number, so it needs a ternary and not `&&` (MEXA-336) */}
+            {locationString || profile.distance !== undefined ? (
               <View style={styles.locationRow}>
                 <Ionicons name="location-outline" size={16} color={colors.transparent.white70} />
                 <Text style={styles.locationText}>
                   {locationString}
-                  {profile.distance && ` • ${Math.round(profile.distance)} mi`}
+                  {profile.distance !== undefined ? ` • ${Math.round(profile.distance)} mi` : null}
                 </Text>
               </View>
-            )}
+            ) : null}
 
             {/* Jewish Background Badge */}
             {profile.jewish_background && (

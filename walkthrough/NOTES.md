@@ -81,6 +81,15 @@ why it would survive a quick smoke test and then hit every tester on day two.
 
 ## 3. The tab bar renders a stray `0`
 
+> **Fixed on MEXA-336, and it is not a blocker.** The claim below that this *throws* on a
+> device is wrong: it would, but only on the legacy Paper renderer. Mazal runs the New
+> Architecture (`app.json` `newArchEnabled: true`, RN 0.81.5), and on Fabric the same check
+> is a `console.error` in dev and is compiled out of the release renderer entirely —
+> `node_modules/react-native/Libraries/Renderer/implementations/ReactFabric-prod.js:10271`
+> hardcodes `PROD_HOST_CONTEXT = { isInAParentText: true }`. So on a TestFlight build this
+> is a stray raw-text node under the tab bar, not a crash. It is fixed either way, and the
+> badge now shows a real count — see the bottom of finding 10.
+
 *Visible at the bottom of pack screens 24–28 and 31.* `src/components/navigation/DotNavigator.tsx:60`:
 
 ```tsx
@@ -180,6 +189,14 @@ on a real device, so **confirm on a device** before calling the overlap a measur
 Right after a real match: the Matches screen shows the conversation with a "1" tab badge
 and "2" unread (pack screen 26, correct), while the profile tab says **"0 Matches"**
 (screen 28) and the tab-bar badge says **0**. Three surfaces, three answers.
+
+> **The tab-bar badge is fixed on MEXA-336; the profile tab's "0 Matches" is not.** The
+> badge read `matchStore.unreadMatchesCount`, and nothing in the app ever called
+> `setMatches`, so that number was pinned at its initial `0` for the whole session. It now
+> comes from `useUnreadMatchesCount()`, derived from the same `useMatches()` query the
+> Matches screen renders from, so the two cannot disagree. Re-checked on a real render with
+> two fixture users: no badge with nothing unread, a red "1" once the other user sends a
+> message. The profile tab's count is a separate read and still wrong.
 
 ## 11. A sign-up to an address that can't receive mail dies with a confusing error
 

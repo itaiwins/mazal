@@ -10,7 +10,7 @@ import { View, StyleSheet, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@/theme/colors';
-import { useMatchStore } from '@/stores/matchStore';
+import { useUnreadMatchesCount } from '@/api/queries';
 import { FEATURE_ORTHODOX_MODE } from '@/lib/config/features';
 
 type TabIconName = 'heart' | 'heart-outline' | 'people' | 'people-outline' | 'chatbubbles' | 'chatbubbles-outline' | 'person' | 'person-outline';
@@ -45,7 +45,7 @@ function TabBarIcon({
 
 export default function OrthodoxTabsLayout() {
   const insets = useSafeAreaInsets();
-  const unreadMatchesCount = useMatchStore((s) => s.unreadMatchesCount);
+  const unreadMatchesCount = useUnreadMatchesCount();
 
   // Orthodox mode is hidden behind a flag (docs/ROADMAP.md)
   if (!FEATURE_ORTHODOX_MODE) {

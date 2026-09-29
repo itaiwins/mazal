@@ -8,7 +8,7 @@ import { useCallback } from 'react';
 import { Tabs, usePathname, useRouter } from 'expo-router';
 import { View, StyleSheet } from 'react-native';
 import { colors } from '@/theme/colors';
-import { useMatchStore } from '@/stores/matchStore';
+import { useUnreadMatchesCount } from '@/api/queries';
 import { DotNavigator } from '@/components/navigation/DotNavigator';
 import { FEATURE_SAFTA_MODE } from '@/lib/config/features';
 
@@ -24,7 +24,7 @@ const TABS = [
 export default function TabsLayout() {
   const router = useRouter();
   const pathname = usePathname();
-  const unreadMatchesCount = useMatchStore((s) => s.unreadMatchesCount);
+  const unreadMatchesCount = useUnreadMatchesCount();
 
   // Determine active tab from pathname
   const getActiveTab = () => {

@@ -690,9 +690,10 @@ export default function SaftaDiscoverScreen() {
                 <View style={styles.heroLocationRow}>
                   <Ionicons name="location" size={16} color={colors.transparent.white70} />
                   <Text style={styles.heroLocation}>{locationString}</Text>
-                  {currentProfile.distance && (
+                  {/* Number, so a ternary and not `&&` (MEXA-336) */}
+                  {currentProfile.distance !== undefined && currentProfile.distance !== null ? (
                     <Text style={styles.heroDistance}>• {currentProfile.distance} mi</Text>
-                  )}
+                  ) : null}
                 </View>
                 <View style={styles.heroBadge}>
                   <Text style={styles.heroBadgeText}>{currentProfile.jewish_background}</Text>
@@ -740,12 +741,13 @@ export default function SaftaDiscoverScreen() {
                 <Text style={styles.bioText}>{currentProfile.bio}</Text>
 
                 <View style={styles.aboutDetails}>
-                  {currentProfile.height_cm && (
+                  {/* Number, so a ternary and not `&&` (MEXA-336) */}
+                  {currentProfile.height_cm ? (
                     <View style={styles.detailRow}>
                       <Ionicons name="resize-outline" size={18} color={colors.transparent.white50} />
                       <Text style={styles.detailText}>{formatHeight(currentProfile.height_cm)}</Text>
                     </View>
-                  )}
+                  ) : null}
                   {currentProfile.occupation && (
                     <View style={styles.detailRow}>
                       <Ionicons name="briefcase-outline" size={18} color={colors.transparent.white50} />
