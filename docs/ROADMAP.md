@@ -479,3 +479,50 @@ A note on what "hidden" means here: both features are unreachable at runtime and
 about them renders. Their strings and route files are still compiled into the JS bundle,
 because expo-router bundles every file under `app/`. That is invisible to users but would
 be visible to anyone who unpacked the binary.
+
+---
+
+## Parked (MEXA-426, 2026-09-29)
+
+Lelouch closed every open Mazal issue below on 2026-09-29. None of them was needed for
+what Itai asked for: hide Orthodox and Safta, write a roadmap, and get the app on
+TestFlight. Each one is a real finding, so it is listed here, not lost. The issue
+numbers still work in Paperclip if you need the detail. **Don't reopen any of these
+without Itai's go.** New findings go on this list as one line each, not as new issues.
+
+### Before public launch (App Store)
+
+- Sign in with Apple + Google, both or neither, per guideline 4.8 (MEXA-389)
+- Push notifications are never delivered: nothing drains `notification_queue` (MEXA-410)
+- Database lockdown: `00016` (anon loses all table grants) is reviewed but not applied; leftover write grants; `USING (true)` reads on prompts/badges; DOB exposed to signed-in users; DEFINER `search_path`/`pg_temp` (MEXA-364, 274, 277, 320, 319, 379, 399)
+- Discovery sort server-side so `elo_score` stays private; rank-then-limit is Itai's product call (MEXA-278, 318)
+- Unmatch can be undone by the person who was unmatched; `00036` is written, not applied (MEXA-418)
+- `swipes.created_at` is client-settable (Rewind window) (MEXA-409)
+- A blocked account's blocks die when it re-signs up; deleted-account holds as a signup block, which is Itai's product call (MEXA-381, 258)
+- The privacy policy promises a purge (`00012`) that isn't applied (MEXA-384)
+- Clean 17 `@example.com` test accounts out of live auth (MEXA-282)
+- Client paths that fall back to the anon key (MEXA-299)
+- Auth leftovers: PKCE redirect check, email-changed notice (MEXA-370)
+- Onboarding polish from the MEXA-338 review (MEXA-388)
+- Profanity filter: the "home"/"hope" false positives are **fixed** (a3f41fe). Widening threat detection further is parked (MEXA-337, 343)
+
+### When purchases go live (RevenueCat key: Itai, later)
+
+- Wire `usePremium`, stop counters refilling (MEXA-255); swipe counter resets on every launch (MEXA-416)
+- Identify RevenueCat with the signed-in user (MEXA-346)
+- Server-side entitlement gate; `00035` is written, not applied (MEXA-373, 417)
+- "See who likes you" is built behind `FEATURE_WHO_LIKES_YOU`, flag off (MEXA-315)
+
+### Photo verification (needs Itai's AWS spending call)
+
+- Rekognition in an Edge Function, keys as function secrets (MEXA-360, 367)
+
+### Safta and Orthodox (hidden; only when those modes come back)
+
+- Safta: Recommend writes nothing, likes RLS/count/INSERT, invite flow stub, `subscription_status` writable, trust flags (MEXA-350, 351, 352, 361, 362, 392, 420)
+- Orthodox/shidduch: suggestions have only a SELECT policy; `shadchan_notes` open to all, `00037` written and PASSed, not applied (MEXA-298, 419, 427)
+- `00022` hard guard for `00023` (MEXA-404)
+
+### Housekeeping
+
+- `MIGRATIONS.md` order list misses `00028`/`00029`; `00011` missing from `schema_migrations`; swipes-comment rollback text; regenerate `supabase.generated.ts` (MEXA-383, 397, 290, 376, 355)
