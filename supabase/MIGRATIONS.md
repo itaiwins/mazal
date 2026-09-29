@@ -81,15 +81,24 @@ Notes on the order:
 - `00012` is **not applied yet**: what reads the tombstones at signup still waits on a
   product decision (MEXA-258, `docs/MODERATION_REENTRY.md`). It refuses to run if `00011`
   has not — `00011` now has, so it is no longer blocked on that.
-- `00013` is **not applied yet** — it waits on Guts's security review (MEXA-286) and then on
-  Lelouch for the apply. No dependency either way with `00011`, `00012` or `00014`, and it was
-  verified against the schema as it stands *with* `00011` and `00014` already on. It is the
-  one migration here that **the app cannot run without**: it makes `public.users`
-  own-row-only and moves other people's profiles to a new `public.user_public_profiles` view,
-  which `src/api/queries/useDiscoveryProfiles.ts`, `src/api/queries/useMatches.ts` and
-  `app/(safta-tabs)/index.tsx` already read. So it and the app ship together — the old app
-  against the new database means an empty deck, the new app against the old database means a
-  404 from PostgREST for the view.
+- `00013` **is applied** — 2026-09-29 00:35Z, MEXA-261, from commit `9f1e080`, after Guts's
+  review (MEXA-286) and Lelouch's approval (MEXA-301). No dependency either way with
+  `00011`, `00012` or `00014`, and it was verified against the schema as it stands *with*
+  `00011` and `00014` already on. Post-check 19/19, including on the live project:
+  `public.users` answers only the caller's own row, the view carries no email, phone,
+  `auth_id`, coordinates or Instagram token, `anon` holds zero privileges on `users`,
+  `user_photos` and the view, and `user_integrations` is `service_role`-only
+  (`archive/backups/mazal-00013-postcheck-20260929T003325Z.txt`; pre-apply catalog snapshot
+  alongside it). It is the one migration here that **the app cannot run without**: it makes
+  `public.users` own-row-only and moves other people's profiles to a new
+  `public.user_public_profiles` view, which `src/api/queries/useDiscoveryProfiles.ts`,
+  `src/api/queries/useMatches.ts` and `app/(safta-tabs)/index.tsx` already read. So it and
+  the app ship together — the old app against the new database means an empty deck, the new
+  app against the old database means a 404 from PostgREST for the view. **The database is
+  now the new side**, so a checkout older than `000b7a0` will get an empty deck.
+  One thing the view deliberately publishes: `date_of_birth`, because the client renders
+  `calculateAge()` from it and filters the age range server-side on that column. Exact DOB is
+  more than an age, so narrowing it is filed as its own issue rather than left unnamed.
 - `00014` **is applied** — 2026-09-28 23:36Z, MEXA-268, after Alucard's review (MEXA-275) and
   Lelouch's approval (MEXA-285). It has no dependency on `00011`–`00013` and they have none
   on it: it is one `REVOKE` over every table in `public` plus a default-privileges fix, and
