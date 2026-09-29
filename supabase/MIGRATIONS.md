@@ -1292,6 +1292,18 @@ Notes on the order:
   only change to the file since the PASS, it is pre-flight only and changes no statement, and
   `undo_last_swipe()`'s own `prosrc` md5 is unchanged at `b547a17b…007a` — so the rollback's
   pin still holds.
+- `00038`, `00039`, `00040` are **APPLIED** to `tayiyczmacvhokdxfqvm`, 2026-09-29 18:31Z, in that
+  order, each in its own transaction with its own ledger row, from `mexa-435` @ `e44d4eb` (MEXA-435),
+  after Guts's PASS on all three. Applied by Gojo via `.scratch/mazal-mexa435/apply_00038_40.mjs`
+  (gates: reviewed commit, rollback files present, backup < 15 min, none in the ledger, 00029's hook
+  absent). Backup: `archive/backups/mazal-00038-40-preapply-20260929T183040Z.sql` (adds views and
+  `cron.job` to the usual sections). **Ledger tip before was `00034`**: `00016`, `00035`–`00037` were
+  still unapplied, and these three do not need them. Checked after, on a fresh connection:
+  ledger has all three; cron jobs `drain-notification-queue` (10 s, succeeding) and
+  `block-only-tombstone-retention` (daily 03:23); `user_public_profiles` has no `elo_score` and keeps
+  `security_barrier=true`; `get_discovery_deck` is DEFINER, `authenticated` can run it and `anon` gets
+  42501; the drain/reconcile functions and both new tables are closed to `anon`/`authenticated`.
+  `mazal-restart` was fast-forwarded to `e44d4eb` only after this, so no build calls a missing RPC.
 - `00037` is **NOT applied** — written 2026-09-29 (MEXA-419), waiting on Guts's security
   review and an apply card. It closes the one constant-`true` policy on a write command
   anywhere in the schema: `public.shadchan_notes` had a single `FOR ALL TO public
