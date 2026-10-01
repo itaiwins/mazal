@@ -107,11 +107,19 @@ export default function RegisterScreen() {
         // Navigate to onboarding
         router.replace('/(onboarding)/welcome');
       } else if (data.user) {
-        // Email confirmation required
+        // One message for both outcomes (MEXA-504). An address that already has a
+        // confirmed account comes back as a user with `identities: []` and GoTrue sends
+        // nothing, on purpose, so sign-up can't be used to probe who is on Mazal. Saying
+        // "we sent you a link" there left Itai waiting for an email that never came;
+        // saying "you already have an account" would hand out exactly what GoTrue hides.
+        // So the copy doesn't branch on `identities`, and both paths read alike.
         Alert.alert(
           'Check your email',
-          'We sent you a confirmation link. Please verify your email to continue.',
-          [{ text: 'OK', onPress: () => router.replace('/(auth)/login') }]
+          "If this email is new to Mazal, we've sent you a confirmation link. Already have an account? Sign in or reset your password.",
+          [
+            { text: 'Reset password', onPress: () => router.replace('/(auth)/forgot-password') },
+            { text: 'Sign in', onPress: () => router.replace('/(auth)/login') },
+          ]
         );
       }
     } catch (e) {

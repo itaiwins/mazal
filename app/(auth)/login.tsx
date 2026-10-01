@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/api/supabase/client';
+import { EMAIL_CONFIRM_REDIRECT_URL } from '@/lib/auth/authDeepLink';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { colors } from '@/theme/colors';
@@ -37,6 +38,10 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when sign-in failed only because the email isn't confirmed yet (MEXA-504).
+  const [unconfirmed, setUnconfirmed] = useState<{ email: string; password: string } | null>(null);
+  const [isResending, setIsResending] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const setSession = useAuthStore((s) => s.setSession);
   const setCurrentMode = useAuthStore((s) => s.setCurrentMode);
@@ -50,15 +55,21 @@ export default function LoginScreen() {
 
     setIsLoading(true);
     setError(null);
+    setNotice(null);
+    setUnconfirmed(null);
 
     try {
+      const normalizedEmail = email.trim().toLowerCase();
       const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
+        email: normalizedEmail,
         password,
       });
 
       if (authError) {
         setError(authErrorMessage(authError.message, 'signIn'));
+        if (authError.code === 'email_not_confirmed') {
+          setUnconfirmed({ email: normalizedEmail, password });
+        }
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         return;
       }
@@ -77,6 +88,53 @@ export default function LoginScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  /**
+   * Send the confirmation email again (MEXA-504).
+   *
+   * Not `supabase.auth.resend()`: it sends no PKCE code challenge, so GoTrue mails an
+   * implicit-flow link that lands as `mazal://auth/confirm#access_token=...`, which
+   * `establishSessionFromAuthLink` refuses outright (MEXA-264). The user would see
+   * "This link has expired" for a link that had in fact confirmed them. Calling
+   * `signUp` again for an unconfirmed address re-sends the confirmation through the
+   * PKCE flow instead (measured live: `pkce_` token, `?code=` redirect, exchange ok).
+   *
+   * This reveals nothing. GoTrue only answers `email_not_confirmed` once the password
+   * has checked out, so whoever reaches this button already proved they own the account.
+   */
+  const handleResendConfirmation = async () => {
+    if (!unconfirmed) return;
+
+    setIsResending(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const { data, error: authError } = await supabase.auth.signUp({
+        email: unconfirmed.email,
+        password: unconfirmed.password,
+        options: { emailRedirectTo: EMAIL_CONFIRM_REDIRECT_URL },
+      });
+
+      if (authError) {
+        setError(authErrorMessage(authError.message, 'signUp'));
+        return;
+      }
+
+      if (data.user && data.user.identities?.length === 0) {
+        // Confirmed in the meantime (another device, an older link): GoTrue sent nothing.
+        setUnconfirmed(null);
+        setNotice('Your email is already confirmed. Try signing in again.');
+        return;
+      }
+
+      setNotice(`We sent a new confirmation link to ${unconfirmed.email}. Check your spam folder if it is not there.`);
+    } catch (e) {
+      setError('Something went wrong. Please try again.');
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -114,7 +172,10 @@ export default function LoginScreen() {
             <TextInput
               style={styles.input}
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(text) => {
+                setEmail(text);
+                setUnconfirmed(null);
+              }}
               placeholder="your@email.com"
               placeholderTextColor={colors.neutral[400]}
               keyboardType="email-address"
@@ -130,7 +191,10 @@ export default function LoginScreen() {
               <TextInput
                 style={[styles.input, styles.passwordInput]}
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(text) => {
+                  setPassword(text);
+                  setUnconfirmed(null);
+                }}
                 placeholder="Enter your password"
                 placeholderTextColor={colors.neutral[400]}
                 secureTextEntry={!showPassword}
@@ -161,6 +225,26 @@ export default function LoginScreen() {
             <View style={styles.errorContainer}>
               <Text style={styles.errorText}>{error}</Text>
             </View>
+          )}
+
+          {notice && (
+            <View style={styles.noticeContainer}>
+              <Text style={styles.noticeText}>{notice}</Text>
+            </View>
+          )}
+
+          {unconfirmed && (
+            <Pressable
+              style={styles.resendButton}
+              onPress={handleResendConfirmation}
+              disabled={isResending}
+            >
+              {isResending ? (
+                <ActivityIndicator color={colors.primary.gold} />
+              ) : (
+                <Text style={styles.resendButtonText}>Resend confirmation email</Text>
+              )}
+            </Pressable>
           )}
 
           {/* Sign in button */}
@@ -282,6 +366,29 @@ const styles = StyleSheet.create({
   errorText: {
     color: colors.semantic.error,
     fontSize: 14,
+  },
+  noticeContainer: {
+    backgroundColor: colors.transparent.white10,
+    padding: spacing[3],
+    borderRadius: borderRadius.md,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary.gold,
+  },
+  noticeText: {
+    color: colors.primary.white,
+    fontSize: 14,
+  },
+  resendButton: {
+    paddingVertical: spacing[3],
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.primary.gold,
+    alignItems: 'center',
+  },
+  resendButtonText: {
+    color: colors.primary.gold,
+    fontSize: 15,
+    fontWeight: '600',
   },
   signInButton: {
     backgroundColor: colors.primary.gold,
