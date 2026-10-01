@@ -40,6 +40,8 @@ export default function RegisterScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The address sign-up refused because it already has an account (MEXA-504).
+  const [existingEmail, setExistingEmail] = useState<string | null>(null);
 
   const setSession = useAuthStore((s) => s.setSession);
   const setOrthodoxMode = useUIStore((s) => s.setOrthodoxMode);
@@ -78,10 +80,12 @@ export default function RegisterScreen() {
 
     setIsLoading(true);
     setError(null);
+    setExistingEmail(null);
 
     try {
+      const normalizedEmail = email.trim().toLowerCase();
       const { data, error: authError } = await supabase.auth.signUp({
-        email: email.trim().toLowerCase(),
+        email: normalizedEmail,
         password,
         options: {
           // Without this the confirmation link falls back to the project's
@@ -106,20 +110,19 @@ export default function RegisterScreen() {
         setOrthodoxMode(false); // Ensure Orthodox mode is off for regular registration
         // Navigate to onboarding
         router.replace('/(onboarding)/welcome');
+      } else if (data.user && data.user.identities?.length === 0) {
+        // The address already has an account: GoTrue returns a user with no identities,
+        // creates nothing and sends nothing. Saying "check your email" here left Itai
+        // waiting for a link that never came (MEXA-504). Refusing plainly is Itai's call
+        // (MEXA-426, 2026-10-01).
+        setExistingEmail(normalizedEmail);
+        setError('This email already has an account. Sign in or reset your password.');
       } else if (data.user) {
-        // One message for both outcomes (MEXA-504). An address that already has a
-        // confirmed account comes back as a user with `identities: []` and GoTrue sends
-        // nothing, on purpose, so sign-up can't be used to probe who is on Mazal. Saying
-        // "we sent you a link" there left Itai waiting for an email that never came;
-        // saying "you already have an account" would hand out exactly what GoTrue hides.
-        // So the copy doesn't branch on `identities`, and both paths read alike.
+        // Email confirmation required
         Alert.alert(
           'Check your email',
-          "If this email is new to Mazal, we've sent you a confirmation link. Already have an account? Sign in or reset your password.",
-          [
-            { text: 'Reset password', onPress: () => router.replace('/(auth)/forgot-password') },
-            { text: 'Sign in', onPress: () => router.replace('/(auth)/login') },
-          ]
+          'We sent you a confirmation link. Please verify your email to continue.',
+          [{ text: 'OK', onPress: () => router.replace('/(auth)/login') }]
         );
       }
     } catch (e) {
@@ -163,7 +166,10 @@ export default function RegisterScreen() {
             <TextInput
               style={styles.input}
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(text) => {
+                setEmail(text);
+                setExistingEmail(null);
+              }}
               placeholder="your@email.com"
               placeholderTextColor={colors.neutral[400]}
               keyboardType="email-address"
@@ -247,6 +253,27 @@ export default function RegisterScreen() {
           {error && (
             <View style={styles.errorContainer}>
               <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )}
+
+          {existingEmail && (
+            <View style={styles.existingActions}>
+              <Pressable
+                style={styles.existingButton}
+                onPress={() =>
+                  router.push({ pathname: '/(auth)/login', params: { email: existingEmail } })
+                }
+              >
+                <Text style={styles.existingButtonText}>Sign in</Text>
+              </Pressable>
+              <Pressable
+                style={styles.existingButton}
+                onPress={() =>
+                  router.push({ pathname: '/(auth)/forgot-password', params: { email: existingEmail } })
+                }
+              >
+                <Text style={styles.existingButtonText}>Forgot password</Text>
+              </Pressable>
             </View>
           )}
 
@@ -369,6 +396,23 @@ const styles = StyleSheet.create({
   errorText: {
     color: colors.semantic.error,
     fontSize: 14,
+  },
+  existingActions: {
+    flexDirection: 'row',
+    gap: spacing[3],
+  },
+  existingButton: {
+    flex: 1,
+    paddingVertical: spacing[3],
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.primary.gold,
+    alignItems: 'center',
+  },
+  existingButtonText: {
+    color: colors.primary.gold,
+    fontSize: 15,
+    fontWeight: '600',
   },
   ageCheckbox: {
     flexDirection: 'row',

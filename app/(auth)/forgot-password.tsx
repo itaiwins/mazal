@@ -14,7 +14,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/api/supabase/client';
@@ -25,7 +25,9 @@ import { authErrorMessage } from '@/lib/auth/authErrorMessage';
 
 export default function ForgotPasswordScreen() {
   const insets = useSafeAreaInsets();
-  const [email, setEmail] = useState('');
+  // Register hands the address over when it already has an account (MEXA-504).
+  const params = useLocalSearchParams<{ email?: string }>();
+  const [email, setEmail] = useState(typeof params.email === 'string' ? params.email : '');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
