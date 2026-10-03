@@ -518,6 +518,7 @@ the app items in **MEXA-435** (Edward). Each has a 10-run cap. Decided:
 - ~~Auth leftovers: PKCE redirect check, email-changed notice (MEXA-370)~~ Done on MEXA-435: PKCE 6/6 live, `?code=` only (no `type=`); email-changed notice on
 - ~~Onboarding polish from the MEXA-338 review (MEXA-388)~~ Built on MEXA-435, in review
 - Push: Expo receipts (the second, delivery-level check) are not polled; `quiet_hours_*` is not honoured (no timezone) (MEXA-435)
+- `verify-pkce-auth-links.mjs` usage sources `mexant-supabase.env` after `mazal-supabase.env`, which overwrites `SUPABASE_PROJECT_REF` with Mexant's project ref (`znzo…`), so its `auth.flow_state` reads go to the wrong project (MEXA-581)
 - Push: `supabase/functions/send-notification` is now unused by the queue; delete it or keep it for ad-hoc sends (MEXA-435)
 - A moderator's hold is enforced when the profile is created, not when an existing account changes its email to a held address (MEXA-435)
 - Discovery: the client's "liked you" query returns nothing under `swipes` RLS, so `has_liked_me` on a card is always false; the server rank still puts likers first (MEXA-435)
