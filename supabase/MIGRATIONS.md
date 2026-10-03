@@ -1684,10 +1684,11 @@ Notes on the order:
   the app-side reads would 404 while the SQL is already correct.
 - `20250114120000_cleanup_verification_cron.sql` is **not** applied. Read the header in
   that file.
-- `demo_data.sql` is **not** seed data for a real database. It inserts `auth_id` values
-  like `'demo-shadchan-1'` into a UUID column and omits NOT NULL columns
-  (`display_name`, `jewish_background`, `looking_for`), so it does not run as written.
-  The app's demo mode uses `src/lib/demo/demoProfiles.ts`, not the database.
+- Test data comes from `scripts/seed-test-people.mjs` (MEXA-581): ~60 fake accounts made
+  through the auth admin API, with profiles, photos, prompts, likes, matches and chats,
+  all tagged so `--wipe` removes exactly them. It replaced `demo_data.sql`, which never ran
+  (text `auth_id`s in a UUID column, missing NOT NULL columns). The app's demo mode is
+  `src/lib/demo/demoProfiles.ts` and does not touch the database.
 - Nothing seeds `colleges`. That is fine: no client code reads that table.
 
 ## Commands
